@@ -103,7 +103,7 @@ module.exports = {
         whiteListRoles: [],
         sendLevelUpMsg: false,
         tagUserLevelUpMsg: true,
-        color: '#e63b50',
+        color: '#452366',
     },
 
     // This is fetched from the remote database now!

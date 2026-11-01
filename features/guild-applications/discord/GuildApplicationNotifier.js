@@ -11,7 +11,7 @@ const {
     removeAttachmentFilenames
 } = require('../parsing/GuildApplicationParser.js');
 
-const EMBED_COLOR = 0xe63b50;
+const EMBED_COLOR = 0x452366;
 const NOT_AVAILABLE = '*N/A*';
 const ADDITIONAL_IMAGE_BATCH_LIMIT = 10;
 const PRO_FORUM_EMOJI = '<:pro_revolution_online:1526117366159638628>';

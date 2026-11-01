@@ -358,7 +358,7 @@ class EditBotMsg {
         try {
             const logChannel = await interaction.client.channels.fetch(this.logChannelID);
             if (!logChannel?.send) return;
-            const embed = new EmbedBuilder().setColor(0xe63b50).setTitle('🤖  Bot Message Edited  ✏️')
+            const embed = new EmbedBuilder().setColor(0x452366).setTitle('🤖  Bot Message Edited  ✏️')
                 .setDescription('Edited by <@' + interaction.user.id + '> (' + interaction.user.username + ')')
                 .addFields(
                     { name: 'Channel:', value: '<#' + channel.id + '>', inline: true },

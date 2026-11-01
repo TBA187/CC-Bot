@@ -96,7 +96,7 @@ test('branding fills editable CC defaults and sends one local logo', async () =>
     const payload = draft.toEmbedDict();
     assert.deepEqual(payload.footer, { text: FOOTER_TEXT, icon_url: LOGO_URL });
     assert.deepEqual(payload.thumbnail, { url: LOGO_URL });
-    assert.equal(payload.color, 0xe63b50);
+    assert.equal(payload.color, 0x452366);
     assert.equal(draft.crowControlBranding, true);
     assert.ok(Math.abs(Date.now() - parseEmbedTimestamp(payload.timestamp).getTime()) < 2000);
     const files = await buildMediaFiles(draft);

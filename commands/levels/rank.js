@@ -95,7 +95,7 @@ class Rank {
                 const logoFile = new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' });
                 const noDataEmbed = new EmbedBuilder()
                     .setTitle('No XP Data Found!')
-                    .setColor(trackInfo.color || '#e63b50')
+                    .setColor(trackInfo.color || '#452366')
                     .setDescription(
                         `${target} has no XP Data for the **${trackInfo.displayName}** XP-track.\n` +
                         `${requirementText}` +
@@ -164,7 +164,7 @@ class Rank {
             const rankEmbed = new EmbedBuilder()
                 .setTitle(rankTitle)
                 .setThumbnail(target.displayAvatarURL({ dynamic: true }))
-                .setColor(trackInfo.color || '#e63b50')
+                .setColor(trackInfo.color || '#452366')
                 .addFields(
                     ...trackRequirements.fields,
                     { name: 'Level', value: `**${formatNumber(data.level)}**`, inline: true },

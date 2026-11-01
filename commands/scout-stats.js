@@ -260,7 +260,7 @@ class ScoutStats {
         const contributorPageCount = Math.max(1, Math.ceil(stats.contributors.length / CONTRIBUTOR_PAGE_SIZE));
         const currentPage = Math.max(0, Math.min(contributorPageCount, Number(page) || 0));
         const logoReference = logoUrl || 'attachment://cc_logo.webp';
-        const embed = new EmbedBuilder().setColor(0xe63b50)
+        const embed = new EmbedBuilder().setColor(0x452366)
             .setTitle('<:dark_murkrow:1565243892255694908>\u2002PvP Crow Control  •  Scout Statistics')
             .setThumbnail(logoReference);
 
@@ -323,7 +323,7 @@ class ScoutStats {
             embed.setDescription(`### <:man_of_culture:1186287184106496112>\u2002Contributors ${start + 1}–${start + firstGroup.length} of ${stats.contributors.length}\n`
                 + (contributorLines(firstGroup, start) || 'No contributors have been recorded yet.'));
             if (secondGroup.length) {
-                embeds.push(new EmbedBuilder().setColor(0xe63b50)
+                embeds.push(new EmbedBuilder().setColor(0x452366)
                     .setDescription(contributorLines(secondGroup, start + CONTRIBUTORS_PER_EMBED))
                     .setFooter({ text: `PvP Crow Control  •  Scout Statistics  •  Contributors ${currentPage}/${contributorPageCount}`,
                         iconURL: logoReference })

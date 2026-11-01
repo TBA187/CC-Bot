@@ -294,7 +294,7 @@ test('application embed cleans metadata, orders fields, and includes CC branding
     }, [{ buffer: Buffer.from('image'), name: 'card.png', url: 'https://example.com/card.png' }]);
     const embed = payload.embeds[0].toJSON();
 
-    assert.equal(embed.color, 0xe63b50);
+    assert.equal(embed.color, 0x452366);
     assert.equal(embed.title, 'Crow Control Guild Application');
     assert.equal(embed.url, 'https://pokemonrevolution.net/forum/topic/228820-crow-control-in-both-servers-ready-for-new-members/');
     assert.equal(embed.author, undefined);

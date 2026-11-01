@@ -238,7 +238,7 @@ const REGION_ROLES_PANEL = autoRolePanelConfig({
     description:
         '### Please select your region from the dropdown menu\n' +
         'This way we can see where CC Members are playing from <:man_of_culture:1186287184106496112>',
-    colorHex: '#e63b50',
+    colorHex: '#452366',
     imagePath: 'images/world_globe.png',
     imageFilename: 'world_globe.png',
     imageFooterPath: 'images/cc_logo.webp',
@@ -342,7 +342,7 @@ const GUILD_ROLES_PANEL = autoRolePanelConfig({
         '-# - Select **PRO Notifications 🔔** to receive notifications about useful game information, updates, and upcoming events.\n' +
         '-# - Select **Stream 🔔** to be pinged when someone from the Guild streams. You can also ping this role when you go live.\n' +
         '-# - Select your **Server Roles**. <@1470242342383521943> will remember your **Server** choice and use it for future commands.',
-    colorHex: '#e63b50',
+    colorHex: '#452366',
     imagePath: 'images/cc_logo.webp',
     imageFilename: 'cc_logo.webp',
     imageFooterPath: 'images/cc_logo.webp',

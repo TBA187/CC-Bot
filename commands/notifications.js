@@ -82,7 +82,7 @@ function subscriptionsEmbed(states, selectedKeys, user) {
     const username = user?.username || user?.globalName || 'Member';
 
     const embed = new EmbedBuilder()
-        .setColor(0xe63b50)
+        .setColor(0x452366)
         .setTitle(`Guild Notification Pings for ${username}`)
         .setDescription(
             `${description}\n\n` +

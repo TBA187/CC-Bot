@@ -16,7 +16,7 @@ function settingsPayload(interaction, selected) {
         || interaction.user.globalName || interaction.user.username;
     const avatar = interaction.member?.displayAvatarURL?.({ size: 256 })
         || interaction.user.displayAvatarURL?.({ size: 256 });
-    const embed = new EmbedBuilder().setColor(0xE63B50)
+    const embed = new EmbedBuilder().setColor(0x452366)
         .setTitle(`Crow Control Guild Settings - ${name}`)
         .setDescription(
             '- **Select the Server you are currently playing on below:**\n'

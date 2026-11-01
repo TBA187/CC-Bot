@@ -322,7 +322,7 @@ class EmbedBuilderSession {
         const channel = interaction.client.channels.cache?.get(this.config.logChannelID) || await interaction.client.channels.fetch(this.config.logChannelID);
         if (!channel?.send)
             return;
-        const embed = new EmbedBuilder().setTitle(this.editing ? 'Bot Embed Edited' : 'Custom Bot Message Sent').setDescription(`Executor: <@${interaction.user.id}> (\`${interaction.user.username}\`)`).setColor(0xE63B50).setFooter({ text: 'Crow Control Logs', iconURL: LOGO_ATTACHMENT_URL }).setTimestamp();
+        const embed = new EmbedBuilder().setTitle(this.editing ? 'Bot Embed Edited' : 'Custom Bot Message Sent').setDescription(`Executor: <@${interaction.user.id}> (\`${interaction.user.username}\`)`).setColor(0x452366).setFooter({ text: 'Crow Control Logs', iconURL: LOGO_ATTACHMENT_URL }).setTimestamp();
         if (this.editing) {
             embed.addFields({ name: 'Channel', value: channelMention(this.target.channel), inline: true }, { name: 'Message ID', value: `\`${message.id}\``, inline: true }, { name: 'Message', value: `[Jump to Message](${message.url})`, inline: false });
             if (this.originalDraft.messageContent !== this.draft.messageContent) {

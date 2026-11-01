@@ -45,7 +45,7 @@ test('mentions only the owner for a newly observed non-application forum post', 
     assert.equal(feedbackRow.components[0].style, 1);
     assert.equal(feedbackRow.components[0].emoji.name, '⭐');
     assert.doesNotMatch(sent[0].content, /officer-role/i);
-    assert.equal(embed.color, 0xe63b50);
+    assert.equal(embed.color, 0x452366);
     assert.equal(embed.title, undefined);
     assert.equal(embed.url, undefined);
     assert.equal(embed.footer.text, 'Forum Post Created: July 14, 2026 12:34');

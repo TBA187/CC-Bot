@@ -344,6 +344,12 @@ const timedServices = [
     { name: 'Discord REST warmup', delay: 5 * 60_000,
         warning: '[WW LOG] Discord interaction connection warmup failed (ETIMEDOUT). Initial responses may need a new connection.',
         recovery: '[WW LOG] Discord interaction connection warmup recovered.' },
+    { name: 'WW tag verification', delay: 5 * 60_000,
+        warning: '[WW TAG] Discord verification unavailable (EAI_AGAIN). Tag checks will retry automatically.',
+        recovery: '[WW TAG] Discord verification restored. Pending tag checks have completed.' },
+    { name: 'container memory accounting', delay: 5 * 60_000,
+        warning: '[RUNTIME MEMORY] Container accounting unavailable. Process RSS fallback is active.',
+        recovery: '[RUNTIME MEMORY] Container accounting restored. Container memory checks are active.' },
     ...['PRO Forum Shop', 'PRO Dungeon Shop', 'PRO Forum application'].map(name => ({ name, delay: 10 * 60_000,
         warning: `[WW LOG] ${name} monitor is unavailable. Retrying in 12 minute(s): fetch failed`,
         recovery: `[WW LOG] ${name} monitor connection restored.` }))
@@ -511,6 +517,23 @@ test('gateway interruptions wait one minute and require every disconnected shard
     f.logger.stop();
     assert.equal(client.eventNames().length, 0);
     assert.equal(f.clock.timers.size, 0);
+});
+
+test('gateway diagnostics preserve close codes, durations and session outcomes without raw close text', async t => {
+    const f = fixture(), client = new EventEmitter(); t.after(() => f.logger.stop());
+    f.logger.watchGateway(client); f.logger.start();
+    client.emit(Events.ShardReconnecting, 0);
+    client.emit(Events.ShardDisconnect, { code: 4009, reason: 'private-token\nunsafe text' }, 0);
+    await f.clock.advance(1500);
+    client.emit(Events.ShardResume, 0, 4);
+    assert.ok(f.printed.some(row => /4009 \(SessionTimedOut\)/u.test(row[1])));
+    assert.match(f.printed.at(-1)[1], /Downtime 1.5s; previous session resumed/);
+    client.emit(Events.ShardDisconnect, { code: 1006 }, 0);
+    await f.clock.advance(500);
+    client.emit(Events.ShardReady, 0);
+    assert.match(f.printed.at(-1)[1], /Downtime 0.5s; new session ready/);
+    assert.ok(f.printed.every(row => !/private-token|unsafe/u.test(row[1])));
+    assert.equal(f.sent.length, 0);
 });
 
 test('recovery delivery retries without another warning ping and preserves a new concurrent outage', async t => {

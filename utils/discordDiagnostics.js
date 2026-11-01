@@ -3,7 +3,7 @@
 
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { createHash } = require('node:crypto');
-const { escapeMarkdown, Events } = require('discord.js');
+const { escapeMarkdown, Events, GatewayCloseCodes } = require('discord.js');
 const { stripBotLogPrefix } = require('./logFormat.js');
 const { DiagnosticIncidents } = require('./diagnosticIncidents.js');
 
@@ -19,12 +19,16 @@ const STATUS_EVENTS = [
         recovery: /^\[WW LOG\] PRO Forum application monitor connection restored\./u },
     { key: 'discord:interaction-warmup', component: 'Discord', warning: /^\[WW LOG\] Discord interaction connection warmup failed\b/u,
         recovery: /^\[WW LOG\] Discord interaction connection warmup recovered\./u },
+    { key: 'discord:tag-verification', component: 'WW tag verification', warning: /^\[WW TAG\] Discord verification unavailable\b/u,
+        recovery: /^\[WW TAG\] Discord verification restored\./u },
     { key: 'discord:gateway', component: 'Discord connection', warning: /^\[WW LOG\] Discord gateway shard \d+ disconnected\b/u,
         recovery: /^\[WW LOG\] Discord gateway shard \d+ connection restored\./u },
     { key: 'discord:command-registration', component: 'Command registration', warning: /^\[WW LOG\] ❌ ERROR: Command registration failed:/u,
         recovery: /^\[WW LOG\] ✅ Guild slash commands registered to Discord/u },
     { key: 'runtime:memory-pressure', component: 'Bot runtime', warning: /^\[RUNTIME MEMORY\] (?:WARNING|CRITICAL):/u,
         recovery: /^\[RUNTIME MEMORY\] Recovered below 75%:/u },
+    { key: 'runtime:memory-accounting', component: 'Bot runtime', warning: /^\[RUNTIME MEMORY\] Container accounting unavailable\./u,
+        recovery: /^\[RUNTIME MEMORY\] Container accounting restored\./u },
     { key: 'database:mysql', component: 'MySQL', warning: /^\[DB LOG\] MySQL (?:connectivity issue detected|is still unavailable after )/u,
         recovery: /^\[DB LOG\] MySQL connection restored after /u },
     { key: 'database:guild-settings', component: 'MySQL', warning: /^\[WW LOG\] Guild settings MySQL unavailable\b/u,
@@ -49,7 +53,7 @@ const STATUS_EVENTS = [
         recovery: /^\[WW LOG\] Guild Application local JSON storage restored\./u }
 ].map(status => ({ ...status, delayMs: status.key.startsWith('forum:') ? 10 * 60_000
     : status.key === 'discord:gateway' ? 60_000
-        : status.key.startsWith('runtime:') || status.key.startsWith('storage:') ? 0 : 5 * 60_000 }));
+        : status.key === 'runtime:memory-pressure' || status.key.startsWith('storage:') ? 0 : 5 * 60_000 }));
 
 function incidentIdentity(status, text) {
     return { key: status.key.startsWith('database:') ? 'database:mysql' : status.key,
@@ -144,7 +148,7 @@ class DiscordDiagnosticLogger {
         if (/^\[WW LOG\] Could not send (?:bot (?:diagnostic|recovery) log|scout (?:publication|action|member edit) log)/u.test(text)) return;
         const context = this.context.getStore() || {};
         const error = args.find(value => value && typeof value === 'object' && (value.code || value.causeCode));
-        const code = error?.causeCode || error?.code || /\b(?:E[A-Z_]{3,}|PROTOCOL_[A-Z_]+|DATABASE_UNAVAILABLE|DEP\d+)\b/u.exec(clean)?.[0];
+        const code = error?.causeCode || error?.code || /\b(?:E[A-Z_]{3,}|UND_ERR_[A-Z_]+|HTTP_\d{3}|PROTOCOL_[A-Z_]+|DATABASE_UNAVAILABLE|DEP\d+)\b/u.exec(clean)?.[0];
         const status = statusEventFor(clean, 'warning');
         // Corrupt/potentially lost data needs review immediately, even if a
         // storage fallback uses the same log prefix as a recoverable outage.
@@ -169,7 +173,8 @@ class DiscordDiagnosticLogger {
         if (previous && now - previous.at < repeatMs) { previous.repeats++; return; }
         const event = { level, message: escapeMarkdown(stripBotLogPrefix(clean)).slice(0, 3500), component: autocompleteStatus ? 'PvP scouting' : runtimeWarning ? 'Bot runtime' : context.component
                 || (/MySQL|\[DB LOG\]|Pool is closed/iu.test(clean) ? 'MySQL'
-                    : /scout/iu.test(clean) ? 'PvP scouting' : /Discord|interaction/iu.test(clean) ? 'Discord' : 'Bot runtime'),
+                    : /^\[WW TAG\]/u.test(clean) ? 'WW tag verification'
+                        : /scout/iu.test(clean) ? 'PvP scouting' : /Discord|interaction/iu.test(clean) ? 'Discord' : 'Bot runtime'),
             reportId, messageId: systemStatus ? undefined : context.messageId,
             code, repeats: previous?.repeats || 0,
             timestamp: new Date(now).toISOString() };
@@ -196,20 +201,27 @@ class DiscordDiagnosticLogger {
 
     watchGateway(client) {
         if (this.gatewayCleanup) return;
-        const disconnected = new Set();
-        const down = (_event, shardId) => {
-            if (disconnected.has(shardId)) return;
-            disconnected.add(shardId);
-            this.console.warn(`[WW LOG] Discord gateway shard ${shardId} disconnected; automatic reconnects remain active.`);
+        const disconnected = new Map();
+        const down = (event, shardId) => {
+            const code = Number.isInteger(event?.code) ? event.code : null;
+            const previous = disconnected.get(shardId);
+            if (previous && (previous.code !== null || code === null)) return;
+            disconnected.set(shardId, { at: previous?.at ?? this.now(), code });
+            const reason = GatewayCloseCodes[code] || ({ 1000: 'NormalClosure', 1001: 'GoingAway', 1006: 'AbnormalClosure',
+                1011: 'InternalError', 1012: 'ServiceRestart', 1013: 'TryAgainLater' })[code] || 'Unknown';
+            this.console.warn(`[WW LOG] Discord gateway shard ${shardId} disconnected; automatic reconnects remain active.${code !== null ? ` Close code ${code} (${reason}).` : ' Close code unavailable.'}`);
         };
         const reconnecting = shardId => down(null, shardId);
-        const up = shardId => {
-            if (!disconnected.delete(shardId)) return;
-            this.console.log(`[WW LOG] Discord gateway shard ${shardId} connection restored.`);
+        const up = (shardId, session) => {
+            const outage = disconnected.get(shardId);
+            if (!outage) return;
+            disconnected.delete(shardId);
+            this.console.log(`[WW LOG] Discord gateway shard ${shardId} connection restored. Downtime ${((this.now() - outage.at) / 1000).toFixed(1)}s; ${session}.`);
         };
-        const resumed = (shardId) => up(shardId);
+        const resumed = shardId => up(shardId, 'previous session resumed');
+        const ready = shardId => up(shardId, 'new session ready');
         const listeners = [[Events.ShardDisconnect, down], [Events.ShardReconnecting, reconnecting],
-            [Events.ShardReady, up], [Events.ShardResume, resumed]];
+            [Events.ShardReady, ready], [Events.ShardResume, resumed]];
         for (const [event, handler] of listeners) client.on(event, handler);
         this.gatewayCleanup = () => {
             for (const [event, handler] of listeners) client.removeListener(event, handler);

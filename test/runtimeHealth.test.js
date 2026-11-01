@@ -77,17 +77,17 @@ test('warnings and recoveries include panel estimates, heap and jobs without ful
     assert.match(reports.at(-1), /panel-equivalent estimate 367.9 MiB/);
     assert.match(reports.at(-1), /active jobs: none; recent jobs: WW server-tag verification \(6.0s, ended 1.0s ago\)/);
     now = 30000; await health.sample({ report: false });
-    assert.match(reports.at(-1), /jobs at sampled peak: WW server-tag verification/);
+    assert.equal(reports.length, 2, 'healthy sampling must not add a periodic report');
 });
 
-test('unlimited and unavailable cgroups omit a misleading memory percentage', async () => {
-    assert.equal(await readContainerMemory(readFixture({
+test('unlimited cgroups retain usage for the bot budget and unavailable cgroups use the fallback', async () => {
+    assert.equal((await readContainerMemory(readFixture({
         '/sys/fs/cgroup/memory.current': '100', '/sys/fs/cgroup/memory.max': 'max'
-    })), null);
-    assert.equal(await readContainerMemory(readFixture({
+    }))).used, 100);
+    assert.equal((await readContainerMemory(readFixture({
         '/sys/fs/cgroup/memory/memory.usage_in_bytes': '100',
         '/sys/fs/cgroup/memory/memory.limit_in_bytes': '9223372036854771712'
-    })), null);
+    }))).limit, null);
     assert.equal(await readContainerMemory(readFixture({})), null);
 });
 
@@ -215,9 +215,71 @@ test('idle sampling is cheap, active OCR samples each second, and short OCR jobs
     now = 6000; await health.sample({ report: false }); assert.equal(reads, 3);
     pending = 0; tasksCompleted = 1;
     now = 7000; await health.sample({ report: false }); assert.equal(reads, 3);
-    now = 30000; await health.sample({ report: false });
+    now = 29999; await health.sample();
     assert.equal(reads, 4); assert.equal(fullReads, 2); assert.equal(rssReads, 2);
     assert.match(reports.at(-1), /1 task\(s\) queued, 1 completed, 0 failed/);
     assert.match(reports.at(-1), /budget 512.0 MiB/);
+    const count = reports.length;
+    now = 60000; await health.sample({ report: false });
+    assert.equal(reports.length, count);
     health.stop();
+});
+
+test('normal startup and ongoing OCR sampling stay silent while pressure and recovery remain visible', async () => {
+    let tick, used = 200 * MIB, now = 0;
+    const lines = [];
+    const health = new RuntimeHealth({ now: () => now,
+        consoleObject: { warn: text => lines.push(text), log: text => lines.push(text) },
+        containerMemory: async () => ({ used, limit: 512 * MIB }),
+        ocrSnapshot: () => ({ pending: 1, workers: 1 }),
+        schedule: callback => { tick = callback; return { unref() {} }; }, cancel() {} });
+    health.start();
+    await new Promise(resolve => setImmediate(resolve));
+    for (const time of [1000, 5000, 1800000, 3600000]) {
+        now = time; tick(); await new Promise(resolve => setImmediate(resolve));
+    }
+    assert.deepEqual(lines, []);
+    now += 1000; used = 420 * MIB; tick(); await new Promise(resolve => setImmediate(resolve));
+    assert.match(lines[0], /WARNING/);
+    now += 1000; used = 380 * MIB; tick(); await new Promise(resolve => setImmediate(resolve));
+    assert.match(lines[1], /Recovered below 75%/);
+    health.stop();
+});
+
+test('Linux accounting loss is reported once, includes live OCR RSS in protection, and does not falsely recover', async () => {
+    let container = { used: 420 * MIB, limit: 512 * MIB }, childRss = 240 * MIB;
+    const warnings = [], reports = [];
+    const health = new RuntimeHealth({ platform: 'linux',
+        consoleObject: { warn: line => warnings.push(line), log: line => reports.push(line) },
+        containerMemory: async () => container, containerPeak: async () => null,
+        processRss: async pid => { assert.equal(pid, 123); return childRss; },
+        ocrSnapshot: () => ({ workers: 1, processId: 123 }),
+        memoryUsage: () => ({ rss: 200 * MIB, heapUsed: MIB, heapTotal: MIB, external: 0 }) });
+    await health.sample();
+    container = null; await health.sample(); await health.sample();
+    assert.equal(warnings.filter(line => line.includes('Container accounting unavailable')).length, 1);
+    childRss = 300 * MIB; await health.sample();
+    assert.match(warnings.at(-1), /CRITICAL: 500.0\/512.0 MiB .*bot and OCR process RSS estimate/);
+    childRss = 20 * MIB; await health.sample();
+    assert.equal(reports.some(line => line.includes('Recovered below')), false);
+    container = { used: 230 * MIB, limit: 512 * MIB }; await health.sample();
+    assert.equal(reports.filter(line => line.includes('Container accounting restored')).length, 1);
+    assert.equal(reports.filter(line => line.includes('Recovered below')).length, 1);
+});
+
+test('fallback protection retains smaller limits and an unreadable active helper cannot claim recovery', async () => {
+    let container = { used: 100 * MIB, limit: 256 * MIB }, childRss = 100 * MIB, processId = 123;
+    const warnings = [], logs = [];
+    const health = new RuntimeHealth({ platform: 'linux',
+        consoleObject: { warn: line => warnings.push(line), log: line => logs.push(line) },
+        containerMemory: async () => container, containerPeak: async () => null,
+        memoryUsage: () => ({ rss: 140 * MIB, heapUsed: MIB, heapTotal: MIB, external: 0 }),
+        processRss: async () => childRss, ocrSnapshot: () => ({ processId }) });
+    await health.sample();
+    container = null; await health.sample();
+    assert.match(warnings.at(-1), /CRITICAL: 240.0\/256.0 MiB/);
+    childRss = null; await health.sample();
+    assert.equal(logs.some(line => line.includes('Recovered below')), false);
+    processId = undefined; await health.sample();
+    assert.equal(logs.filter(line => line.includes('Recovered below')).length, 1);
 });

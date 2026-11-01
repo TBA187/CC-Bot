@@ -43,6 +43,118 @@ function fixture({ tag = true, hasRole = false, permission = true, editable = tr
         setTag: value => { metadata = value; }, advance: ms => { time += ms; } };
 }
 
+test('brief DNS failures retry read-only lookups and confirm the role before reporting recovery', async t => {
+    const warnings = [], logs = [], waits = [];
+    t.mock.method(console, 'warn', text => warnings.push(text));
+    t.mock.method(console, 'log', text => logs.push(text));
+    const f = fixture(); t.after(() => f.manager.stop());
+    f.manager.pause = async ms => waits.push(ms);
+    let reads = 0;
+    f.client.rest.get = async () => {
+        if (++reads < 3) throw Object.assign(new Error('lookup failed'), { cause: Object.assign(new Error('DNS'), { code: 'EAI_AGAIN' }) });
+        return rawTag(true);
+    };
+    assert.equal((await f.manager.request(f.member)).status, 'corrected');
+    assert.deepEqual(waits, [1000, 3000]);
+    assert.equal(f.calls.length, 1);
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Discord verification unavailable \(EAI_AGAIN\)/);
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /Discord verification restored/);
+    assert.equal(f.manager.retryTimer, null);
+});
+
+test('persistent DNS failures defer the sweep with one retry timer instead of querying every member', async t => {
+    t.mock.method(console, 'warn', () => {}); t.mock.method(console, 'log', () => {});
+    const f = fixture(); t.after(() => f.manager.stop());
+    f.manager.pause = async () => {};
+    const timers = new Set();
+    f.manager.scheduleTimeout = callback => { const timer = { callback, unref() {} }; timers.add(timer); return timer; };
+    f.manager.cancelTimeout = timer => timers.delete(timer);
+    const second = { ...f.member, id: '123456789012345679' };
+    f.guild.members.list = async () => new Collection([[USER, f.member], [second.id, second]]);
+    let reads = 0, unavailable = true;
+    f.client.rest.get = async () => {
+        reads++;
+        if (unavailable) throw Object.assign(new Error('DNS'), { code: 'EAI_AGAIN' });
+        return rawTag(true);
+    };
+    await f.manager.sweep();
+    assert.equal(reads, 3);
+    assert.equal(timers.size, 1);
+    assert.equal(f.calls.length, 0);
+    unavailable = false;
+    const timer = [...timers][0]; timers.delete(timer); timer.callback();
+    while (f.manager.sweeping) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.manager.networkUnavailable, false);
+    assert.equal(f.manager.retryTimer, null);
+    assert.equal(timers.size, 0);
+    assert.equal(f.calls.length, 1);
+});
+
+test('permission failures are immediate and never retried as network interruptions', async t => {
+    const warnings = [];
+    t.mock.method(console, 'warn', text => warnings.push(text));
+    const f = fixture(); t.after(() => f.manager.stop());
+    let reads = 0;
+    f.manager.pause = async () => assert.fail('must not retry permissions');
+    f.client.rest.get = async () => { reads++; throw Object.assign(new Error('Missing access'), { code: 50001, status: 403 }); };
+    assert.equal((await f.manager.request(f.member)).status, 'failed');
+    assert.equal(reads, 1);
+    assert.match(warnings[0], /Missing access/);
+    assert.equal(f.manager.retryTimer, null);
+});
+
+test('shutdown cancels lookup backoff without another request or a late retry timer', async t => {
+    t.mock.method(console, 'warn', () => {});
+    const f = fixture(); f.manager.lookupRetryDelays = [60000];
+    let reads = 0;
+    f.client.rest.get = async () => { reads++; throw Object.assign(new Error('DNS'), { code: 'EAI_AGAIN' }); };
+    const pending = f.manager.request(f.member);
+    await new Promise(resolve => setImmediate(resolve));
+    f.manager.stop();
+    await pending;
+    assert.equal(reads, 1);
+    assert.equal(f.manager.retryTimer, null);
+    assert.equal(f.manager.pending.size, 0);
+});
+
+test('an uncertain role-write response triggers verification without repeating a confirmed correction', async t => {
+    t.mock.method(console, 'warn', () => {}); t.mock.method(console, 'log', () => {});
+    const f = fixture(); t.after(() => f.manager.stop());
+    const add = f.member.roles.add;
+    f.member.roles.add = async (...args) => {
+        await add(...args);
+        throw Object.assign(new Error('connection lost after write'), { code: 'ECONNRESET' });
+    };
+    assert.equal((await f.manager.request(f.member)).status, 'unavailable');
+    assert.equal((await f.manager.request(f.member)).status, 'compliant');
+    assert.equal(f.calls.length, 1);
+    assert.equal(f.manager.networkUnavailable, false);
+    assert.equal(f.manager.retryTimer, null);
+});
+
+test('verification recovery waits for every affected member and stopping cancels its queued sweep', async t => {
+    const logs = [];
+    t.mock.method(console, 'warn', () => {}); t.mock.method(console, 'log', text => logs.push(text));
+    const f = fixture({ hasRole: true });
+    const timers = new Set();
+    f.manager.scheduleTimeout = callback => { const timer = { callback, unref() {} }; timers.add(timer); return timer; };
+    f.manager.cancelTimeout = timer => timers.delete(timer);
+    const error = Object.assign(new Error('DNS'), { code: 'EAI_AGAIN' });
+    f.manager.noteUnavailable(USER, error);
+    f.manager.noteUnavailable('another-member', error);
+    f.manager.retryVerification();
+    await f.manager.request(f.member);
+    assert.equal(logs.length, 0);
+    assert.equal(timers.size, 1);
+    const queued = [...timers][0];
+    f.manager.stop(); queued.callback();
+    assert.equal(timers.size, 0);
+    assert.equal(f.manager.retryTimer, null);
+    assert.equal(logs.length, 0);
+});
+
 test('tag metadata distinguishes absent or incomplete data from an explicit tag removal', () => {
     assert.equal(serverTagStatus({}, GUILD), undefined);
     assert.equal(serverTagStatus({ primary_guild: {} }, GUILD), undefined);

@@ -161,6 +161,20 @@ test('warmup is public, consumes the response, skips busy pools and reports outa
     assert.equal(await transport.startWarmup(), false);
 });
 
+test('warmup deadlines report ETIMEDOUT instead of the numeric AbortError code', async () => {
+    const warnings = [];
+    const keepAlive = setInterval(() => {}, 1000);
+    const transport = createDiscordTransport({ pool: fakePool(), warmupIntervalMs: 0, warmupTimeoutMs: 5,
+        consoleObject: { warn: text => warnings.push(text), log() {} },
+        request: (_, init) => new Promise((resolve, reject) => {
+            init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+        }) });
+    try {
+        assert.equal(await transport.startWarmup(), false);
+        assert.match(warnings[0], /failed \(ETIMEDOUT\)/u);
+    } finally { clearInterval(keepAlive); await transport.stop(); }
+});
+
 test('installed REST strategy reuses the warmed socket for an actual local callback and emits its timing stages', async () => {
     const timings = [], seen = [];
     const server = http.createServer((req, res) => {

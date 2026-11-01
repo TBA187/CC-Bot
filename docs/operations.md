@@ -133,12 +133,12 @@ Console and monthly logs record failures immediately; Discord waits for persiste
 | Problem | Discord alert timing |
 | --- | --- |
 | JSON save failures, corrupted data, unexpected errors, failed background jobs | Immediately |
-| MySQL outages and feature storage fallbacks, Discord REST warmup, command registration | After 5 minutes |
+| MySQL outages and feature storage fallbacks, Discord REST warmup, WW tag verification, command registration, unavailable container memory accounting | After 5 minutes |
 | PRO forum outages, including application and shop scans | After 10 minutes |
 | Discord Gateway disconnection | After 1 minute |
 | Memory pressure | Immediately |
 
-Memory alerts and OCR pressure checks use container usage minus inactive file cache, matching Docker's working-set calculation. Raw container totals remain in console/file diagnostics. If inactive-cache accounting is unavailable, checks use the raw container total; without container metrics, runtime alerts use the bot process's RSS.
+Memory monitoring continues silently during normal operation. Console and file logs report warning pressure at 80%, critical pressure at 90%, recovery below 75%, and loss/restoration of Linux container accounting. Sustained pressure is logged at most once every 10 minutes unless severity increases. Healthy startup and periodic memory snapshots are not printed.
 
 Alerts contain fixed summaries rather than raw exceptions, credentials, SQL or payment details. Alert delivery is separate from commands and uses bounded in-memory incident tracking with retry delays. Incident tracking resets when the process restarts; a stopped process cannot send an alert.
 Routine reconnects, successful operations and normal cleanup remain in console/file logs.
@@ -153,10 +153,10 @@ Gold, Silver, and guild-application OCR use a shared queue and a lazily started 
 - When usage exceeds the threshold, the helper is released. If memory remains high, processing waits up to 5 seconds before continuing.
 - Active jobs are never interrupted or rejected due to memory usage.
 - Normal jobs have no intentional delay. Helper recycling limits retained memory but does not guarantee a fixed memory ceiling.
-- If container memory metrics are unavailable, idle and batch recycling remain active.
+- If container memory metrics are unavailable, pressure checks fall back to process RSS estimates; idle and batch recycling remain active.
 - The helper uses MALLOC_ARENA_MAX=2 unless configured by the host.
 - On Linux/glibc, setting this variable before Node starts can also reduce memory fragmentation in the main process. See [Sharp's memory guidance](https://sharp.pixelplumbing.com/performance/).
-- RUNTIME MEMORY logs identify helper PIDs and report process memory. Container memory also includes the helper and file cache.
+- Memory pressure logs include process memory and OCR activity. Container memory also includes the helper and file cache.
 Requires data/tesseract-cache/eng.traineddata:
 ```
 node --expose-gc scripts/measure_ocr_memory.js --isolated

@@ -6,12 +6,8 @@ const diagnostics = require('node:diagnostics_channel');
 const { performance } = require('node:perf_hooks');
 const { DefaultRestOptions, DefaultUserAgent } = require('@discordjs/rest');
 const { Pool } = require('undici');
+const { networkErrorCode: safeErrorCode } = require('./networkErrors.js');
 const CALLBACK_CONNECTIONS = 4;
-
-function safeErrorCode(error) {
-    const code = String(error?.code || error?.cause?.code || error?.name || 'UNKNOWN');
-    return /^[A-Za-z0-9_]{1,60}$/u.test(code) ? code : 'UNKNOWN';
-}
 
 // Initial callbacks have a three-second deadline. Give them a small, separate
 // connection pool so uploads and ordinary REST traffic cannot occupy its sockets.
@@ -115,7 +111,8 @@ function createDiscordTransport({
         if (stopped || pooledCallbacks || poolStats().running || poolStats().pending) return false;
         if (warmupPromise) return warmupPromise;
         warmupController = new AbortController();
-        const timeout = setTimeout(() => warmupController?.abort(), warmupTimeoutMs);
+        const timeout = setTimeout(() => warmupController?.abort(Object.assign(new Error('Discord warmup deadline exceeded.'),
+            { code: 'ETIMEDOUT' })), warmupTimeoutMs);
         timeout.unref?.();
         warmupPromise = Promise.resolve().then(async () => {
             try {

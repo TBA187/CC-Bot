@@ -5,6 +5,8 @@ const dns = require('node:dns/promises');
 const https = require('node:https');
 const { performance } = require('node:perf_hooks');
 const { DefaultUserAgent } = require('@discordjs/rest');
+const { networkErrorCode: safeCode } = require('../utils/networkErrors.js');
+const { abortable } = require('../utils/abortable.js');
 
 const TARGET = 'https://discord.com/api/v10/gateway';
 
@@ -35,13 +37,15 @@ function probe(agent, family) {
     });
 }
 
-function safeCode(error) {
-    const code = String(error?.code || error?.name || 'UNKNOWN');
-    return /^[A-Za-z0-9_]{1,60}$/u.test(code) ? code : 'UNKNOWN';
-}
-
 async function main() {
     console.log(`Discord public network diagnostic; Node ${process.version}; all times in ms from request start.`);
+    const lookupStart = performance.now();
+    try {
+        const addresses = await abortable(dns.lookup('discord.com', { all: true }), { timeoutMs: 8000, timeoutCode: 'DNS_LOOKUP_TIMEOUT' });
+        console.log(JSON.stringify({ systemLookupMs: Math.round(performance.now() - lookupStart), addresses: addresses.length }));
+    } catch (error) {
+        console.log(JSON.stringify({ systemLookupMs: Math.round(performance.now() - lookupStart), systemLookupError: safeCode(error) }));
+    }
     const started = performance.now();
     const resolver = new dns.Resolver({ timeout: 2000, tries: 1 });
     const dnsTimeout = setTimeout(() => resolver.cancel(), 8000);

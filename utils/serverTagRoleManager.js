@@ -4,6 +4,8 @@
 const { Events, PermissionFlagsBits, Routes } = require('discord.js');
 const { fetchGuildMemberRoster } = require('./guildMemberRoster.js');
 const { runtimeActivity } = require('./runtimeActivity.js');
+const { abortableDelay } = require('./abortable.js');
+const { networkErrorCode, isTransientDiscordError } = require('./networkErrors.js');
 
 const POLICY_REASON_PREFIX = '[WW tag policy]';
 
@@ -30,13 +32,19 @@ function policyReason(enabled) {
 class ServerTagRoleManager {
     constructor({ client, guildId, roleId, signal, onTagChange = async () => {}, onCorrection = async () => {},
         intervalMs = 10 * 60_000, spacingMs = 350, now = Date.now, activity = runtimeActivity,
-        schedule = setInterval, cancel = clearInterval, pause = ms => new Promise(resolve => setTimeout(resolve, ms)) }) {
+        schedule = setInterval, cancel = clearInterval, pause = abortableDelay,
+        lookupRetryDelays = [1000, 3000], retryDelayMs = 30_000, scheduleTimeout = setTimeout, cancelTimeout = clearTimeout }) {
         Object.assign(this, { client, guildId, roleId, signal, onTagChange, onCorrection, intervalMs, spacingMs, now, activity, schedule, cancel, pause });
+        Object.assign(this, { lookupRetryDelays, retryDelayMs, scheduleTimeout, cancelTimeout });
         this.states = new Map();
         this.pending = new Map();
         this.expectedChanges = new Map();
         this.lastIssues = new Map();
         this.timer = null;
+        this.retryTimer = null;
+        this.stopController = new AbortController();
+        this.networkFailures = new Set();
+        this.networkUnavailable = false;
         this.sweeping = false;
         this.stopped = Boolean(signal?.aborted);
     }
@@ -51,6 +59,47 @@ class ServerTagRoleManager {
         this.lastIssues.set(code, this.now());
         console.warn(`[WW TAG] ${error.message}`);
         return true;
+    }
+
+    noteUnavailable(id, error) {
+        if (this.stopped) return;
+        this.networkFailures.add(id);
+        if (this.networkUnavailable) return;
+        this.networkUnavailable = true;
+        console.warn(`[WW TAG] Discord verification unavailable (${networkErrorCode(error)}). Tag checks will retry automatically; existing roles remain pending verification.`);
+    }
+
+    noteVerified(id) {
+        this.networkFailures.delete(id);
+        if (this.stopped || !this.networkUnavailable || this.networkFailures.size) return;
+        this.networkUnavailable = false;
+        if (this.retryTimer !== null) this.cancelTimeout(this.retryTimer);
+        this.retryTimer = null;
+        console.log('[WW TAG] Discord verification restored. Pending tag checks have completed.');
+    }
+
+    retryVerification() {
+        if (this.stopped || this.retryTimer !== null) return;
+        this.retryTimer = this.scheduleTimeout(() => {
+            this.retryTimer = null;
+            if (this.stopped) return;
+            if (this.sweeping) this.retryVerification();
+            else void this.sweep();
+        }, this.retryDelayMs);
+        this.retryTimer?.unref?.();
+    }
+
+    async lookupUser(member, state, revision) {
+        for (let attempt = 0; ; attempt++) {
+            if (!this.current(member, state, revision)) return;
+            try { return await this.client.rest.get(Routes.user(member.id)); }
+            catch (error) {
+                if (!this.current(member, state, revision) || !isTransientDiscordError(error)) throw error;
+                this.noteUnavailable(member.id, error);
+                if (attempt >= this.lookupRetryDelays.length) throw error;
+                await this.pause(this.lookupRetryDelays[attempt], this.stopController.signal);
+            }
+        }
     }
 
     async editableRole(guild) {
@@ -83,9 +132,17 @@ class ServerTagRoleManager {
         if (tag !== undefined) { state.eventTag = tag; state.eventAt = this.now(); state.revision++; }
         const before = this.pending.get(member.id) || Promise.resolve();
         const pending = before.catch(() => {}).then(() => this.reconcile(member, state, { tag, previousTag, source, announce, reportCorrection }))
+            .then(result => {
+                if (result.status === 'compliant' || result.status === 'corrected') this.noteVerified(member.id);
+                return result;
+            })
             .catch(error => {
-                if (!this.stopped && error.code !== 10007) this.reportIssue(error.code || 'WW_TAG_LOOKUP', error);
-                return { status: error.code === 10007 ? 'left' : 'failed' };
+                const transient = isTransientDiscordError(error);
+                if (!this.stopped && error.code !== 10007) {
+                    if (transient) { this.noteUnavailable(member.id, error); this.retryVerification(); }
+                    else this.reportIssue(error.code || 'WW_TAG_LOOKUP', error);
+                }
+                return { status: error.code === 10007 ? 'left' : transient ? 'unavailable' : 'failed' };
             }).finally(() => {
                 if (this.pending.get(member.id) === pending) this.pending.delete(member.id);
             });
@@ -104,7 +161,7 @@ class ServerTagRoleManager {
         else {
             // Inspect the raw response: an omitted optional field is unknown,
             // whereas an explicit null means the user is not displaying a tag.
-            const raw = await this.client.rest.get(Routes.user(member.id));
+            const raw = await this.lookupUser(member, state, revision);
             if (!this.current(member, state, revision)) return { status: 'stale' };
             enabled = serverTagStatus(raw, this.guildId);
         }
@@ -152,6 +209,11 @@ class ServerTagRoleManager {
                 else this.expectedChanges.delete(member.id);
             }
             if (!this.current(member, state, revision) || error.code === 10007) return { status: 'left' };
+            if (isTransientDiscordError(error)) {
+                this.noteUnavailable(member.id, error);
+                this.retryVerification();
+                return { status: 'unavailable', enabled, role, reason };
+            }
             if (this.reportIssue(error.code || 'WW_TAG_CORRECTION', error)) {
                 try { if (reportCorrection) await this.onCorrection(member, { added: enabled, role: role || { id: this.roleId, name: 'White Walker' }, source,
                     reason, success: false, error: error.message }); }
@@ -167,6 +229,7 @@ class ServerTagRoleManager {
         if (state) state.revision++;
         this.states.delete(member.id);
         this.expectedChanges.delete(member.id);
+        this.networkFailures.delete(member.id);
     }
 
     async sweep({ startup = false } = {}) {
@@ -181,12 +244,20 @@ class ServerTagRoleManager {
             if (this.stopped) return;
             for (const member of members.values()) {
                 if (this.stopped) break;
-                await this.request(member, { source: startup ? 'startup' : 'periodic', announce: !startup });
-                if (this.spacingMs && !this.stopped) await this.pause(this.spacingMs);
+                const result = await this.request(member, { source: startup ? 'startup' : 'periodic', announce: !startup });
+                // One failed lookup is enough to defer a sweep during an outage.
+                if (result.status === 'unavailable') break;
+                if (this.spacingMs && !this.stopped) await this.pause(this.spacingMs, this.stopController.signal);
             }
-            for (const id of this.states.keys()) if (!members.has(id) && !this.pending.has(id)) this.states.delete(id);
+            for (const id of this.states.keys()) if (!members.has(id) && !this.pending.has(id)) {
+                this.states.delete(id); this.networkFailures.delete(id);
+            }
+            this.noteVerified('sweep');
         } catch (error) {
-            if (!this.stopped) this.reportIssue(error.code || 'WW_TAG_SWEEP', error);
+            if (!this.stopped) {
+                if (isTransientDiscordError(error)) { this.noteUnavailable('sweep', error); this.retryVerification(); }
+                else this.reportIssue(error.code || 'WW_TAG_SWEEP', error);
+            }
         } finally { this.sweeping = false; finishActivity(); }
     }
 
@@ -202,10 +273,14 @@ class ServerTagRoleManager {
 
     stop() {
         this.stopped = true;
+        this.stopController.abort();
         if (this.timer) this.cancel(this.timer);
+        if (this.retryTimer !== null) this.cancelTimeout(this.retryTimer);
+        this.retryTimer = null;
         this.timer = null;
         this.states.clear();
         this.expectedChanges.clear();
+        this.networkFailures.clear();
     }
 }
 

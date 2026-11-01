@@ -4,6 +4,7 @@
 const { createOcrProcessWorker } = require('./ocrProcessWorker.js');
 const path = require('node:path');
 const { readContainerMemory, memoryPressureSample } = require('./runtimeHealth.js');
+const { readProcessRss } = require('./containerMemory.js');
 
 const OCR_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const configuredSharp = new WeakSet();
@@ -33,6 +34,9 @@ class OcrWorkerPool {
         this.idleTimer = null;
         this.completedImages = 0;
         this.containerMemory = options.containerMemory || readContainerMemory;
+        this.rssUsage = options.rssUsage || (() => process.memoryUsage.rss());
+        this.processRss = options.processRss || readProcessRss;
+        this.lastKnownMemoryLimit = null;
         this.pause = options.pause || (ms => new Promise(resolve => setTimeout(resolve, ms)));
         this.log = options.log || (message => console.warn(message));
         this.maxBatchImages = options.maxBatchImages ?? 20;
@@ -137,10 +141,13 @@ class OcrWorkerPool {
 
     async memoryPressure() {
         try {
-            const memory = await this.containerMemory();
+            const memory = await this.containerMemory().catch(() => null);
+            const ocrRss = !memory && this.worker?.processId
+                ? await this.processRss(this.worker.processId).catch(() => null) : null;
             // Use the same cache-adjusted usage and capped budget as runtime alerts.
-            const { used, limit } = memoryPressureSample(memory);
-            return Boolean(memory && used >= limit * 0.85);
+            const { used, limit } = memoryPressureSample(memory, memory ? 0 : this.rssUsage(), ocrRss, this.lastKnownMemoryLimit);
+            if (memory?.limit) this.lastKnownMemoryLimit = limit;
+            return used >= limit * 0.85;
         } catch { return false; }
     }
 

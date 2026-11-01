@@ -299,6 +299,33 @@ test('inactive file cache does not pause OCR or recycle its helper', async () =>
     } finally { await pool.close(); }
 });
 
+test('missing cgroups still recycle OCR using live parent and helper RSS', async () => {
+    let high = false, creates = 0, terminated = 0;
+    const pool = new OcrWorkerPool({ idleTimeoutMs: 0, containerMemory: async () => null,
+        rssUsage: () => 200 * 1048576, processRss: async () => (high ? 250 : 100) * 1048576,
+        pause: async () => assert.fail('recycling relieved the pressure'),
+        workerFactory: async () => {
+            creates++;
+            return { processId: 123, async analyzeScout(id) { return id; }, async terminate() { terminated++; high = false; } };
+        } });
+    try {
+        assert.equal(await pool.run(() => pool.processImage('analyzeScout', 1)), 1);
+        high = true;
+        assert.equal(await pool.run(() => pool.processImage('analyzeScout', 2)), 2);
+        assert.equal(creates, 2);
+        assert.equal(terminated, 1);
+    } finally { await pool.close(); }
+});
+
+test('OCR fallback retains a smaller known container limit after accounting becomes unavailable', async () => {
+    const pool = new OcrWorkerPool({ containerMemory: async () => ({ used: 100 * 1048576, limit: 256 * 1048576 }),
+        rssUsage: () => 220 * 1048576 });
+    assert.equal(await pool.memoryPressure(), false);
+    pool.containerMemory = async () => null;
+    assert.equal(await pool.memoryPressure(), true);
+    await pool.close();
+});
+
 test('genuine working-set pressure still recycles OCR and preserves the bounded delay', async () => {
     const delays = [], logs = [];
     const pool = new OcrWorkerPool({ idleTimeoutMs: 0,

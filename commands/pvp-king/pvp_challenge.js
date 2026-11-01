@@ -350,8 +350,8 @@ class PvpChallengeKing {
                 cooldownSaved = true;
 
                 const acceptEmbed = new EmbedBuilder()
-                    .setTitle('<:kyurem:1472065995089645609>\u2002White Walkers Awaken!\u2002<:kyurem:1472065995089645609>')
-                    .setDescription(`Winter is coming… the Frozen Throne awaits no mortal. The White Walkers spare none; only the strongest shall endure the frost!\u2002🧊\n\u200B`)
+                    .setTitle('<:dark_murkrow:1565243892255694908>\u2002Crow Control Awaken!\u2002<:dark_murkrow:1565243892255694908>')
+                    .setDescription(`Winter is coming… the Frozen Throne awaits no mortal. The Crow Control spare none; only the strongest shall endure the frost!\u2002🧊\n\u200B`)
                     .setColor(this.pvpServerColor)
                     .addFields(
                         { name: '👑 The Night King', value: `<@${kingId}>`, inline: true },
@@ -405,7 +405,7 @@ class PvpChallengeKing {
                     });
                 }
             } catch (error) {
-                console.warn('[WW LOG] PvP challenge acceptance failed:', error.code || error.name);
+                console.warn('[CC LOG] PvP challenge acceptance failed:', error.code || error.name);
                 await interaction.editReply({
                     content: cooldownSaved
                         ? '### ⚠️ The challenge was accepted and its cooldown is saved, but some Discord updates failed. Officers should check the challenge messages; do not accept this request again.'

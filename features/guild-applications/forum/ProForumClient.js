@@ -163,7 +163,7 @@ class ProForumClient {
             const response = await this.fetch(url, {
                 signal: controller.signal,
                 headers: {
-                    'user-agent': 'WhiteWalkerDiscordBot/1.0 (+guild application monitor)',
+                    'user-agent': 'CrowControlDiscordBot/1.0 (+guild application monitor)',
                     accept: 'text/html,application/xhtml+xml,image/avif,image/webp,image/png,image/jpeg,*/*;q=0.8'
                 },
                 redirect: 'follow'

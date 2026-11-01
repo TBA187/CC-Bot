@@ -37,8 +37,8 @@ function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMa
                     const stats = commandMap.get('scout-stats');
                     if (stats && await stats.handleButton(interaction)) return true;
                 }
-                if (interaction.customId?.startsWith('ww-settings:')) {
-                    const settings = commandMap.get('ww-settings');
+                if (interaction.customId?.startsWith('cc-settings:') || interaction.customId?.startsWith('ww-settings:')) {
+                    const settings = commandMap.get('cc-settings');
                     if (settings && await settings.handleButton(interaction)) return true;
                 }
                 if (interaction.customId?.startsWith('pvp-scout:')) {
@@ -55,7 +55,7 @@ function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMa
                     if (review && await review.handleButton(interaction)) return true;
                 }
                 // Acknowledge giveaway buttons before walking unrelated command handlers.
-                if (interaction.customId?.startsWith('ww_giveaway:')) {
+                if (interaction.customId?.startsWith('cc_giveaway:') || interaction.customId?.startsWith('ww_giveaway:')) {
                     if (await giveawayButton(interaction, commandConfig)) return true;
                 }
                 if (await forumFeedbackButton(interaction, { ownerID: appConfig.ownerID })) return true;

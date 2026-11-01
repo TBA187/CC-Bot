@@ -15,9 +15,9 @@ const exits = require('../events/memberExit.js');
 
 const USER_ID = '296447098298171393';
 const moderator = { id: '123456789012345678', username: 'Vangogsan', globalName: 'Am1damaru', bot: false };
-const automation = { id: '223456789012345678', username: 'WW-Bot', globalName: null, bot: true };
+const automation = { id: '223456789012345678', username: 'Crow Control', globalName: null, bot: true };
 const regularRole = { id: '323456789012345678', name: 'Guild Member', managed: false };
-const wwRole = { id: '423456789012345678', name: 'White Walker', managed: false };
+const ccRole = { id: '423456789012345678', name: 'Crow Control', managed: false };
 let fixtureNumber = 0;
 
 function fixture() {
@@ -26,13 +26,13 @@ function fixture() {
     const welcome = { isTextBased: () => true, send: async payload => { welcomed.push(payload); } };
     const guild = { id: `audit-guild-${++fixtureNumber}`, memberCount: 184,
         channels: { cache: new Collection([['log', channel], ['welcome', welcome]]), fetch: async () => channel },
-        roles: { cache: new Collection([[regularRole.id, regularRole], [wwRole.id, wwRole]]) },
+        roles: { cache: new Collection([[regularRole.id, regularRole], [ccRole.id, ccRole]]) },
         members: { cache: new Collection() }, fetchAuditLogs: async () => ({ entries: new Collection() }) };
     const user = { id: USER_ID, username: 'kaasfondue', globalName: 'Kaasfondue', createdTimestamp: Date.UTC(2017, 2, 29) };
     const member = { id: USER_ID, user, nickname: 'Kaasfondue', guild, joinedTimestamp: Date.now() - 60000,
         roles: { cache: new Collection() }, flags: new GuildMemberFlagsBitField() };
     guild.members.cache.set(member.id, member);
-    const config = { guildId: guild.id, logChannelID: 'log', welcomeChannelID: 'welcome', wwRoleID: wwRole.id,
+    const config = { guildId: guild.id, logChannelID: 'log', welcomeChannelID: 'welcome', ccRoleID: ccRole.id,
         ownerID: moderator.id, client: { guilds: { cache: new Collection([[guild.id, guild]]) } }, memberHistory: new MemberAuditHistory() };
     return { guild, user, member, config, sent, welcomed };
 }
@@ -55,7 +55,7 @@ test('invite creators, stream hosts, and deleting moderators use real user menti
 });
 
 test('voluntary departure and rejoin classification persist across a bot restart', t => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-member-history-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-member-history-'));
     const filePath = path.join(directory, 'history.json');
     t.after(() => {
         fs.rmSync(filePath, { force: true });
@@ -208,16 +208,16 @@ test('role removal matches the actual role and direction rather than a recent ro
     assert.match(embed(sent[0]).description, /removed by <@123456789012345678>/);
 });
 
-test('a batch role assignment produces one embed and a manual WW warning never claims an unobserved correction', async () => {
+test('a batch role assignment produces one embed and a manual CC warning never claims an unobserved correction', async () => {
     const { member, guild, config, sent, welcomed } = fixture();
     const extraRole = { id: '623456789012345678', name: 'PvP Team' };
     guild.roles.cache.set(extraRole.id, extraRole);
-    const entry = auditEntry(member.id, moderator, [{ key: '$add', new: [regularRole, extraRole, wwRole] }]);
+    const entry = auditEntry(member.id, moderator, [{ key: '$add', new: [regularRole, extraRole, ccRole] }]);
     guild.fetchAuditLogs = async () => ({ entries: new Collection([['roles', entry]]) });
-    await roles.handleRoleUpdate(member, { ...member, roles: { cache: new Collection([[regularRole.id, regularRole], [extraRole.id, extraRole], [wwRole.id, wwRole]]) } }, config);
+    await roles.handleRoleUpdate(member, { ...member, roles: { cache: new Collection([[regularRole.id, regularRole], [extraRole.id, extraRole], [ccRole.id, ccRole]]) } }, config);
     assert.equal(sent.length, 2);
-    const warning = sent.map(embed).find(value => value.description.includes(`<@&${wwRole.id}>`));
-    assert.match(warning.description, /WW Role Verification:\*\* Pending/);
+    const warning = sent.map(embed).find(value => value.description.includes(`<@&${ccRole.id}>`));
+    assert.match(warning.description, /CC Role Verification:\*\* Pending/);
     assert.doesNotMatch(warning.description, /Confirmed —/);
     assert.equal(welcomed.length, 0);
     assert.match(sent.map(embed).find(value => value.author.name === 'Member Roles Added 🏷️➕').description, new RegExp(`${regularRole.id}[\\s\\S]*${extraRole.id}`));
@@ -225,10 +225,10 @@ test('a batch role assignment produces one embed and a manual WW warning never c
 
 test('external bot role changes do not invent a confirmed policy correction', async () => {
     const { member, guild, config, sent, welcomed } = fixture();
-    const removed = auditEntry(member.id, moderator, [{ key: '$remove', new: [wwRole] }], { createdTimestamp: Date.now() - 500 });
-    const restored = auditEntry(member.id, automation, [{ key: '$add', new: [wwRole] }]);
+    const removed = auditEntry(member.id, moderator, [{ key: '$remove', new: [ccRole] }], { createdTimestamp: Date.now() - 500 });
+    const restored = auditEntry(member.id, automation, [{ key: '$add', new: [ccRole] }]);
     guild.fetchAuditLogs = async () => ({ entries: new Collection([['restored', restored], ['removed', removed]]) });
-    await roles.handleRoleUpdate(member, { ...member, roles: { cache: new Collection([[wwRole.id, wwRole]]) } }, config);
+    await roles.handleRoleUpdate(member, { ...member, roles: { cache: new Collection([[ccRole.id, ccRole]]) } }, config);
     assert.equal(embed(sent[0]).author.name, 'Member Role Added 🏷️➕');
     assert.doesNotMatch(embed(sent[0]).description, /Correction Status/);
     assert.equal(welcomed.length, 0);
@@ -257,15 +257,15 @@ test('large role batches are split below the Discord description limit', async (
     for (const payload of sent) assert.ok(embed(payload).description.length <= 4096);
 });
 
-test('real WW tag changes are passed to the policy manager once per transition', async () => {
+test('real CC tag changes are passed to the policy manager once per transition', async () => {
     const { user, guild, config, sent, welcomed } = fixture();
     const changes = [];
     config.serverTagRoleManager = { request: async (member, options) => changes.push(options.user.primaryGuild.identityEnabled) };
     user.primaryGuild = { identityEnabled: false, identityGuildId: guild.id };
     const equipped = { ...user, primaryGuild: { identityEnabled: true, identityGuildId: guild.id } };
-    await roles.handleWwTagUpdate(user, equipped, config);
-    await roles.handleWwTagUpdate(equipped, equipped, config);
-    await roles.handleWwTagUpdate(equipped, user, config);
+    await roles.handleCcTagUpdate(user, equipped, config);
+    await roles.handleCcTagUpdate(equipped, equipped, config);
+    await roles.handleCcTagUpdate(equipped, user, config);
     assert.deepEqual(changes, [true, false]);
     assert.equal(sent.length, 0);
     assert.equal(welcomed.length, 0);

@@ -21,7 +21,7 @@ function notificationStatusEmbed(states, title = 'Guild Notifications') {
     }).join('\n\n');
 
     return new EmbedBuilder()
-        .setColor(0x02f3d7)
+        .setColor(0xe63b50)
         .setTitle(title)
         .setDescription(description || 'No guild notifications are configured.');
 }

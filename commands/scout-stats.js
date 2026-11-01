@@ -20,7 +20,7 @@ const { partitionReportSources, reportHasTeam } = require('../features/pvp-scout
 const { uniqueImageAttachments } = require('../features/pvp-scouting/ScoutImageUrls.js');
 
 const BUTTON_PREFIX = 'scout-stats:page:';
-const LOGO_PATH = path.join(__dirname, '../images/ww_logo.png');
+const LOGO_PATH = path.join(__dirname, '../images/cc_logo.webp');
 const CONTRIBUTOR_PAGE_SIZE = 20;
 const CONTRIBUTORS_PER_EMBED = 10;
 const SESSION_TTL_MS = 15 * 60 * 1000;
@@ -259,14 +259,14 @@ class ScoutStats {
         const timeZone = 'UTC';
         const contributorPageCount = Math.max(1, Math.ceil(stats.contributors.length / CONTRIBUTOR_PAGE_SIZE));
         const currentPage = Math.max(0, Math.min(contributorPageCount, Number(page) || 0));
-        const logoReference = logoUrl || 'attachment://ww_logo.png';
-        const embed = new EmbedBuilder().setColor(0x02f3d7)
-            .setTitle('<:kyurem:1472065995089645609>\u2002PvP White Walkers  •  Scout Statistics')
+        const logoReference = logoUrl || 'attachment://cc_logo.webp';
+        const embed = new EmbedBuilder().setColor(0xe63b50)
+            .setTitle('<:dark_murkrow:1565243892255694908>\u2002PvP Crow Control  •  Scout Statistics')
             .setThumbnail(logoReference);
 
         const embeds = [embed];
         if (currentPage === 0) {
-            embed.setFooter({ text: 'PvP White Walkers  •  Scout Statistics', iconURL: logoReference })
+            embed.setFooter({ text: 'PvP Crow Control  •  Scout Statistics', iconURL: logoReference })
                 .setTimestamp(new Date(stats.generatedAt));
             const ratings = stats.ratings;
             const average = ratings.count ? (ratings.sum / ratings.count).toFixed(1) : 'No ratings yet';
@@ -323,9 +323,9 @@ class ScoutStats {
             embed.setDescription(`### <:man_of_culture:1186287184106496112>\u2002Contributors ${start + 1}–${start + firstGroup.length} of ${stats.contributors.length}\n`
                 + (contributorLines(firstGroup, start) || 'No contributors have been recorded yet.'));
             if (secondGroup.length) {
-                embeds.push(new EmbedBuilder().setColor(0x02f3d7)
+                embeds.push(new EmbedBuilder().setColor(0xe63b50)
                     .setDescription(contributorLines(secondGroup, start + CONTRIBUTORS_PER_EMBED))
-                    .setFooter({ text: `PvP White Walkers  •  Scout Statistics  •  Contributors ${currentPage}/${contributorPageCount}`,
+                    .setFooter({ text: `PvP Crow Control  •  Scout Statistics  •  Contributors ${currentPage}/${contributorPageCount}`,
                         iconURL: logoReference })
                     .setTimestamp(new Date(stats.generatedAt)));
             }
@@ -356,7 +356,7 @@ class ScoutStats {
         const allowedUsers = stats.contributors.slice(contributorStart, contributorStart + contributorLimit)
             .map(contributor => contributor.id).filter(Boolean);
         const payload = { embeds, components, allowedMentions: { parse: [], users: allowedUsers } };
-        if (!logoUrl) payload.files = [new AttachmentBuilder(LOGO_PATH, { name: 'ww_logo.png' })];
+        if (!logoUrl) payload.files = [new AttachmentBuilder(LOGO_PATH, { name: 'cc_logo.webp' })];
         return payload;
     }
 
@@ -371,7 +371,7 @@ class ScoutStats {
             const payload = this.render(stats, 0, String(interaction.user.id), token);
             await interaction.editReply(payload);
         } catch (error) {
-            console.error('[WW LOG] /scout-stats failed:', error);
+            console.error('[CC LOG] /scout-stats failed:', error);
             await interaction.editReply({ content: 'Scout statistics are unavailable right now. Please try again later.', embeds: [], components: [] });
         }
     }
@@ -390,7 +390,7 @@ class ScoutStats {
             return true;
         }
         const page = Number(pageText);
-        const logoUrl = interaction.message?.attachments?.find(attachment => attachment.name === 'ww_logo.png')?.url || null;
+        const logoUrl = interaction.message?.attachments?.find(attachment => attachment.name === 'cc_logo.webp')?.url || null;
         await interaction.deferUpdate();
         await interaction.editReply(this.render(session.stats, page, ownerId, token, logoUrl));
         return true;

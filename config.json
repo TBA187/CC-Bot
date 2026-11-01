@@ -1,6 +1,7 @@
 {
   "botTimezone": "Etc/UTC",
-  "forumGuildApplicationPage": "https://pokemonrevolution.net/forum/topic/228820-white-walkers-the-memory-of-the-winter/",
+  "brandingImageURL": "https://www.image2url.com/r2/default/images/1793505473772-b96a8d4f-984d-4e3a-a5d8-a2431f9710e8.webp",
+  "forumGuildApplicationPage": "https://pokemonrevolution.net/forum/topic/228820-crow-control-in-both-servers-ready-for-new-members/",
   "forumGuildApplicationCooldownHours": 0,
   "guildId": "1148499020038295582",
   "officerChannelID": "1365345796328787968",
@@ -14,7 +15,7 @@
   "pvpKingRoleID": "1469034357158051975",
   "pvpKingSilverRoleID": "1557485453995671582",
   "pvpWarriorRoleID": "1486696262043701369",
-  "wwRoleID": "1483676323301036072",
+  "ccRoleID": "1483676323301036072",
   "dungeonRoleID": "1184113333482299522",
   "streamRoleID": "1368716918420148314",
   "proNotificationRoleID": "1537991574162640906",

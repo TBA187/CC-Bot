@@ -147,7 +147,7 @@ test('creates an immutable 24-hour poll, cross-links both messages, and only pin
     assert.equal(officerSaved, true);
     assert.equal(sent.length, 2);
     assert.deepEqual(sent[0].payload.allowedMentions, { parse: [], roles: ['officer-role'] });
-    assert.equal(sent[1].payload.poll.question.text, 'Invite ApplicantIGN to White Walkers?');
+    assert.equal(sent[1].payload.poll.question.text, 'Invite ApplicantIGN to Crow Control?');
     assert.deepEqual(sent[1].payload.poll.answers, [{ text: 'Yes' }, { text: 'No' }]);
     assert.equal(sent[1].payload.poll.duration, 24);
     assert.equal(sent[1].payload.poll.allowMultiselect, false);
@@ -161,7 +161,7 @@ test('creates an immutable 24-hour poll, cross-links both messages, and only pin
             }
         }
     }, sent[1].payload).resolveBody().body.poll;
-    assert.equal(serializedPoll.question.text, 'Invite ApplicantIGN to White Walkers?');
+    assert.equal(serializedPoll.question.text, 'Invite ApplicantIGN to Crow Control?');
     assert.equal(serializedPoll.answers[0].poll_media.text, 'Yes');
     assert.equal(serializedPoll.answers[1].poll_media.text, 'No');
     assert.equal(serializedPoll.duration, 24);
@@ -275,7 +275,7 @@ test('low-extraction fallback shows one raw Guild Application field', async () =
     }]);
 });
 
-test('application embed cleans metadata, orders fields, and includes WW branding', () => {
+test('application embed cleans metadata, orders fields, and includes CC branding', () => {
     const notifier = new GuildApplicationNotifier({
         client: { channels: { cache: new Map() } },
         guildId: 'guild',
@@ -294,12 +294,12 @@ test('application embed cleans metadata, orders fields, and includes WW branding
     }, [{ buffer: Buffer.from('image'), name: 'card.png', url: 'https://example.com/card.png' }]);
     const embed = payload.embeds[0].toJSON();
 
-    assert.equal(embed.color, 0x1bb4c5);
-    assert.equal(embed.title, 'White Walker Guild Application');
-    assert.equal(embed.url, 'https://pokemonrevolution.net/forum/topic/228820-white-walkers-the-memory-of-the-winter/');
+    assert.equal(embed.color, 0xe63b50);
+    assert.equal(embed.title, 'Crow Control Guild Application');
+    assert.equal(embed.url, 'https://pokemonrevolution.net/forum/topic/228820-crow-control-in-both-servers-ready-for-new-members/');
     assert.equal(embed.author, undefined);
     assert.equal(embed.footer.text, 'Guild Application Submitted: August 1, 2025 16:33');
-    assert.equal(embed.footer.icon_url, 'attachment://ww_logo.png');
+    assert.equal(embed.footer.icon_url, 'attachment://cc_logo.webp');
     assert.deepEqual(embed.fields.map(field => field.name), [
         'In-Game Name',
         'Age',
@@ -311,7 +311,7 @@ test('application embed cleans metadata, orders fields, and includes WW branding
     assert.equal(embed.fields[3].value, 'Hunting and dungeons');
     assert.equal(embed.fields[4].value, 'Discord: fox.user');
     assert.equal(embed.fields[5].value, '-# *1 image attached!*');
-    assert.equal(payload.files[0].name, 'ww_logo.png');
+    assert.equal(payload.files[0].name, 'cc_logo.webp');
     assert.equal(payload.files.length, 2);
 });
 

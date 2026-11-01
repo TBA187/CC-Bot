@@ -20,9 +20,9 @@ for (const [action, title] of [['edited','Scout Report Edited'], ['deleted','Sco
         assert.doesNotMatch(embed.description, /Scout Report ID/u);
         assert.match(embed.description, /Scout Message ID.*1350059044102078494/u);
         assert.equal(embed.timestamp, '2026-10-01T11:12:13.000Z');
-        assert.equal(embed.footer.text, 'White Walkers • Message ID: 1350059044102078494');
-        assert.equal(embed.footer.icon_url, 'attachment://ww_logo.png');
-        assert.ok(payload.files.some(file => file.name === 'ww_logo.png'));
+        assert.equal(embed.footer.text, 'Crow Control • Message ID: 1350059044102078494');
+        assert.equal(embed.footer.icon_url, 'attachment://cc_logo.webp');
+        assert.ok(payload.files.some(file => file.name === 'cc_logo.webp'));
         assert.match(embed.fields.find(field => field.name === 'Opponent IGN').value, /Before:.*ale.*\n.*After:.*Godredeye/u);
         assert.deepEqual(payload.allowedMentions, { parse: [] });
         const history = payload.files.find(file => file.name.endsWith('.json'));
@@ -69,8 +69,8 @@ test('automatic publication logs use the report ID, logo, timestamp and correct 
     assert.equal(embed.title, '✅ Scout Report Published');
     assert.match(embed.description, /\*\*90skid\*\*.*validated and added/u);
     assert.match(embed.description, /<@member>/u);
-    assert.equal(embed.footer.text, 'WW • Scout Report ID: 1500728816346075216');
-    assert.equal(embed.footer.icon_url, 'attachment://ww_logo.png');
+    assert.equal(embed.footer.text, 'CC • Scout Report ID: 1500728816346075216');
+    assert.equal(embed.footer.icon_url, 'attachment://cc_logo.webp');
     assert.equal(embed.timestamp, '2026-10-03T09:30:00.000Z');
     assert.equal(embed.fields.find(field => field.name === 'PvP Rating').value, '318');
     assert.deepEqual(payload.allowedMentions, { parse: [] });
@@ -87,17 +87,17 @@ test('error and warning messages ping only the owner above the branded embed', (
         assert.deepEqual(payload.allowedMentions, { parse: [], users: ['291142291073269761'] });
         assert.equal(payload.nonce, 'di:warning');
         assert.equal(payload.enforceNonce, true);
-        assert.equal(embed.footer.text, 'WW • Scout Report ID: 1500728816346075216');
-        assert.equal(embed.footer.icon_url, 'attachment://ww_logo.png');
+        assert.equal(embed.footer.text, 'CC • Scout Report ID: 1500728816346075216');
+        assert.equal(embed.footer.icon_url, 'attachment://cc_logo.webp');
         assert.ok(embed.timestamp);
-        assert.equal(payload.files[0].name, 'ww_logo.png');
+        assert.equal(payload.files[0].name, 'cc_logo.webp');
     }
     const embed = diagnosticPayload({ level: 'error', message: 'General database error' }, 'owner').embeds[0].toJSON();
-    assert.equal(embed.footer.text, 'WW • Bot runtime');
+    assert.equal(embed.footer.text, 'CC • Bot runtime');
     for (const component of ['MySQL', 'PvP scouting', 'Bot runtime']) {
         const general = diagnosticPayload({ level: 'warn', message: 'Service issue', component, reportId: 'N/A' }, 'owner')
             .embeds[0].toJSON();
-        assert.equal(general.footer.text, `WW • ${component}`);
+        assert.equal(general.footer.text, `CC • ${component}`);
         assert.doesNotMatch(general.footer.text, /Scout Report ID|N\/A/u);
     }
 });
@@ -124,7 +124,7 @@ test('recovery logs reply to the original alert and use the green branded embed'
     assert.equal(embed.title, '✅ Service Restored');
     assert.equal(embed.color, 0x57F287);
     assert.equal(embed.description, 'PRO Forum Shop monitor connection restored.');
-    assert.equal(embed.footer.text, 'WW • PRO Forum Shop');
+    assert.equal(embed.footer.text, 'CC • PRO Forum Shop');
     assert.equal(embed.timestamp, '2026-10-15T17:02:57.000Z');
     assert.equal(embed.fields.find(field => field.name === 'Outage duration').value, '12m 5s');
     assert.equal(payload.nonce, 'di:recovery');

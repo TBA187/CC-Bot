@@ -36,11 +36,11 @@ class BotApplication {
         onProcess('SIGINT', () => this.shutdown('SIGINT'), true);
         onProcess('SIGTERM', () => this.shutdown('SIGTERM'), true);
         client.once(Events.ClientReady, () => {
-            if (!lifecycle.stopping) this.onReady().catch(error => this.console.error('[WW LOG] Ready tasks failed:', error));
+            if (!lifecycle.stopping) this.onReady().catch(error => this.console.error('[CC LOG] Ready tasks failed:', error));
         });
         client.on('guildCreate', guild => {
             if (!lifecycle.stopping) this.guildSettings.addGuild(guild)
-                .catch(error => this.console.error('[WW LOG] Error setting up new guild:', error));
+                .catch(error => this.console.error('[CC LOG] Error setting up new guild:', error));
         });
         client.on('interactionCreate', createInteractionHandler({ ...this, consoleObject: this.console }));
         this.startPromise = this.bootstrap();
@@ -51,12 +51,12 @@ class BotApplication {
         this.lifecycle.check();
         const startedAt = Date.now();
         const waitingLog = setInterval(() => {
-            this.console.warn(`[WW LOG] Startup is still waiting for ${label} (${Math.floor((Date.now() - startedAt) / 1000)}s).`);
+            this.console.warn(`[CC LOG] Startup is still waiting for ${label} (${Math.floor((Date.now() - startedAt) / 1000)}s).`);
         }, 15000);
         waitingLog.unref?.();
         try {
             const result = await this.lifecycle.run(work);
-            this.console.log(`[WW LOG] Startup: ${label} loaded in ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`);
+            this.console.log(`[CC LOG] Startup: ${label} loaded in ${((Date.now() - startedAt) / 1000).toFixed(1)}s.`);
             return result;
         } finally { clearInterval(waitingLog); }
     }
@@ -65,15 +65,15 @@ class BotApplication {
         const { db, lifecycle, xpStore, pvpKingStores, giveawayStore, notificationStore, memberHistory,
             scoutServers, scoutServerSettings, appConfig } = this;
         try {
-            this.console.log('[WW LOG] Establishing database connection...');
+            this.console.log('[CC LOG] Establishing database connection...');
             const dbReady = await lifecycle.run(() => db.initPromise);
-            if (!dbReady) this.console.warn('[WW LOG] Database unavailable at startup. DB-backed features will retry when used.');
+            if (!dbReady) this.console.warn('[CC LOG] Database unavailable at startup. DB-backed features will retry when used.');
             await this.startupStep('guild settings', () => this.guildSettings.sync());
             await this.startupStep('XP recovery data', () => xpStore.restore());
             await lifecycle.preload(() => fetchSpecialTracks(db), {
                 timeoutCode: 'XP_TRACK_PRELOAD_TIMEOUT',
-                onTimeout: error => this.console.log(`[WW LOG] XP tracks will refresh in the background (${error.code}).`),
-                onError: error => this.console.warn('[WW LOG] Could not preload XP tracks:', error)
+                onTimeout: error => this.console.log(`[CC LOG] XP tracks will refresh in the background (${error.code}).`),
+                onError: error => this.console.warn('[CC LOG] Could not preload XP tracks:', error)
             });
             await this.startupStep('PvP King data', () => Promise.all(Object.values(pvpKingStores).map(store => store.restore())));
             await this.startupStep('giveaway data', () => giveawayStore.restore());
@@ -83,13 +83,13 @@ class BotApplication {
             // Saved suggestions remain usable while a cold database load finishes in the background.
             await lifecycle.preload(() => scoutServers.warmAutocomplete(), {
                 timeoutCode: 'AUTOCOMPLETE_PRELOAD_TIMEOUT',
-                onTimeout: error => this.console.log(`[WW LOG] Scout autocomplete will refresh in the background (${error.code}).`),
-                onError: error => this.console.warn('[WW LOG] Could not preload scout autocomplete; background refresh will retry:', error)
+                onTimeout: error => this.console.log(`[CC LOG] Scout autocomplete will refresh in the background (${error.code}).`),
+                onError: error => this.console.warn('[CC LOG] Could not preload scout autocomplete; background refresh will retry:', error)
             });
             await lifecycle.preload(() => scoutServerSettings.hydratePreferences(appConfig.guildId), {
                 timeoutCode: 'SERVER_PREFERENCE_PRELOAD_TIMEOUT',
-                onTimeout: error => this.console.log(`[WW LOG] Player server preferences will refresh when used (${error.code}).`),
-                onError: error => this.console.warn('[WW LOG] Could not preload player server preferences; lookups will retry:', error)
+                onTimeout: error => this.console.log(`[CC LOG] Player server preferences will refresh when used (${error.code}).`),
+                onError: error => this.console.warn('[CC LOG] Could not preload player server preferences; lookups will retry:', error)
             });
             const definitions = loadCommands(this);
             const { modules, prefixCommands } = loadEvents(this);
@@ -100,7 +100,7 @@ class BotApplication {
             await lifecycle.run(() => this.client.login(this.token));
         } catch (error) {
             if (this.shutdownStarted) return;
-            this.console.error('[WW LOG] 🚨 Startup Failed:', error);
+            this.console.error('[CC LOG] 🚨 Startup Failed:', error);
             await this.shutdown('Startup failed', 1);
         }
     }
@@ -118,21 +118,21 @@ class BotApplication {
         if (this.lifecycle.stopping) return;
         const { client, commandConfig, appConfig, notificationStore } = this;
         this.botDiagnostics.start();
-        this.console.log(`[WW LOG] Logged in as ${client.user.tag}`);
+        this.console.log(`[CC LOG] Logged in as ${client.user.tag}`);
         this.runtimeHealth.start();
         void this.discordTransport.startWarmup();
         const env = this.processObject.env;
         client.user.setPresence({ status: env.BOT_STATUS || 'online', activities: [{
-            name: env.ACTIVITY_NAME || 'White Walkers', type: ActivityType[env.ACTIVITY_TYPE || 'Watching'] || ActivityType.Playing
+            name: env.ACTIVITY_NAME || 'Crow Control', type: ActivityType[env.ACTIVITY_TYPE || 'Watching'] || ActivityType.Playing
         }] });
         for (const store of Object.values(this.pvpKingStores)) store.startSyncLoop();
         notificationStore.startSyncLoop();
         this.xpStore.startSyncLoop()?.catch(error => this.console.error('[XP QUEUE] Could not start recovery:', error));
         this.guildSettings.startSyncLoop();
         startGiveawayLoop(client, commandConfig);
-        this.guildApplicationMonitor.start().catch(error => this.console.error('[WW LOG] Guild Application monitor failed to start:', error));
-        this.tbaForumShopMonitor.start().catch(error => this.console.error('[WW LOG] TBA PRO Forum shop monitor failed to start:', error));
-        this.scoutServers.start().catch(error => this.console.error('[WW LOG] PvP scouting ingestion failed to start:', error));
+        this.guildApplicationMonitor.start().catch(error => this.console.error('[CC LOG] Guild Application monitor failed to start:', error));
+        this.tbaForumShopMonitor.start().catch(error => this.console.error('[CC LOG] TBA PRO Forum shop monitor failed to start:', error));
+        this.scoutServers.start().catch(error => this.console.error('[CC LOG] PvP scouting ingestion failed to start:', error));
         require('../events/userUpdatesLogger.js').primeUserProfileCache(commandConfig);
         require('../tasks/cooldownNotifier.js').execute(client, commandConfig);
         require('../tasks/proNotifications.js').execute(client, appConfig, notificationStore);
@@ -148,12 +148,12 @@ class BotApplication {
 
     async stopAndExit(signal, exitCode) {
         this.lifecycle.stop();
-        this.console.log(`[WW LOG] ${signal} received. Shutting down cleanly...`);
+        this.console.log(`[CC LOG] ${signal} received. Shutting down cleanly...`);
         // Run every cleanup even if an earlier feature throws while stopping.
         const pending = [];
         const stop = work => {
-            try { pending.push(Promise.resolve(work()).catch(error => this.console.error('[WW LOG] Cleanup failed:', error))); }
-            catch (error) { this.console.error('[WW LOG] Cleanup failed:', error); }
+            try { pending.push(Promise.resolve(work()).catch(error => this.console.error('[CC LOG] Cleanup failed:', error))); }
+            catch (error) { this.console.error('[CC LOG] Cleanup failed:', error); }
         };
         stop(() => this.commandRegistration?.stop());
         stop(() => this.runtimeHealth.stop());

@@ -239,7 +239,7 @@ class PvpScoutIngestor {
     }
 
     get logPrefix() {
-        return `[WW LOG] [PvP Scout] ${this.server === 'silver' ? 'Silver' : 'Gold'}:`;
+        return `[CC LOG] [PvP Scout] ${this.server === 'silver' ? 'Silver' : 'Gold'}:`;
     }
 
     enqueue(task) {

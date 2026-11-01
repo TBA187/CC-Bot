@@ -8,15 +8,16 @@ const {
 } = require('discord.js');
 const { ScoutServerSettings, SERVERS, selectionFeedback } = require('../features/pvp-scouting/ScoutServerSettings.js');
 
-const PREFIX = 'ww-settings:';
+const PREFIX = 'cc-settings:';
+const LEGACY_PREFIX = 'ww-settings:';
 
 function settingsPayload(interaction, selected) {
     const name = interaction.member?.nickname || interaction.member?.nick
         || interaction.user.globalName || interaction.user.username;
     const avatar = interaction.member?.displayAvatarURL?.({ size: 256 })
         || interaction.user.displayAvatarURL?.({ size: 256 });
-    const embed = new EmbedBuilder().setColor(0x02f3d7)
-        .setTitle(`White Walker Guild Settings - ${name}`)
+    const embed = new EmbedBuilder().setColor(0xE63B50)
+        .setTitle(`Crow Control Guild Settings - ${name}`)
         .setDescription(
             '- **Select the Server you are currently playing on below:**\n'
             + `  - ${SERVERS.gold.markup} **Gold:** Press this button to select the **Gold Server**.\n`            
@@ -26,7 +27,7 @@ function settingsPayload(interaction, selected) {
             + '- **Notifications:** Press the 🔔 **Notifications** button to choose which in-game events should ping you.\n'
             + (selected ? `### Selected Server: ${SERVERS[selected].markup} ${SERVERS[selected].label}`
                 : '### Selected Server: *`None`*'))
-        .setFooter({ text: 'White Walker Guild Settings', iconURL: 'attachment://ww_logo.png' })
+        .setFooter({ text: 'Crow Control Guild Settings', iconURL: 'attachment://cc_logo.webp' })
         .setTimestamp();
     if (avatar) embed.setThumbnail(avatar);
     const row = new ActionRowBuilder().addComponents(
@@ -36,13 +37,13 @@ function settingsPayload(interaction, selected) {
         new ButtonBuilder().setCustomId(`${PREFIX}notifications:${interaction.user.id}`)
             .setLabel('Notifications').setEmoji('🔔').setStyle(ButtonStyle.Primary));
     return { embeds: [embed], components: [row], attachments: [],
-        files: [new AttachmentBuilder(path.join(__dirname, '../images/ww_logo.png'), { name: 'ww_logo.png' })],
+        files: [new AttachmentBuilder(path.join(__dirname, '../images/cc_logo.webp'), { name: 'cc_logo.webp' })],
         allowedMentions: { parse: [] } };
 }
 
-class WwSettings {
+class CcSettings {
     constructor(config) {
-        this.name = 'ww-settings';
+        this.name = 'cc-settings';
         this.guildId = String(config.guildId || '');
         this.store = config.guildMemberStore || config.scoutRosterStore;
         this.commandMap = config.commandMap;
@@ -62,14 +63,15 @@ class WwSettings {
             const selected = await this.serverSettings.getSelectedServer(this.guildId, interaction.user.id);
             await interaction.editReply(settingsPayload(interaction, selected));
         } catch (error) {
-            console.error('[WW LOG] Could not load White Walker guild settings:', error);
+            console.error('[CC LOG] Could not load Crow Control guild settings:', error);
             await interaction.editReply({ content: 'Could not load your settings. Please try again.', embeds: [], components: [] });
         }
     }
 
     async handleButton(interaction) {
-        if (!interaction.customId.startsWith(PREFIX)) return false;
-        const [action, ownerId] = interaction.customId.slice(PREFIX.length).split(':');
+        const prefix = [PREFIX, LEGACY_PREFIX].find(value => interaction.customId.startsWith(value));
+        if (!prefix) return false;
+        const [action, ownerId] = interaction.customId.slice(prefix.length).split(':');
         if (ownerId !== interaction.user.id || !this.canUse(interaction)) {
             await interaction.reply({ content: 'No permission!', flags: MessageFlags.Ephemeral });
             return true;
@@ -91,7 +93,7 @@ class WwSettings {
         try {
             result = await this.serverSettings.select(interaction, action, { toggle: true });
         } catch (error) {
-            console.error('[WW LOG] Could not save a guild member server preference:', error);
+            console.error('[CC LOG] Could not save a guild member server preference:', error);
             await interaction.followUp({ content: error.message === 'No permission!' ? 'No permission!'
                 : 'Could not save your server selection and role. Please try again.', flags: MessageFlags.Ephemeral });
             return true;
@@ -99,13 +101,13 @@ class WwSettings {
         try {
             await interaction.editReply(settingsPayload(interaction, result.selected));
         } catch (error) {
-            console.warn(`[WW LOG] Server preference saved, but the guild settings panel could not refresh: ${error.message}`);
+            console.warn(`[CC LOG] Server preference saved, but the guild settings panel could not refresh: ${error.message}`);
         }
         await interaction.followUp({ content: selectionFeedback(result), flags: MessageFlags.Ephemeral });
         return true;
     }
 }
 
-module.exports = WwSettings;
+module.exports = CcSettings;
 module.exports.settingsPayload = settingsPayload;
 module.exports.selectionFeedback = selectionFeedback;

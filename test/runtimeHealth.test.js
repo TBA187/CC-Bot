@@ -60,14 +60,14 @@ test('warnings and recoveries include panel estimates, heap and jobs without ful
         containerMemory: async () => ({ used, limit: 512 * MIB, fileCache: 83 * MIB, inactiveFile: 76 * MIB, workingSet: used - 76 * MIB }),
         activitySnapshot: () => activity.snapshot() });
     await health.sample();
-    const finish = activity.begin('WW server-tag verification');
+    const finish = activity.begin('CC server-tag verification');
     now = 5000; used = 490 * MIB; await health.sample({ report: false });
     assert.equal(fullReads, 2);
     assert.match(warnings[0], /WARNING: 414.0\/512.0 MiB .*container working set; inactive file cache excluded/);
     assert.match(warnings[0], /container total including cache 490.0 MiB/);
     assert.match(warnings[0], /inactive file cache 76.0 MiB; panel-equivalent estimate 414.0 MiB/);
     assert.match(warnings[0], /bot RSS 180.0 MiB; main heap 60.0\/90.0 MiB/);
-    assert.match(warnings[0], /active jobs: WW server-tag verification \(5.0s\)/);
+    assert.match(warnings[0], /active jobs: CC server-tag verification \(5.0s\)/);
     now = 6000; await health.sample({ report: false });
     assert.equal(fullReads, 2);
     finish();
@@ -75,7 +75,7 @@ test('warnings and recoveries include panel estimates, heap and jobs without ful
     assert.equal(fullReads, 3);
     assert.match(reports.at(-1), /Recovered below 75%: 367.9\/512.0/);
     assert.match(reports.at(-1), /panel-equivalent estimate 367.9 MiB/);
-    assert.match(reports.at(-1), /active jobs: none; recent jobs: WW server-tag verification \(6.0s, ended 1.0s ago\)/);
+    assert.match(reports.at(-1), /active jobs: none; recent jobs: CC server-tag verification \(6.0s, ended 1.0s ago\)/);
     now = 30000; await health.sample({ report: false });
     assert.equal(reports.length, 2, 'healthy sampling must not add a periodic report');
 });

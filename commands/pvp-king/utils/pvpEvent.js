@@ -102,7 +102,7 @@ async function announceEventWinner(config, interaction, newKing) {
     const event = configuredEvent(config);
     if (!event || new Date() < utcEventDate(event.startDate)) return;
     const guild = interaction.guild;
-    const marker = 'WW PvP Event • ' + config.pvpServerName + ' • Event ID: ' + event.id;
+    const marker = 'CC PvP Event • ' + config.pvpServerName + ' • Event ID: ' + event.id;
     const sent = announcedEvents.get(guild) || new Set();
     announcedEvents.set(guild, sent);
     const queues = announcementQueues.get(guild) || new Map();
@@ -127,7 +127,7 @@ async function announceEventWinner(config, interaction, newKing) {
             : await guild.members.fetch(winner.winnerId).catch(() => null);
         const victoryLines = winner.wins.map((row, index) => '**' + (index + 1) + '.** <t:'
             + Math.floor(utcEventDate(row.created_at).getTime() / 1000) + ':f>').join('\n');
-        const files = [new AttachmentBuilder('./images/ww_logo.png', { name: 'ww_logo.png' })];
+        const files = [new AttachmentBuilder('./images/cc_logo.webp', { name: 'cc_logo.webp' })];
         let description = configuredEventSummary({ ...event, ...winner });
         if (description.length + victoryLines.length + 35 <= 4096) description += '\n**📜 Event Victory Logs:**\n' + victoryLines;
         else {
@@ -137,7 +137,7 @@ async function announceEventWinner(config, interaction, newKing) {
         }
         const embed = new EmbedBuilder().setTitle('🏆 PvP King Event Challenge has concluded! 🏆')
             .setColor(config.pvpServerColor).setDescription(description)
-            .setFooter({ text: marker, iconURL: 'attachment://ww_logo.png' }).setTimestamp();
+            .setFooter({ text: marker, iconURL: 'attachment://cc_logo.webp' }).setTimestamp();
         if (member) embed.setThumbnail(member.displayAvatarURL());
         await channel.send({
             content: '## <:pepe_king:1455434151262949535> PvP King Event Winner Announcement!\n'

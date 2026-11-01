@@ -183,7 +183,7 @@ class SharedDb {
 }
 
 function fixture(t, changes = {}, { jsonOnly = false, db = null } = {}) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-giveaway-finalize-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-giveaway-finalize-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const g = record(changes);
     db ||= new SharedDb(g);
@@ -319,7 +319,7 @@ test('startup recovers three-day-overdue 70-participant giveaways and replaces t
             assert.equal((await restarted.listEntries('g1')).length, 70);
             assert.equal(f.messages.size, 1);
             const controls = publicPayload.components.flatMap(row => row.toJSON().components);
-            assert.ok(controls.every(control => control.custom_id !== 'ww_giveaway:join_leave'));
+            assert.ok(controls.every(control => control.custom_id !== 'cc_giveaway:join_leave'));
             assert.equal(publicPayload.content, '**🎉  Giveaway Ended!**');
         }
     }
@@ -334,7 +334,7 @@ test('clicking Enter on a three-day-overdue 70-participant giveaway finishes it 
     f.channel.messages.fetch = async () => message;
     const restarted = f.makeStore(); await restarted.restore();
     const replies = [], deferrals = [];
-    await handleGiveawayButton({ customId: 'ww_giveaway:join_leave', client: f.client,
+    await handleGiveawayButton({ customId: 'cc_giveaway:join_leave', client: f.client,
         user: { id: 'late-clicker', bot: false }, message,
         member: { id: 'late-clicker', roles: { cache: { some: () => false } } },
         async deferReply(options) { deferrals.push(options); }, async editReply(payload) { replies.push(payload); }
@@ -346,7 +346,7 @@ test('clicking Enter on a three-day-overdue 70-participant giveaway finishes it 
     assert.equal(f.db.giveaways.get('g1').end_announcement_pending, false);
     assert.equal(f.messages.size, 1);
     assert.ok(publicPayload.components.flatMap(row => row.toJSON().components)
-        .every(control => control.custom_id !== 'ww_giveaway:join_leave'));
+        .every(control => control.custom_id !== 'cc_giveaway:join_leave'));
 });
 
 test('stopping during scheduler reads cannot start a late draw or announcement', async t => {

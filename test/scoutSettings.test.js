@@ -120,7 +120,7 @@ test('staff-only and owner-only guards deny access with private feedback', async
     const nonstaff = interaction(); nonstaff.member.roles = [];
     await settings.execute(nonstaff);
     assert.equal(nonstaff.calls[1][0], 'editReply');
-    assert.match(nonstaff.calls[1][1].content, /Only White Walkers/u);
+    assert.match(nonstaff.calls[1][1].content, /Only Crow Control/u);
     const other = interaction('scout-settings:open-friendly:123456789012345678:0');
     await settings.handleButton(other);
     assert.match(other.calls[0][1].content, /another staff member/u);

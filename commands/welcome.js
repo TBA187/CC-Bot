@@ -19,7 +19,7 @@ class Welcome {
         }
 
         await interaction.reply(
-            `## 🎉  Welcome to White Walkers, <@${member.id}> — We're happy to have you here!  🎉\n` +
+            `## 🎉  Welcome to Crow Control, <@${member.id}> — We're happy to have you here!  🎉\n` +
             `### 📜 **Guild Rules:** <#1246059221280096357>\n` +
             `### 📑 **Discord Information:** <#1454633218094530700>\n` +
             `### 📢 **Guild Announcements:** <#1180559473501290688>\n_ _\n` +

@@ -203,7 +203,7 @@ class PvpScoutStore {
                         lastScouted: saved.lastScouted || {}, expiresAt: 0 });
                 }
             } catch (error) {
-                if (error.code !== 'ENOENT') console.warn(`[WW LOG] Scout autocomplete cache will be rebuilt (${error.code || 'invalid file'}).`);
+                if (error.code !== 'ENOENT') console.warn(`[CC LOG] Scout autocomplete cache will be rebuilt (${error.code || 'invalid file'}).`);
             }
         }
     }
@@ -1217,7 +1217,7 @@ class PvpScoutStore {
                         version: 4, channelId: this.channelId, names, reportCounts, lastScouted
                     });
                 } catch (error) {
-                    console.warn(`[WW LOG] Could not save scout autocomplete cache (${error.code || error.message}).`);
+                    console.warn(`[CC LOG] Could not save scout autocomplete cache (${error.code || error.message}).`);
                 }
             }
             while (this.autocompleteCache.size > 100) {

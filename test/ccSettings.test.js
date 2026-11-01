@@ -4,7 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ButtonStyle, MessageFlags, PermissionFlagsBits } = require('discord.js');
-const WwSettings = require('../commands/ww-settings.js');
+const CcSettings = require('../commands/cc-settings.js');
 const Notifications = require('../commands/notifications.js');
 const { SERVERS } = require('../features/pvp-scouting/ScoutServerSettings.js');
 
@@ -23,7 +23,7 @@ function fixture() {
                 return { previous, selected: next };
             }
         } };
-    return { command: new WwSettings(config), config, selected, commandMap };
+    return { command: new CcSettings(config), config, selected, commandMap };
 }
 
 function interaction(action = '') {
@@ -39,7 +39,7 @@ function interaction(action = '') {
     } }, roles: { async fetch(id) { return { id, managed: false }; } } };
     return { calls, user, member,
         guildId: 'guild', guild, inGuild: () => true,
-        customId: action ? `ww-settings:${action}:user` : '', id: `interaction-${action}`,
+        customId: action ? `cc-settings:${action}:user` : '', id: `interaction-${action}`,
         message: { id: 'panel' },
         async reply(payload) { calls.push(['reply', payload]); },
         async deferReply(payload) { calls.push(['deferReply', payload]); },
@@ -52,15 +52,15 @@ function interaction(action = '') {
 test('guild settings registers the command and shows branded private controls in the requested order', async () => {
     const f = fixture(), i = interaction();
     await f.command.execute(i);
-    assert.equal(f.command.data.toJSON().name, 'ww-settings');
+    assert.equal(f.command.data.toJSON().name, 'cc-settings');
     assert.deepEqual(i.calls[0], ['deferReply', { flags: MessageFlags.Ephemeral }]);
     const payload = i.calls[1][1], embed = payload.embeds[0].toJSON();
-    assert.equal(embed.title, 'White Walker Guild Settings - ServerName');
+    assert.equal(embed.title, 'Crow Control Guild Settings - ServerName');
     assert.equal(embed.thumbnail.url, 'https://example.com/avatar.png');
-    assert.equal(embed.footer.text, 'White Walker Guild Settings');
-    assert.equal(embed.footer.icon_url, 'attachment://ww_logo.png');
+    assert.equal(embed.footer.text, 'Crow Control Guild Settings');
+    assert.equal(embed.footer.icon_url, 'attachment://cc_logo.webp');
     assert.ok(embed.timestamp);
-    assert.equal(payload.files[0].name, 'ww_logo.png');
+    assert.equal(payload.files[0].name, 'cc_logo.webp');
     assert.match(embed.description, /Silver:\*\* Press this button to select the \*\*Silver Server\*\*/u);
     assert.match(embed.description, /Selected Server: \*`None`\*/u);
     const buttons = payload.components[0].toJSON().components;
@@ -77,7 +77,7 @@ test('title uses server nickname, global display name, then username', () => {
         ['Nickname', 'Global', 'Nickname'], [null, 'Global', 'Global'], [null, null, 'AccountName']
     ]) {
         i.member.nickname = nickname; i.user.globalName = globalName;
-        assert.equal(WwSettings.settingsPayload(i, null).embeds[0].toJSON().title, `White Walker Guild Settings - ${expected}`);
+        assert.equal(CcSettings.settingsPayload(i, null).embeds[0].toJSON().title, `Crow Control Guild Settings - ${expected}`);
     }
 });
 
@@ -134,6 +134,15 @@ test('reopening settings reads the persistent server preference after acknowledg
     };
     await f.command.execute(i);
     assert.match(i.calls[1][1].embeds[0].toJSON().description, /Selected Server: <:silver:1555743603567886478> Silver/u);
+});
+
+test('a previously posted settings button still saves a server and refreshes to new controls', async () => {
+    const f = fixture(), i = interaction('gold');
+    i.customId = 'ww-settings:gold:user';
+    assert.equal(await f.command.handleButton(i), true);
+    assert.equal(f.selected.get('user'), 'gold');
+    const payload = i.calls.find(call => call[0] === 'editReply')[1];
+    assert.ok(payload.components[0].toJSON().components.every(button => button.custom_id.startsWith('cc-settings:')));
 });
 
 test('Notifications opens the existing command privately below settings, without editing settings or server', async () => {

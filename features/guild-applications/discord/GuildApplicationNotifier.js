@@ -11,12 +11,12 @@ const {
     removeAttachmentFilenames
 } = require('../parsing/GuildApplicationParser.js');
 
-const EMBED_COLOR = 0x1bb4c5;
+const EMBED_COLOR = 0xe63b50;
 const NOT_AVAILABLE = '*N/A*';
 const ADDITIONAL_IMAGE_BATCH_LIMIT = 10;
 const PRO_FORUM_EMOJI = '<:pro_revolution_online:1526117366159638628>';
-const WW_LOGO_NAME = 'ww_logo.png';
-const WW_LOGO_PATH = path.join(__dirname, '..', '..', '..', 'images', WW_LOGO_NAME);
+const CC_LOGO_NAME = 'cc_logo.webp';
+const CC_LOGO_PATH = path.join(__dirname, '..', '..', '..', 'images', CC_LOGO_NAME);
 
 const EXTRA_PLACEHOLDER_PATTERNS = [
     /^(?:📌\s*)?(?:in[\s-]*game(?:[\s-]*name)?|ign|age|country)\s*:?$/iu,
@@ -72,7 +72,7 @@ function formatSubmittedDate(value, timeZone = 'Etc/UTC') {
 }
 
 function logoFile() {
-    return { attachment: WW_LOGO_PATH, name: WW_LOGO_NAME };
+    return { attachment: CC_LOGO_PATH, name: CC_LOGO_NAME };
 }
 
 function splitFieldValue(value, limit = 1024) {
@@ -140,12 +140,12 @@ class GuildApplicationNotifier {
     }
 
     initialOfficerContent(record) {
-        return `### <@&${this.officerRoleId}>, a new application to join White Walkers has been submitted through the [**PRO Forum**](<${this.topicUrl}>) ${PRO_FORUM_EMOJI}\n`
+        return `### <@&${this.officerRoleId}>, a new application to join Crow Control has been submitted through the [**PRO Forum**](<${this.topicUrl}>) ${PRO_FORUM_EMOJI}\n`
             + `- PRO Forum Application: [**Click Here!**](<${record.postUrl}>)`;
     }
 
     officerContentWithPoll(record, pollUrl) {
-        return `### <@&${this.officerRoleId}>, a new application to join White Walkers has been submitted through the [**PRO Forum**](<${this.topicUrl}>) ${PRO_FORUM_EMOJI}\n`
+        return `### <@&${this.officerRoleId}>, a new application to join Crow Control has been submitted through the [**PRO Forum**](<${this.topicUrl}>) ${PRO_FORUM_EMOJI}\n`
             + `Review the application and cast your vote in ${pollUrl}\n`
             + `- PRO Forum Application: [**Click Here!**](<${record.postUrl}>)`;
     }
@@ -158,12 +158,12 @@ class GuildApplicationNotifier {
 
     createApplicationEmbed(record) {
         return new EmbedBuilder()
-            .setTitle('White Walker Guild Application')
+            .setTitle('Crow Control Guild Application')
             .setURL(this.topicUrl)
             .setColor(EMBED_COLOR)
             .setFooter({
                 text: `Guild Application Submitted: ${formatSubmittedDate(record.postedAt, this.botTimezone)}`,
-                iconURL: `attachment://${WW_LOGO_NAME}`
+                iconURL: `attachment://${CC_LOGO_NAME}`
             });
     }
 
@@ -262,12 +262,12 @@ class GuildApplicationNotifier {
                 needles
             });
             if (message) {
-                console.log(`[WW LOG] Recovered ${label} for Guild Application forum post ${postId || 'unknown'}; duplicate send skipped.`);
+                console.log(`[CC LOG] Recovered ${label} for Guild Application forum post ${postId || 'unknown'}; duplicate send skipped.`);
             }
             return message;
         } catch (error) {
             console.warn(
-                `[WW LOG] Could not check recent Discord messages for Guild Application ${postId || 'unknown'} ${label}: `
+                `[CC LOG] Could not check recent Discord messages for Guild Application ${postId || 'unknown'} ${label}: `
                 + `${error.code || error.message}`
             );
             return null;
@@ -280,7 +280,7 @@ class GuildApplicationNotifier {
         if (!officerMessage) {
             officerMessage = await this.findRecoveredMessage(
                 officerChannel,
-                [record.postUrl, 'a new application to join White Walkers'],
+                [record.postUrl, 'a new application to join '],
                 'Officer alert',
                 record.postId
             );
@@ -330,7 +330,7 @@ class GuildApplicationNotifier {
                 pollMessage = await courtChannel.send({
                     content: this.courtContent(record, record.officerMessageUrl),
                     poll: {
-                        question: { text: `Invite ${record.ign} to White Walkers?` },
+                        question: { text: `Invite ${record.ign} to Crow Control?` },
                         answers: [{ text: 'Yes' }, { text: 'No' }],
                         duration: 24,
                         allowMultiselect: false
@@ -353,7 +353,7 @@ class GuildApplicationNotifier {
             record.notifiedAt = new Date().toISOString();
             record.lastError = null;
         } catch (error) {
-            console.error('[WW LOG] Guild Application poll could not be created:', error);
+            console.error('[CC LOG] Guild Application poll could not be created:', error);
             record.notificationStatus = 'notified_poll_failed';
             record.notifiedAt = new Date().toISOString();
             record.lastError = error.message;

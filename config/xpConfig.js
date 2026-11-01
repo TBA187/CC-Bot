@@ -5,8 +5,8 @@ const path = require('path');
 
 module.exports = {
     // --- XP Embed Images --- TP-DO: PLACE IN BOTTOM AFTER IMPLEMENTED CORRECTLY WITH ACTUAL SERVER IMAGES!
-    logoPath: path.join(__dirname, '../images/ww_logo.png'),
-    bannerPath: path.join(__dirname, '../images/ww.png'),
+    logoPath: path.join(__dirname, '../images/cc_logo.webp'),
+    bannerPath: path.join(__dirname, '../images/cc_banner.webp'),
 
     // --- Independent XP Toggles ---
     globalEnabled: true,              // Toggle Global XP tracking ON/OFF
@@ -103,7 +103,7 @@ module.exports = {
         whiteListRoles: [],
         sendLevelUpMsg: false,
         tagUserLevelUpMsg: true,
-        color: '#5865F2', // Blurple
+        color: '#e63b50',
     },
 
     // This is fetched from the remote database now!

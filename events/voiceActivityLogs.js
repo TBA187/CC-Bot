@@ -12,7 +12,7 @@ function buildVoicePayload(member, oldChannelId, newChannelId, counts = {}) {
     const count = value => Number.isInteger(value) && value >= 0 ? value : 'Unavailable';
     const text = moved ? `Members in Voice Channels: Previous ${count(counts.old)} • New ${count(counts.new)}`
         : `Members in Voice Channel: ${count(newChannelId ? counts.new : counts.old)}`;
-    payload.embeds[0].setFooter({ text, iconURL: 'attachment://ww_logo.png' });
+    payload.embeds[0].setFooter({ text, iconURL: 'attachment://cc_logo.webp' });
     return payload;
 }
 

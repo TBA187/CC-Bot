@@ -90,7 +90,7 @@ function fixture(t) {
 function assertEnded(payload, winner = '123456789012345678') {
     assert.equal(payload.content, '**🎉  Giveaway Ended!**');
     const controls = payload.components.flatMap(row => row.toJSON().components);
-    assert.deepEqual(controls.map(control => control.custom_id), ['ww_giveaway:participants']);
+    assert.deepEqual(controls.map(control => control.custom_id), ['cc_giveaway:participants']);
     assert.deepEqual(payload.allowedMentions, { parse: [] });
     const embed = payload.embeds[0].toJSON();
     assert.ok(embed.fields.some(field => field.name === '❌ Giveaway ended!'));

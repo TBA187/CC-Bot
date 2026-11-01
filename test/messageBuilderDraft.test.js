@@ -1,5 +1,5 @@
 /**
- * @fileoverview Verify message-draft validation, White Walker branding, attachments and JSON round trips.
+ * @fileoverview Verify message-draft validation, Crow Control branding, attachments and JSON round trips.
  * Protect editable message data and import compatibility without Discord API requests.
  */
 'use strict';
@@ -9,7 +9,7 @@ const { Collection, EmbedBuilder } = require('discord.js');
 const {
     EmbedDraft, EmbedFieldDraft, EmbedMediaDraft, MessageAttachmentDraft, ImportedAttachment,
     MAX_DESCRIPTION, MAX_EMBED_TEXT, FOOTER_TEXT, LOGO_FILENAME, LOGO_URL, MESSAGE_JSON_FORMAT,
-    applyWhiteWalkerBrandingDefaults, buildMediaFiles, buildMessageAttachmentFiles,
+    applyCrowControlBrandingDefaults, buildMediaFiles, buildMessageAttachmentFiles,
     draftFromMessage, validateEmbedDraft, reconcileEditAttachments, relatedAttachmentIdsFromMessage,
     exportMessageJson, importMessageJson, parseEmbedTimestamp, formatEmbedTimestamp,
     normalizeEmbedColor, expandLiteralLineBreaks, expandFieldSpacingEscapes,
@@ -90,14 +90,14 @@ test('timestamps support offsets, 12-hour clocks, current local dates and IANA D
     assert.throws(() => parse('2026-07-18T17:30+01:00 CEST'), /more than one timezone/);
 });
 
-test('branding fills editable WW defaults and sends one local logo', async () => {
+test('branding fills editable CC defaults and sends one local logo', async () => {
     const draft = new EmbedDraft();
-    applyWhiteWalkerBrandingDefaults(draft);
+    applyCrowControlBrandingDefaults(draft);
     const payload = draft.toEmbedDict();
     assert.deepEqual(payload.footer, { text: FOOTER_TEXT, icon_url: LOGO_URL });
     assert.deepEqual(payload.thumbnail, { url: LOGO_URL });
-    assert.equal(payload.color, 0x00e4ff);
-    assert.equal(draft.whiteWalkerBranding, true);
+    assert.equal(payload.color, 0xe63b50);
+    assert.equal(draft.crowControlBranding, true);
     assert.ok(Math.abs(Date.now() - parseEmbedTimestamp(payload.timestamp).getTime()) < 2000);
     const files = await buildMediaFiles(draft);
     assert.equal(files.length, 1);
@@ -166,7 +166,7 @@ test('JSON exports round-trip binary files, all draft properties and extra embed
     const file = attachment('301', 'guide.txt', Buffer.from([0, 1, 255]), 'text/plain');
     const image = attachment('302', 'banner.png');
     const draft = new EmbedDraft({
-        messageContent: 'Message text', messageAttachments: [new MessageAttachmentDraft(file)], whiteWalkerBranding: true,
+        messageContent: 'Message text', messageAttachments: [new MessageAttachmentDraft(file)], crowControlBranding: true,
         title: 'Exported title', titleUrl: 'https://example.com/title', authorName: 'Author',
         authorIcon: new EmbedMediaDraft({ url: 'https://example.com/author.png' }),
         thumbnail: new EmbedMediaDraft({ url: 'https://example.com/thumb.png' }), description: 'Embed description',
@@ -177,15 +177,19 @@ test('JSON exports round-trip binary files, all draft properties and extra embed
     const exported = await exportMessageJson(draft, { additionalEmbeds: [new EmbedBuilder({ title: 'Second embed' })] });
     const payload = JSON.parse(exported);
     assert.equal(payload.format, MESSAGE_JSON_FORMAT);
-    assert.equal(payload.embed.whiteWalkerBranding, undefined);
+    assert.equal(payload.embed.crowControlBranding, undefined);
     const restored = importMessageJson(exported);
-    assert.deepEqual(restored.draft.snapshot(), { ...draft.snapshot(), whiteWalkerBranding: false });
+    assert.deepEqual(restored.draft.snapshot(), { ...draft.snapshot(), crowControlBranding: false });
     assert.deepEqual(await restored.draft.messageAttachments[0].attachment.read(), Buffer.from([0, 1, 255]));
     assert.deepEqual(await restored.draft.image.attachment.read(), Buffer.from('attachment'));
     assert.equal(restored.additionalEmbeds[0].toJSON().title, 'Second embed');
     assert.deepEqual((await buildMessageAttachmentFiles(restored.draft)).map(item => item.name), ['guide.txt', 'embed-image.png']);
-    payload.format = 'whitewalker-custom-message';
+    payload.format = 'crowcontrol-custom-message';
     assert.equal(importMessageJson(JSON.stringify(payload)).draft.title, draft.title);
+    for (const format of ['white-walker-custom-message', 'whitewalker-custom-message']) {
+        payload.format = format;
+        assert.equal(importMessageJson(JSON.stringify(payload)).draft.title, draft.title);
+    }
 });
 
 test('external Discord JSON import is validated and malformed imports leave no partial result', () => {
@@ -253,9 +257,9 @@ test('text-editor branding preserves unrelated attachments and custom footer ico
     assert.equal(custom.toJSON().footer.icon_url, 'https://example.com/custom.png');
 });
 
-test('exported WW branding reuses identical named logo bytes after import', async () => {
+test('exported CC branding reuses identical named logo bytes after import', async () => {
     const draft = new EmbedDraft({ title: 'Branded export' });
-    applyWhiteWalkerBrandingDefaults(draft);
+    applyCrowControlBrandingDefaults(draft);
     const { draft: restored } = importMessageJson(await exportMessageJson(draft));
     const files = await buildMediaFiles(restored);
     assert.equal(files.length, 1);

@@ -4,7 +4,8 @@
 const { EmbedBuilder, LabelBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const { withButtonLoading } = require('../../utils/interactionLoading.js');
 
-const LOGO_NAME = 'ww_logo.png';
+const LOGO_NAME = 'cc_logo.webp';
+const isBrandLogo = attachment => [LOGO_NAME, 'ww_logo.png'].includes(attachment.name);
 
 function scoutTextInput(id, label, value = '', paragraph = false, required = false, maxLength = 4000, placeholder = '') {
     const input = new TextInputBuilder().setCustomId(id).setRequired(required).setMaxLength(maxLength)
@@ -24,15 +25,15 @@ function scoutPayload(payload, message = null) {
         // embeds footerless so the logo and page count appear only once.
         if (!json.footer && index < payload.embeds.length - 1) return new EmbedBuilder(json);
         const savedIcon = json.footer?.icon_url;
-        return new EmbedBuilder(json).setFooter({ text: json.footer?.text || 'White Walkers',
+        return new EmbedBuilder(json).setFooter({ text: json.footer?.text || 'Crow Control',
             ...(iconURL || savedIcon && !savedIcon.startsWith('attachment://')
                 ? { iconURL: iconURL || savedIcon } : {}) });
     });
     const result = { ...payload, embeds };
-    if (payload.files) result.files = payload.files.filter(file => file.name !== LOGO_NAME);
-    if (payload.attachments) result.attachments = payload.attachments.filter(attachment => attachment.name !== LOGO_NAME);
-    else if (message?.attachments?.some?.(attachment => attachment.name === LOGO_NAME)) {
-        result.attachments = [...message.attachments.values()].filter(attachment => attachment.name !== LOGO_NAME)
+    if (payload.files) result.files = payload.files.filter(file => !isBrandLogo(file));
+    if (payload.attachments) result.attachments = payload.attachments.filter(attachment => !isBrandLogo(attachment));
+    else if (message?.attachments?.some?.(isBrandLogo)) {
+        result.attachments = [...message.attachments.values()].filter(attachment => !isBrandLogo(attachment))
             .map(attachment => ({ id: attachment.id }));
     }
     return result;

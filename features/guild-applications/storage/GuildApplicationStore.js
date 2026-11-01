@@ -209,7 +209,7 @@ class GuildApplicationStore {
             });
             if (this.localStorageOutage && changed) {
                 this.localStorageOutage = false;
-                console.log('[WW LOG] Guild Application local JSON storage restored.');
+                console.log('[CC LOG] Guild Application local JSON storage restored.');
             }
             return changed;
         } catch (error) {
@@ -413,14 +413,14 @@ class GuildApplicationStore {
 
     noteMysqlFailure(error) {
         if (this.db?.isDatabaseUnavailableError && !this.db.isDatabaseUnavailableError(error)) {
-            console.error('[WW LOG] Unexpected MySQL Guild Application storage error:', error);
+            console.error('[CC LOG] Unexpected MySQL Guild Application storage error:', error);
             return;
         }
         if (this.mysqlOutage) return;
         this.mysqlOutage = true;
         const prefix = this.storageMode === 'mysql'
-            ? '[WW LOG] MySQL Guild Application storage failed in STORAGE_MODE=mysql. Using JSON fallback:'
-            : '[WW LOG] MySQL Guild Application storage unavailable. Using JSON fallback:';
+            ? '[CC LOG] MySQL Guild Application storage failed in STORAGE_MODE=mysql. Using JSON fallback:'
+            : '[CC LOG] MySQL Guild Application storage unavailable. Using JSON fallback:';
         const errorCode = this.db?.getErrorCode?.(error) || error?.causeCode || error?.code || error?.message || error;
         console.warn(prefix, errorCode);
     }
@@ -428,16 +428,16 @@ class GuildApplicationStore {
     noteMysqlRestored() {
         if (!this.mysqlOutage) return;
         this.mysqlOutage = false;
-        console.log('[WW LOG] MySQL Guild Application storage restored; JSON fallback is synchronized.');
+        console.log('[CC LOG] MySQL Guild Application storage restored; JSON fallback is synchronized.');
     }
 
     noteLocalStorageFailure(error) {
         if (this.localStorageOutage) return;
         this.localStorageOutage = true;
         if (error.code === 'ENOSPC' || error.code === 'EDQUOT') {
-            console.error(`[WW LOG] Guild Application local JSON storage cannot write (${error.code}). Check container quota, free space, and inodes; any previous complete file is preserved. Retries continue.`);
+            console.error(`[CC LOG] Guild Application local JSON storage cannot write (${error.code}). Check container quota, free space, and inodes; any previous complete file is preserved. Retries continue.`);
         } else {
-            console.error('[WW LOG] Guild Application local JSON storage failed; processing will retry:', error);
+            console.error('[CC LOG] Guild Application local JSON storage failed; processing will retry:', error);
         }
     }
 

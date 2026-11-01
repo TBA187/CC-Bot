@@ -13,13 +13,13 @@ const boostTypes = new Set([
 function buildBoostPayload(user, count) {
     const embed = new EmbedBuilder().setTitle('Server Boosted!\u2002💜')
         .setColor(0xF47FFF)
-        .setDescription(`**Thank you for boosting the White Walkers server, <@${user.id}>**\n` +
+        .setDescription(`**Thank you for boosting the Crow Control server, <@${user.id}>**\n` +
             'Your support helps make our community even stronger. 💜')
         .setThumbnail(user.displayAvatarURL({ size: 128 }))
         .setFooter({ text: `Server Boosts: ${Number.isInteger(count) && count >= 0 ? count : 'Unavailable'}`,
-            iconURL: 'attachment://ww_logo.png' })
+            iconURL: 'attachment://cc_logo.webp' })
         .setTimestamp();
-    return { content: `<@${user.id}>`, embeds: [embed], files: [new AttachmentBuilder(path.join(__dirname, '../images/ww_logo.png'), { name: 'ww_logo.png' })],
+    return { content: `<@${user.id}>`, embeds: [embed], files: [new AttachmentBuilder(path.join(__dirname, '../images/cc_logo.webp'), { name: 'cc_logo.webp' })],
         allowedMentions: { parse: [], users: [user.id] } };
 }
 

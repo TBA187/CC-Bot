@@ -9,7 +9,7 @@ class Ping {
         this.name = 'ping';
         this.data = new SlashCommandBuilder()
             .setName('ping')
-            .setDescription('Check White Walker bot latency');
+            .setDescription('Check Crow Control bot latency');
     }
 
     async execute(interaction) {
@@ -19,8 +19,8 @@ class Ping {
         const apiMs = performance.now() - startTime;
 
         return interaction.editReply(
-            `**<:kyurem:1472065995089645609>  Gateway Latency:** ${gatewayMs.toFixed(2)}ms *(avg)*\n` +
-            `**<:kyurem:1472065995089645609>  API Latency:** ${apiMs.toFixed(2)}ms *(real-time)*`
+            `**<:dark_murkrow:1565243892255694908>  Gateway Latency:** ${gatewayMs.toFixed(2)}ms *(avg)*\n` +
+            `**<:dark_murkrow:1565243892255694908>  API Latency:** ${apiMs.toFixed(2)}ms *(real-time)*`
         );
     }
 }

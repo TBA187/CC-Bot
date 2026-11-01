@@ -276,7 +276,7 @@ test('startup logs meaningful reconciliation changes and stays quiet when unchan
         assert.deepEqual(logs, []);
         result = { added: 1, restored: 2, former: 3, updated: 4, alreadySeeded: true };
         await handlers.get('ready')();
-        assert.deepEqual(logs, ['[WW LOG] Scout startup: reconciled MySQL member/friendly lists from Discord (guild guild); 1 added, 2 restored, 3 marked former, 4 saved profile(s) refreshed. Local data files are not used for this check.']);
+        assert.deepEqual(logs, ['[CC LOG] Scout startup: reconciled MySQL member/friendly lists from Discord (guild guild); 1 added, 2 restored, 3 marked former, 4 saved profile(s) refreshed. Local data files are not used for this check.']);
     } finally {
         console.log = originalLog;
     }
@@ -295,8 +295,8 @@ test('startup logs the MySQL source, member ID and saved old/new values, then st
     t.mock.method(console, 'log', value => logs.push(value));
     await handlers.get('ready')();
     assert.deepEqual(logs, [
-        '[WW LOG] Scout startup: reconciled MySQL member/friendly lists from Discord (guild guild); 1 saved profile(s) refreshed. Local data files are not used for this check.',
-        '[WW LOG] Scout profile saved to MySQL for "user-linked" (Discord ID linked): member list: global display name "Old display name" -> "New display name\\nwith a newline"; friendly list (IGN "ManualIgn"): username "old-user" -> "user-linked".'
+        '[CC LOG] Scout startup: reconciled MySQL member/friendly lists from Discord (guild guild); 1 saved profile(s) refreshed. Local data files are not used for this check.',
+        '[CC LOG] Scout profile saved to MySQL for "user-linked" (Discord ID linked): member list: global display name "Old display name" -> "New display name\\nwith a newline"; friendly list (IGN "ManualIgn"): username "old-user" -> "user-linked".'
     ]);
     logs.length = 0;
     await handlers.get('ready')();

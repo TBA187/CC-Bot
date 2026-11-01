@@ -522,7 +522,7 @@ test('stale send and edit sessions preserve their exact recovery instructions', 
         assert.equal(response.content,
             '### Embed builder session ended\nThis preview was opened before the bot restarted. ' +
             (mode === 'edit'
-                ? 'Right-click the **original public White Walker bot message**, then select **Apps → Edit Bot Embed (Officer)** again.'
+                ? 'Right-click the **original public Crow Control bot message**, then select **Apps → Edit Bot Embed (Officer)** again.'
                 : 'Run the `/send_message` command again to start a new builder.'));
     }
     const { controller: recentlyClosed, session } = fixture();
@@ -692,32 +692,32 @@ test('Discord preview failures from a modal use the source builder error wording
     assertPrivate(privateResponse(interaction));
 });
 
-test('send command metadata, staff permissions and White Walker defaults remain consistent', async () => {
+test('send command metadata, staff permissions and Crow Control defaults remain consistent', async () => {
     const SendMessage = require('../commands/send_message.js');
-    const { FOOTER_TEXT, LOGO_FILENAME, WHITE_WALKER_BRANDING_COLOR } = require('../features/message-builder/draft.js');
+    const { FOOTER_TEXT, LOGO_FILENAME, CROW_CONTROL_BRANDING_COLOR } = require('../features/message-builder/draft.js');
     const command = new SendMessage({ leaderRoleID: 'leader-role', adminRoleID: 'admin-role', officerRoleID: 'officer-role' });
     const slash = command.data[0].toJSON();
     const context = command.data[1].toJSON();
     assert.equal(slash.name, 'send_message');
     assert.equal(slash.description,
         'Send a custom bot message or embed. Command opens a builder to customize the message before sending.');
-    assert.deepEqual(slash.options.map(option => option.name), ['channel', 'message_content', 'white_walker_branding']);
+    assert.deepEqual(slash.options.map(option => option.name), ['channel', 'message_content', 'crow_control_branding']);
     assert.ok(slash.options.every(option => !option.required));
     assert.equal(context.name, 'Edit Bot Embed (Officer)');
     for (const role of ['leader-role', 'admin-role', 'officer-role']) {
         const interaction = fakeInteraction({
             member: { roles: { cache: new Collection([[role, { id: role }]]) } },
-            options: { getChannel: () => null, getString: id => ({ message_content: 'Line 1\\nLine 2', white_walker_branding: 'yes' })[id] },
+            options: { getChannel: () => null, getString: id => ({ message_content: 'Line 1\\nLine 2', crow_control_branding: 'yes' })[id] },
         });
         await command.handleSlash(interaction);
         assert.deepEqual(interaction.calls.map(([kind]) => kind), ['deferReply', 'editReply']);
         const session = Array.from(command.sessions.values()).at(-1);
         assert.equal(session.draft.messageContent, 'Line 1\nLine 2');
         assert.equal(session.draft.footerText, FOOTER_TEXT);
-        assert.equal(session.draft.color, WHITE_WALKER_BRANDING_COLOR);
+        assert.equal(session.draft.color, CROW_CONTROL_BRANDING_COLOR);
         assert.equal(session.draft.useCurrentTimestamp, true);
         assert.ok(session.draft.thumbnail.attachment?.filename === LOGO_FILENAME || session.draft.thumbnail.url);
-        assert.ok(session.builderContent().includes('-# - White Walker Branding: **Yes**'));
+        assert.ok(session.builderContent().includes('-# - Crow Control Branding: **Yes**'));
         const thumbnail = modalJSON(session, 'thumbnail');
         const footer = modalJSON(session, 'footer');
         assert.equal(thumbnail.components[1].component.value, session.draft.thumbnail.inputUrl);
@@ -747,7 +747,7 @@ test('embed context menu permits each requested role and guards other bots and b
     const authorized = { roles: { cache: new Collection([['officer-role', { id: 'officer-role' }]]) } };
     const other = fakeInteraction({ member: authorized, targetMessage: { ...message, author: { id: 'other-bot' } } });
     await command.handleContext(other);
-    assert.equal(privateResponse(other).content, 'Only White Walker bot messages can be edited.');
+    assert.equal(privateResponse(other).content, 'Only Crow Control bot messages can be edited.');
     const blocked = fakeInteraction({ member: authorized, targetMessage: { ...message, channelId: 'blocked', channel: { ...channel, id: 'blocked' } } });
     await command.handleContext(blocked);
     assert.equal(privateResponse(blocked).content, 'Editing bot messages is not allowed in this channel.');

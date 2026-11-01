@@ -70,7 +70,7 @@ function startServerCooldownNotifier(client, config) {
             if (stopped) return;
             if (storageUnavailable) {
                 storageUnavailable = false;
-                console.log('[WW LOG] PvP cooldown notification storage restored; scheduled checks resumed.');
+                console.log('[CC LOG] PvP cooldown notification storage restored; scheduled checks resumed.');
             }
 
             if (expired.length === 0) return;
@@ -98,13 +98,13 @@ function startServerCooldownNotifier(client, config) {
                 );
                 if (alreadyNotified.size) {
                     console.log(
-                        `[WW LOG] Recovered ${alreadyNotified.size} recent PvP cooldown notification(s); duplicate ping skipped.`
+                        `[CC LOG] Recovered ${alreadyNotified.size} recent PvP cooldown notification(s); duplicate ping skipped.`
                     );
                 }
             } catch (error) {
                 if (stopped) return;
                 console.warn(
-                    '[WW LOG] Could not check recent PvP cooldown messages for duplicates; database state remains the primary guard:',
+                    '[CC LOG] Could not check recent PvP cooldown messages for duplicates; database state remains the primary guard:',
                     error.code || error.message
                 );
             }
@@ -122,7 +122,7 @@ function startServerCooldownNotifier(client, config) {
             if (stopped) return;
 
             if (usersToPing.length > 0) {
-                const logoFile = new AttachmentBuilder('./images/ww_logo.png', { name: 'ww_logo.png' });
+                const logoFile = new AttachmentBuilder('./images/cc_logo.webp', { name: 'cc_logo.webp' });
                 const pvpKingCdEmbed = new EmbedBuilder()
                     .setColor(pvpServerColor)
                     .setTitle(`🔔 PvP Cooldown Expired! — ${pvpServerName} ${pvpServerEmoji}`)
@@ -132,7 +132,7 @@ function startServerCooldownNotifier(client, config) {
                         `- Your cooldown against <@${currentKing.id}> has expired.\n` +
                         '- You may now challenge the **PvP King** once again! ⚔️'
                     )
-                    .setFooter({ text: `WW PvP King System • ${pvpServerName}`, iconURL: 'attachment://ww_logo.png' })
+                    .setFooter({ text: `CC PvP King System • ${pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                     .setTimestamp();
 
                 await pvpChannel.send({
@@ -151,12 +151,12 @@ function startServerCooldownNotifier(client, config) {
                 if (!storageUnavailable) {
                     storageUnavailable = true;
                     console.warn(
-                        '[WW LOG] PvP cooldown notification check paused because neither MySQL nor a usable JSON snapshot is available. ' +
+                        '[CC LOG] PvP cooldown notification check paused because neither MySQL nor a usable JSON snapshot is available. ' +
                         'The task will retry every minute.'
                     );
                 }
             } else {
-                console.error('[WW LOG] Cooldown Task Error:', err);
+                console.error('[CC LOG] Cooldown Task Error:', err);
             }
         } finally {
             isRunning = false;

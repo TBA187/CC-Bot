@@ -92,7 +92,7 @@ test('Host and Prize appear in the description above plain-valued active giveawa
     assert.equal(embed.fields[0].value, '20');
     assert.equal(embed.fields[1].value, '50');
     assert.ok(embed.fields.every(field => !field.value.startsWith('- ') && !field.value.includes('**')));
-    for (const host of ['<@123456789012345678>', '<@&123456789012345678>', '@White Walkers Team']) {
+    for (const host of ['<@123456789012345678>', '<@&123456789012345678>', '@Crow Control Team']) {
         const description = giveaways.buildGiveawayEmbed({ ...f.initial, host_text: host }).toJSON().description;
         assert.ok(description.startsWith(`<:man_of_culture:1186287184106496112>\u2002**Host:** ${host}\n`));
     }
@@ -144,7 +144,7 @@ test('original ended giveaways have a blue Participants button and show View Win
         await f.store.updateGiveaway(f.initial.giveaway_id, { message_id: '400000000000000000' });
         const payload = await originalMessage(f.store, f.initial.giveaway_id);
         const buttons = controls(payload);
-        assert.equal(buttons[0].custom_id, 'ww_giveaway:participants');
+        assert.equal(buttons[0].custom_id, 'cc_giveaway:participants');
         assert.equal(buttons[0].style, ButtonStyle.Primary);
         if (count <= 20) {
             assert.equal(buttons.length, 1);
@@ -255,7 +255,7 @@ test('an original-message button never substitutes an older saved draw when the 
 test('participant pages mark the current reroll after slow entry reads across all 250 participants', async t => {
     const f = fixture({ count: 100, entries: 250 });
     const [ended] = await f.end();
-    const viewer = click('ww_giveaway:participants', { message: { id: '400000000000000000' } });
+    const viewer = click('cc_giveaway:participants', { message: { id: '400000000000000000' } });
     const loading = Promise.withResolvers(), release = Promise.withResolvers();
     t.after(() => release.resolve());
     const store = { ...f.store,
@@ -297,7 +297,7 @@ test('participant pages mark the current reroll after slow entry reads across al
 
 test('active participant lists have no winner trophies and ended lists follow the latest reroll', async () => {
     const f = fixture({ count: 1, entries: 50 });
-    const viewer = click('ww_giveaway:participants');
+    const viewer = click('cc_giveaway:participants');
     await f.store.updateGiveaway(f.initial.giveaway_id, { winner_user_ids: [f.participants[0].user_id] });
     await giveaways.sendParticipantEmbeds(viewer.interaction, { giveawayStore: f.store }, {
         ...f.initial, winner_user_ids: [f.participants[0].user_id]
@@ -307,7 +307,7 @@ test('active participant lists have no winner trophies and ended lists follow th
     const [rerolled, latestWinners] = await f.end({ drawType: 'reroll' });
     assert.notDeepEqual(initialWinners, latestWinners);
     const seen = [];
-    const updated = click('ww_giveaway:participants');
+    const updated = click('cc_giveaway:participants');
     await giveaways.sendParticipantEmbeds(updated.interaction, { giveawayStore: f.store }, rerolled);
     let page = updated.edits[0];
     for (;;) {
@@ -325,7 +325,7 @@ test('active participant lists have no winner trophies and ended lists follow th
 test('participant lookup reports a removed giveaway instead of using its stale winner snapshot', async () => {
     const f = fixture({ count: 1 });
     const [ended] = await f.end();
-    const viewer = click('ww_giveaway:participants');
+    const viewer = click('cc_giveaway:participants');
     const store = { ...f.store, async getGiveaway() { return null; } };
     await giveaways.sendParticipantEmbeds(viewer.interaction, { giveawayStore: store }, ended);
     assert.deepEqual(viewer.edits, ['That giveaway could not be found.']);
@@ -340,7 +340,7 @@ test('zero-participant endings show plain zero totals, no winner field and no wi
     assert.equal(payload.embeds[0].toJSON().fields[0].value, '0');
     assert.equal(controls(payload).length, 1);
     assert.equal(controls(payload)[0].style, ButtonStyle.Primary);
-    const viewer = click('ww_giveaway:participants');
+    const viewer = click('cc_giveaway:participants');
     await giveaways.sendParticipantEmbeds(viewer.interaction, { giveawayStore: f.store }, ended);
     assert.equal(viewer.edits[0].embeds[0].toJSON().description, 'No active participants found.');
 });
@@ -479,7 +479,7 @@ test('end and historical reroll buttons resolve their saved draws after a store 
     assert.equal(new Set(f.sent.map(payload => controls(payload)[0].custom_id)).size, 3);
     assert.equal(new Set(f.draws.flatMap(draw => draw.winner_user_ids)).size, 63);
 
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-winner-history-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-winner-history-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const storeOptions = { storageMode: 'json', dataFile: path.join(directory, 'giveaways.json'),
         db: { async query() { assert.fail('Winner history must not query MySQL'); } } };

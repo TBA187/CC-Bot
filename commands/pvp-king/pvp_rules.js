@@ -23,12 +23,12 @@ class PvPKingRules {
         await interaction.deferReply();
 
         try {
-            const imagePath = path.join(__dirname, '../../images/ww_logo.png');
-            const wwLogo = new AttachmentBuilder(imagePath, { name: 'ww_logo.png' });
+            const imagePath = path.join(__dirname, '../../images/cc_logo.webp');
+            const ccLogo = new AttachmentBuilder(imagePath, { name: 'cc_logo.webp' });
 
             const rulesEmbed = new EmbedBuilder()
                 .setTitle('❄️ The Long Night Awaits ❄️')
-                .setDescription(`The **PvP King Challenge** is White Walkers ultimate test of strength. Each server has its own PvP King. One King holds this server's PvP Crown. Do you have the steel to seize the throne?\n` +
+                .setDescription(`The **PvP King Challenge** is Crow Control ultimate test of strength. Each server has its own PvP King. One King holds this server's PvP Crown. Do you have the steel to seize the throne?\n` +
                     `### ⚔️ How to Challenge\n` +
                     `Head over to <#${this.pvpKingChannelID}> and use the command:\n` +
                     `> **/pvp_challenge**\n` +
@@ -42,21 +42,21 @@ class PvPKingRules {
                     `- Tag an <@&${this.officerRoleID}> after your match to be Crowned.\n` +
                     `- Even if the King defends the throne, post the results! We track **Winning Streaks** 🔥 to honor our greatest champions.\n` +
                     `- The PvP King may decline a challenge with a valid reason. However, should a challenge go ignored for **48 hours**, the King shall be deemed to have **Forfeited**, and the Crown will pass automatically to the first challenger!\n` +
-                    `- All PvP Kings are reborn in the eternal frost, claiming the <@&${this.pvpWarriorRoleID}> role as tribute to the **White Walker** legion!\n` +
+                    `- All PvP Kings are reborn in the eternal frost, claiming the <@&${this.pvpWarriorRoleID}> role as tribute to the **Crow Control** legion!\n` +
                     `- Only **One King** can hold the <@&${this.pvpKingRoleID}> role at a time!\n\u200b`)
                 .setColor(this.pvpServerColor)
                 .addFields(
                     { name: '❄️ Commands of the Cold', value: `\`/pvp_help\``, inline: true },
                     { name: '🧊 The Frozen Records', value: `<#${this.historyThreadID}>`, inline: true },
                 )
-                .setThumbnail('attachment://ww_logo.png')
-                .setFooter({ text: `WW PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://ww_logo.png' })
+                .setThumbnail('attachment://cc_logo.webp')
+                .setFooter({ text: `CC PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                 .setTimestamp();
 
             await interaction.editReply({
-                content: `## 📜  White Walkers PvP King Challenge Rules — ${this.pvpServerName} ${this.pvpServerEmoji}`,
+                content: `## 📜  Crow Control PvP King Challenge Rules — ${this.pvpServerName} ${this.pvpServerEmoji}`,
                 embeds: [rulesEmbed],
-                files: [wwLogo]
+                files: [ccLogo]
             });
 
         } catch (error) {

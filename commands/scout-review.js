@@ -243,7 +243,7 @@ class ScoutReview {
             const server = SERVERS[this.server || 'gold'];
             return this.serverPanel({ content: `### The ${server.markup} **${server.label}** scout review queue is empty.`,
                 embeds: [new EmbedBuilder().setColor(server.color).setTitle(`${server.label} Scout Review`)
-                    .setFooter({ text: 'White Walker Scout Review' }).setTimestamp()], components: [] }, userId);
+                    .setFooter({ text: 'Crow Control Scout Review' }).setTimestamp()], components: [] }, userId);
         }
         const currentPage = Math.max(0, Math.min(total - 1, requestedPage));
         const rows = currentPage === requestedPage
@@ -312,7 +312,7 @@ class ScoutReview {
                 await interaction.editReply(scoutPayload(this.serverPanel(reviewPayload(row, Number(title.match(/Scout review (\d+)/u)?.[1] || 1) - 1,
                     Number(title.match(/ of (\d+)/u)?.[1] || 1), interaction.user.id, row.reviewAuthor), interaction.user.id, reportServer(row)), reply));
             } catch (error) {
-                console.warn(`[WW LOG] Could not refresh a /scout-review screenshot in the background: ${error.message}`);
+                console.warn(`[CC LOG] Could not refresh a /scout-review screenshot in the background: ${error.message}`);
             }
         })();
     }
@@ -325,11 +325,11 @@ class ScoutReview {
             if (savedFeedback) {
                 await interaction.followUp({ content: savedFeedback, flags: MessageFlags.Ephemeral,
                     allowedMentions: { parse: [] } }).then(() => { feedbackDelivered = true; }).catch(error => {
-                    console.warn(`[WW LOG] Could not send scout review feedback: ${error.message}`);
+                    console.warn(`[CC LOG] Could not send scout review feedback: ${error.message}`);
                 });
                 await this.regroupAfterReview();
                 if (messageId) void Promise.resolve(this.ingestor?.refreshMessageFeedback?.(messageId)).catch(error => {
-                    console.warn(`[WW LOG] Could not refresh public scout review feedback: ${error.message}`);
+                    console.warn(`[CC LOG] Could not refresh public scout review feedback: ${error.message}`);
                 });
             }
             const payload = await this.queuePayload(page, userId, interaction.guild);
@@ -353,7 +353,7 @@ class ScoutReview {
         try {
             await this.ingestor.rebuildGroups();
         } catch (error) {
-            console.error('[WW LOG] Could not rebuild PvP scout groups after review:', error);
+            console.error('[CC LOG] Could not rebuild PvP scout groups after review:', error);
         }
     }
 
@@ -394,7 +394,7 @@ class ScoutReview {
         if (this.scoped) {
             try { return await this.scoped.get(interaction.options.getString('server') || 'cross').execute(interaction); }
             catch (error) {
-                console.error('[WW LOG] Could not select the scout review server:', error);
+                console.error('[CC LOG] Could not select the scout review server:', error);
                 return interaction.editReply({ content: 'The scout review database is unavailable right now.', embeds: [], components: [] });
             }
         }
@@ -417,7 +417,7 @@ class ScoutReview {
             this.scheduleReviewImageRefresh(interaction, payload);
             return;
         } catch (error) {
-            console.error('[WW LOG] /scout-review failed:', error);
+            console.error('[CC LOG] /scout-review failed:', error);
             return interaction.editReply({ content: 'The scout review database is unavailable right now.', embeds: [], components: [] });
         }
     }

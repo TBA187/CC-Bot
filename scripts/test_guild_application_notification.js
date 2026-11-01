@@ -161,7 +161,7 @@ async function fetchAllPosts(forum) {
 
 function testOfficerContent(record, pollUrl = null) {
     const reviewLine = pollUrl ? `Review the application and cast your vote in ${pollUrl}\n` : '';
-    return `### <@${TEST_USER_ID}>, a new application to join White Walkers has been submitted through the [**PRO Forum**](<${record.topicUrl || TOPIC_URL}>) ${PRO_FORUM_EMOJI}\n`
+    return `### <@${TEST_USER_ID}>, a new application to join Crow Control has been submitted through the [**PRO Forum**](<${record.topicUrl || TOPIC_URL}>) ${PRO_FORUM_EMOJI}\n`
         + reviewLine
         + `- PRO Forum Application: [**Click Here!**](<${record.postUrl}>)`;
 }
@@ -185,7 +185,7 @@ async function postNonApplicationPreview(client, record) {
     const updated = await notifier.notify(record);
     const channel = await client.channels.fetch(TEST_CHANNEL_ID);
     const alertUrl = messageUrl(config.guildId, channel.id, updated.message.id);
-    console.log(`[WW LOG] Non-application preview posted for ${record.forumUsername} (${record.postId}): ${alertUrl}`);
+    console.log(`[CC LOG] Non-application preview posted for ${record.forumUsername} (${record.postId}): ${alertUrl}`);
 }
 
 function wait(milliseconds) {
@@ -236,7 +236,7 @@ async function postPreview(client, forum, record, options = {}) {
         const pollMessage = await channel.send({
             content: notifier.courtContent(record, applicationUrl),
             poll: {
-                question: { text: `Invite ${record.ign} to White Walkers?` },
+                question: { text: `Invite ${record.ign} to Crow Control?` },
                 answers: [{ text: 'Yes' }, { text: 'No' }],
                 duration: 24,
                 allowMultiselect: false
@@ -250,7 +250,7 @@ async function postPreview(client, forum, record, options = {}) {
         });
         return { applicationUrl, pollUrl };
     } catch (error) {
-        console.error('[WW LOG] Guild Application preview poll could not be created:', error);
+        console.error('[CC LOG] Guild Application preview poll could not be created:', error);
         return { applicationUrl, pollUrl: null };
     }
 }
@@ -279,7 +279,7 @@ async function main() {
                 includePoll: false,
                 testLabel: 'Country validation: PokeMMO ignored, Singapore selected'
             });
-            console.log(`[WW LOG] Aaronlee191 preview posted: ${result.applicationUrl}`);
+            console.log(`[CC LOG] Aaronlee191 preview posted: ${result.applicationUrl}`);
         });
         return;
     }
@@ -296,7 +296,7 @@ async function main() {
                 includePoll: false,
                 testLabel: `Specific forum post test: ${requestedPostId}`
             });
-            console.log(`[WW LOG] Forum post ${requestedPostId} preview posted for ${record.forumUsername}: ${result.applicationUrl}`);
+            console.log(`[CC LOG] Forum post ${requestedPostId} preview posted for ${record.forumUsername}: ${result.applicationUrl}`);
         });
         return;
     }
@@ -311,7 +311,7 @@ async function main() {
                     testLabel: testCase.label,
                     useRawFallback: testCase.useRawFallback
                 });
-                console.log(`[WW LOG] ${testCase.label} preview posted for ${record.forumUsername} (${record.postId}): ${result.applicationUrl}`);
+                console.log(`[CC LOG] ${testCase.label} preview posted for ${record.forumUsername} (${record.postId}): ${result.applicationUrl}`);
             }
         });
         return;
@@ -338,7 +338,7 @@ async function main() {
                     content: testReminderContent(result.applicationUrl, result.pollUrl, hours, record.ign),
                     allowedMentions: { parse: [], users: [TEST_USER_ID] }
                 });
-                console.log(`[WW LOG] Accelerated ${hours}-hour reminder posted: ${messageUrl(config.guildId, channel.id, reminder.id)}`);
+                console.log(`[CC LOG] Accelerated ${hours}-hour reminder posted: ${messageUrl(config.guildId, channel.id, reminder.id)}`);
             }
         });
         return;
@@ -373,7 +373,7 @@ async function main() {
                     content: testReminderContent(result.applicationUrl, result.pollUrl, hours, application.ign),
                     allowedMentions: { parse: [], users: [TEST_USER_ID] }
                 });
-                console.log(`[WW LOG] Accelerated ${hours}-hour reminder posted: ${messageUrl(config.guildId, channel.id, reminder.id)}`);
+                console.log(`[CC LOG] Accelerated ${hours}-hour reminder posted: ${messageUrl(config.guildId, channel.id, reminder.id)}`);
             }
         });
         return;
@@ -385,22 +385,22 @@ async function main() {
     if (!selected) throw new Error(`Forum post ${requestedPostId} is not an available strong application candidate.`);
     const record = applicationRecord(selected.post, selected.parsed);
 
-    console.log(`[WW LOG] Selected Guild Application ${record.postId} from ${record.forumUsername} (${record.ign}). Country: ${record.country || 'N/A'}. Images: ${record.imageUrls.join(', ') || 'none'}.`);
+    console.log(`[CC LOG] Selected Guild Application ${record.postId} from ${record.forumUsername} (${record.ign}). Country: ${record.country || 'N/A'}. Images: ${record.imageUrls.join(', ') || 'none'}.`);
     if (!process.argv.includes('--send')) {
-        console.log(`[WW LOG] Dry run complete. Found ${candidates.length} strong candidate(s); nothing was sent to Discord.`);
+        console.log(`[CC LOG] Dry run complete. Found ${candidates.length} strong candidate(s); nothing was sent to Discord.`);
         return;
     }
 
     await withDiscordClient(async client => {
         const result = await postPreview(client, forum, record);
-        console.log(`[WW LOG] Guild Application preview posted: ${result.applicationUrl}`);
-        if (result.pollUrl) console.log(`[WW LOG] Guild Application preview poll posted: ${result.pollUrl}`);
+        console.log(`[CC LOG] Guild Application preview posted: ${result.applicationUrl}`);
+        if (result.pollUrl) console.log(`[CC LOG] Guild Application preview poll posted: ${result.pollUrl}`);
     });
 }
 
 if (require.main === module) {
     main().catch(error => {
-        console.error('[WW LOG] Guild Application preview failed:', error);
+        console.error('[CC LOG] Guild Application preview failed:', error);
         process.exitCode = 1;
     });
 }

@@ -105,7 +105,7 @@ function auditChangeValue(change, key) {
 }
 
 function createLogoFile() {
-    return new AttachmentBuilder(path.join(__dirname, '../images/ww_logo.png'), { name: 'ww_logo.png' });
+    return new AttachmentBuilder(path.join(__dirname, '../images/cc_logo.webp'), { name: 'cc_logo.webp' });
 }
 
 function authorName(user) {
@@ -147,7 +147,7 @@ async function sendAvatarLog(logChannel, user, avatarUrl, title) {
         .setColor(0x5865f2)
         .setDescription(`<@${user.id}> changed their avatar!`)
         .setThumbnail(avatarUrl)
-        .setFooter({ text: `ID: ${user.id}`, iconURL: 'attachment://ww_logo.png' })
+        .setFooter({ text: `ID: ${user.id}`, iconURL: 'attachment://cc_logo.webp' })
         .setTimestamp();
 
     await logChannel.send({ embeds: [embed], files: [logoFile] });
@@ -187,7 +187,7 @@ async function sendNameChangeLog(logChannel, options) {
                 { name: oldLabel, value: oldDisplayValue, inline: true },
                 { name: newLabel, value: newDisplayValue, inline: true }
             )
-            .setFooter({ text: `ID: ${user.id}`, iconURL: 'attachment://ww_logo.png' })
+            .setFooter({ text: `ID: ${user.id}`, iconURL: 'attachment://cc_logo.webp' })
             .setTimestamp();
 
         await logChannel.send({ embeds: [embed], files: [logoFile] });
@@ -297,7 +297,7 @@ module.exports = {
             const avatarUrl = newUser.displayAvatarURL({ dynamic: true, size: 256 });
             await sendAvatarLog(logChannel, newUser, avatarUrl, 'Discord Avatar Update');
         } catch (error) {
-            console.error('[WW LOG] User profile update log failed:', error);
+            console.error('[CC LOG] User profile update log failed:', error);
         }
     },
 
@@ -312,13 +312,13 @@ module.exports = {
             }
             await sendNicknameLog(logChannel, oldMember, newMember);
         } catch (error) {
-            console.error('[WW LOG] Member profile update log failed:', error);
+            console.error('[CC LOG] Member profile update log failed:', error);
         } finally {
             // Role syncing must not depend on audit-log permissions or a successful log send.
             if (normalizeNickname(oldMember.nickname) !== normalizeNickname(newMember.nickname)) {
                 const currentMember = newMember.guild.members.cache.get(newMember.id) ?? newMember;
                 await syncMemberColorRoleName(currentMember).catch(error => {
-                    console.warn(`[WW LOG] Could not sync custom color role name for ${newMember.user.tag ?? newMember.id}:`, error);
+                    console.warn(`[CC LOG] Could not sync custom color role name for ${newMember.user.tag ?? newMember.id}:`, error);
                 });
             }
         }

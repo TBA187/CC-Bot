@@ -5,22 +5,22 @@ const { selfRoleChannelID } = require('../config.json');
 
 function rolePanelReason(interaction, detail) {
     const channelId = interaction.channelId || interaction.channel?.id;
-    // Only WW-Bot's own role handlers use this marker. Channel equality is
+    // Only Crow Control's own role handlers use this marker. Channel equality is
     // checked again when rendering, along with the audit executor and target.
-    return `[WW role panel user=${interaction.user.id} channel=${channelId || 'unknown'}] ${detail}`.slice(0, 512);
+    return `[CC role panel user=${interaction.user.id} channel=${channelId || 'unknown'}] ${detail}`.slice(0, 512);
 }
 
 function roleSource(entry, member, botId, channelId = selfRoleChannelID) {
     if (!entry?.executor?.bot) return null;
     const reason = entry.reason || '';
-    const panel = /^\[WW role panel user=(\d+) channel=(\d+)\] (.*)$/u.exec(reason);
+    const panel = /^\[(?:CC|WW) role panel user=(\d+) channel=(\d+)\] (.*)$/u.exec(reason);
     if (entry.executor.id === botId && panel?.[1] === member.id) {
         return { kind: panel[2] === channelId ? 'self_panel' : 'other_panel', channelId: panel[2], detail: panel[3] };
     }
     if (entry.executor.id === botId) {
         if (/^XP level reward:/u.test(reason)) return { kind: 'automatic', detail: reason };
         if (/^Command /u.test(reason)) return { kind: 'command', detail: reason };
-        if (/^White Walker game-server preference/u.test(reason)) return { kind: 'settings', detail: 'Game-server preference settings' };
+        if (/^(?:Crow Control|White Walker) game-server preference/u.test(reason)) return { kind: 'settings', detail: 'Game-server preference settings' };
         if (/color role/i.test(reason)) return { kind: 'automatic', detail: reason };
     }
     return { kind: 'bot', detail: 'The bot did not provide a command, panel, or event source.' };

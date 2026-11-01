@@ -18,12 +18,13 @@ function matchesCrownEntry(message, history, serverName, botUserId, eventTime) {
     const action = history.type === 'defense' ? 'defended' : 'conquered';
     const icon = history.type === 'defense' ? '🛡️' : '⚔️';
     const descriptions = [`### 👑 <@${history.king_id}> ${action} the PvP Throne in ${serverName}! ${icon}`];
-    const footers = [`WW PvP King System • ${serverName}`];
+    const footers = [`CC PvP King System • ${serverName}`];
     if (serverName === 'Gold') {
         // Gold history predates the separate Silver commands and server labels.
         descriptions.push(`### 👑 <@${history.king_id}> ${action} the PvP Throne! ${icon}`);
-        footers.push('WW PvP King System', 'WW PvP King Dominion');
+        footers.push('CC PvP King System', 'CC PvP King Dominion');
     }
+    footers.push(...footers.map(footer => footer.replace(/^CC /u, 'WW ')));
 
     return (message.embeds || []).some(rawEmbed => {
         const embed = embedData(rawEmbed);

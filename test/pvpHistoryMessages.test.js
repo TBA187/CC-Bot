@@ -10,7 +10,7 @@ const history = { king_id: '123456789012345678', type: 'crown', streak_after: 1,
 function crownMessage(id, { server = 'Gold', legacy = false, type = 'crown', time = eventTime + 5000 } = {}) {
     return { id, author: { id: 'bot' }, createdTimestamp: time, embeds: [{
         description: `### 👑\u2002<@${history.king_id}> ${type === 'defense' ? 'defended' : 'conquered'} the PvP Throne${legacy ? '' : ` in ${server}`}!\u2002${type === 'defense' ? '🛡️' : '⚔️'}`,
-        footer: { text: `WW PvP King System${legacy ? '' : ` • ${server}`}` },
+        footer: { text: `CC PvP King System${legacy ? '' : ` • ${server}`}` },
         fields: [{ name: `🔥\u2002Current Win Streak: ${history.streak_after}` }, { name: `🏆\u2002Total Wins: ${history.total_wins_after}` }],
         timestamp: new Date(time).toISOString()
     }] };
@@ -47,11 +47,19 @@ test('recognizes defenses separately from new crowns', async () => {
     assert.equal((await find(threadWith([crownMessage('crown'), target]), { history: { ...history, type: 'defense' } })).message, target);
 });
 
+test('history posted before the rebrand remains identifiable for both servers', async () => {
+    for (const serverName of ['Gold', 'Silver']) {
+        const target = crownMessage('old-brand', { server: serverName });
+        target.embeds[0].footer.text = `WW PvP King System • ${serverName}`;
+        assert.equal((await find(threadWith([target]), { serverName })).message, target);
+    }
+});
+
 test('legacy unlabeled history is accepted only for Gold', async () => {
     const legacy = crownMessage('legacy', { legacy: true });
     assert.equal((await find(threadWith([legacy]))).message, legacy);
     assert.equal((await find(threadWith([legacy]), { serverName: 'Silver' })).status, 'missing');
-    legacy.embeds[0].footer.text = 'WW PvP King Dominion';
+    legacy.embeds[0].footer.text = 'CC PvP King Dominion';
     assert.equal((await find(threadWith([legacy]))).message, legacy);
 });
 

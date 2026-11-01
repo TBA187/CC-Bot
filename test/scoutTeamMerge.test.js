@@ -157,7 +157,7 @@ test('group rebuilding changes only incorrect links, preserves manual decisions,
 });
 
 test('scout panels never upload the footer logo and clear only its old attachment', () => {
-    const embed = new EmbedBuilder().setTitle('Manage Scout Sources').setFooter({ text: 'Report ID: 1', iconURL: 'attachment://ww_logo.png' });
+    const embed = new EmbedBuilder().setTitle('Manage Scout Sources').setFooter({ text: 'Report ID: 1', iconURL: 'attachment://cc_logo.webp' });
     const csv = new AttachmentBuilder(Buffer.from('report'), { name: 'scouts.csv' });
     const result = scoutPayload({ embeds: [embed], files: [csv] });
     assert.deepEqual(result.files, [csv]);

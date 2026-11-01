@@ -7,7 +7,7 @@ const test = require('node:test');
 const PvpKingStorage = require('../commands/pvp-king/utils/pvpKingStorage.js');
 
 function tempDataFile() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-pvp-storage-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-pvp-storage-'));
     return path.join(dir, 'pvp_king_data.json');
 }
 
@@ -20,7 +20,7 @@ function withDbEnv(fn) {
 
     process.env.DB_HOST = 'localhost';
     process.env.DB_USER = 'tester';
-    process.env.DB_NAME = 'ww_test';
+    process.env.DB_NAME = 'cc_test';
 
     return Promise.resolve()
         .then(fn)

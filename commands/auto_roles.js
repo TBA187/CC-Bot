@@ -148,7 +148,7 @@ class AutoRoles {
                 return;
             }
 
-            console.error('[WW LOG] Auto-role panel send error:', err);
+            console.error('[CC LOG] Auto-role panel send error:', err);
             await interaction.editReply('Discord returned an error while sending the auto-role panel. Please try again.');
         }
     }
@@ -219,7 +219,7 @@ class AutoRoles {
                 return;
             }
 
-            console.error('[WW LOG] Auto-role panel update error:', err);
+            console.error('[CC LOG] Auto-role panel update error:', err);
             await interaction.editReply(
                 'Discord returned an error while updating the auto-role panel. Please try again.'
             );

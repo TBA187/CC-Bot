@@ -70,7 +70,7 @@ class ScoutSettings {
     }
 
     async deny(interaction) {
-        const payload = { content: 'Only White Walkers admins and officers can use this command.', flags: MessageFlags.Ephemeral };
+        const payload = { content: 'Only Crow Control admins and officers can use this command.', flags: MessageFlags.Ephemeral };
         if (interaction.deferred && interaction.isChatInputCommand?.()) await interaction.editReply({ content: payload.content });
         else if (interaction.deferred || interaction.replied) await interaction.followUp(payload);
         else await interaction.reply(payload);
@@ -131,7 +131,7 @@ class ScoutSettings {
         const embed = new EmbedBuilder().setColor(0x5865F2).setTitle('Scout Settings — Friendly List')
             .setDescription((lines.join('\n') || '*No friendly entries yet.*')
                 + '\n\nAdd an IGN directly or choose a guild member to link their Discord account.')
-            .setFooter({ text: lastPage > 0 ? `White Walkers • Page ${page + 1} of ${lastPage + 1}` : 'White Walkers' });
+            .setFooter({ text: lastPage > 0 ? `Crow Control • Page ${page + 1} of ${lastPage + 1}` : 'Crow Control' });
         const components = [];
         if (rows.length) {
             const options = rows.map(row => ({
@@ -177,7 +177,7 @@ class ScoutSettings {
             .setTitle(`Scout Settings — ${status === 'current' ? 'Current' : 'Former'} Members`)
             .setDescription((lines.join('\n') || `*No ${status} members in the scout list.*`)
                 + '\n\nRole changes update current/former status automatically. You can select a server member to add or refresh their profile.')
-            .setFooter({ text: lastPage > 0 ? `White Walkers • Page ${page + 1} of ${lastPage + 1}` : 'White Walkers' });
+            .setFooter({ text: lastPage > 0 ? `Crow Control • Page ${page + 1} of ${lastPage + 1}` : 'Crow Control' });
         const components = [];
         if (rows.length) {
             components.push(menuRow(new StringSelectMenuBuilder()
@@ -288,7 +288,7 @@ class ScoutSettings {
             await this.reportManager.autocomplete(interaction, server);
         }
         catch (error) {
-            if (![10062, 40060].includes(Number(error.code))) console.warn(`[WW LOG] /scout-settings autocomplete failed: ${error.message}`);
+            if (![10062, 40060].includes(Number(error.code))) console.warn(`[CC LOG] /scout-settings autocomplete failed: ${error.message}`);
         }
     }
 

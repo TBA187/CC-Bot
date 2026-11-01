@@ -36,7 +36,7 @@ class Test {
         if (!member) return interaction.reply({ content: '❌ User not found!', flags: MessageFlags.Ephemeral });
 
         await interaction.reply(buildMemberAuditPayload({ authorName: 'Member Information', member,
-            actionText: 'has the following Discord profile details.', color: 0x00e4ff,
+            actionText: 'has the following Discord profile details.', color: 0xe63b50,
             memberCount: member.guild.memberCount }));
     }
 }

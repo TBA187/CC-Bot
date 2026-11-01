@@ -134,7 +134,7 @@ module.exports = {
 
     // Build embed message for Discord Logs
     buildLogEmbed: (title, description, id, color, typeName, fields = []) => {
-        const attachment = new AttachmentBuilder('./images/ww_logo.png', { name: 'ww_logo.png' });
+        const attachment = new AttachmentBuilder('./images/cc_logo.webp', { name: 'cc_logo.webp' });
         const safeFields = Array.isArray(fields)
             ? fields
                 .filter(field => field && typeof field === 'object')
@@ -149,7 +149,7 @@ module.exports = {
             .setTitle(title)
             .setColor(color || 0x808080)
             .setDescription(description || ' ')
-            .setFooter({ text: `${typeName} ID: ${id}`, iconURL: 'attachment://ww_logo.png' })
+            .setFooter({ text: `${typeName} ID: ${id}`, iconURL: 'attachment://cc_logo.webp' })
             .setTimestamp();
 
         if (safeFields.length > 0) {

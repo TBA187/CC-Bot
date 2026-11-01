@@ -137,16 +137,16 @@ test('confirmation preserves old content when empty and appends below trimmed ol
     }
 });
 
-test('confirmation can add a JSON embed while preserving unrelated attachments and applying WW branding', async () => {
+test('confirmation can add a JSON embed while preserving unrelated attachments and applying CC branding', async () => {
     const state = fixture();
     const [confirmId] = await previewEdit(state, { embed: '{"title":"New embed"}' });
     await state.command.handleButton({ ...state.interaction, customId: confirmId });
     const payload = state.calls.find(([type]) => type === 'edit-message')[1];
     assert.equal(payload.content, 'Old text  \n');
     assert.equal(payload.embeds[0].toJSON().title, 'New embed');
-    assert.equal(payload.embeds[0].toJSON().footer.icon_url, 'attachment://ww_logo.png');
+    assert.equal(payload.embeds[0].toJSON().footer.icon_url, 'attachment://cc_logo.webp');
     assert.equal(payload.attachments[0].id, 'file-id');
-    assert.equal(payload.files[0].name, 'ww_logo.png');
+    assert.equal(payload.files[0].name, 'cc_logo.webp');
 });
 
 test('invalid JSON leaves the original message unchanged and keeps its existing error text', async () => {
@@ -181,7 +181,7 @@ test('expired confirmations do not edit the message', async () => {
     assert.equal(state.interaction.client.editCache.size, 0);
 });
 
-test('slash edits log the source diff with White Walker logo and survive unavailable log channels', async () => {
+test('slash edits log the source diff with Crow Control logo and survive unavailable log channels', async () => {
     const state = fixture('officer-role', { logChannelID: '789' });
     state.interaction.client.channels.fetch = async id => {
         if (id === '456') return state.channel;
@@ -191,8 +191,8 @@ test('slash edits log the source diff with White Walker logo and survive unavail
     const payload = state.calls.find(([type]) => type === 'send-log')[1];
     const embed = payload.embeds[0].toJSON();
     assert.equal(embed.title, '🤖  Bot Message Edited  ✏️');
-    assert.equal(embed.footer.text, 'White Walker Logs');
-    assert.equal(embed.footer.icon_url, 'attachment://ww_logo.png');
+    assert.equal(embed.footer.text, 'Crow Control Logs');
+    assert.equal(embed.footer.icon_url, 'attachment://cc_logo.webp');
     assert.equal(embed.fields.at(-1).value, '```diff\n- Old text\n+ New\n+ text\n```');
     state.calls.length = 0;
     state.interaction.client.channels.fetch = async id => {

@@ -151,7 +151,7 @@ test('full scout and guild image pipelines return identical results inside the h
         expectedScout = await scout.analyzeAttachment(attachment, 'message', 'Vegeta111');
         expectedGuild = await new GuildApplicationOcr({ workerPool: pool }).resolveIgn(post, parsed, images);
     } finally { await pool.close(); }
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-ocr-pipeline-test-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-ocr-pipeline-test-'));
     const scriptPath = path.join(dir, 'helper.cjs');
     fs.writeFileSync(scriptPath, `globalThis.fetch = async () => new Response(Buffer.from(${JSON.stringify(image.toString('base64'))}, 'base64'), {headers: {'content-type': 'image/png'}});\nrequire(${JSON.stringify(require.resolve('../utils/ocrProcessEntry'))}).serveOcrProcess();\n`);
     let child;

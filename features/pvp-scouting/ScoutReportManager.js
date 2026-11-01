@@ -111,7 +111,7 @@ class ScoutReportManager {
                 + 'Choose the original source to change the opponent. Each continuation and reply can be edited separately. Reporter, posted date and message IDs come from the original Discord source.')
             .addFields({ name: 'PvP Rating', value: source.rating == null ? '*None*' : String(source.rating), inline: true },
                 { name: 'Stored source text', value: String(source.message_content || '*None*').slice(0, 1000), inline: false })
-            .setFooter({ text: 'White Walkers' });
+            .setFooter({ text: 'Crow Control' });
         const chunk = report.sources.slice(Math.floor(index / 25) * 25, Math.floor(index / 25) * 25 + 25);
         const components = [row(new StringSelectMenuBuilder().setCustomId(`${PREFIX}reports-source:${owner}:${token}`)
             .setPlaceholder('Choose the original, continuation or reply source').addOptions(chunk.map(item => ({

@@ -28,7 +28,7 @@ module.exports = {
                     result.updated && `${result.updated} saved profile(s) refreshed`
                 ].filter(Boolean);
                 if (changes.length) {
-                    console.log(`[WW LOG] Scout startup: ${result.alreadySeeded ? 'reconciled' : 'initialized'} MySQL member/friendly lists from Discord (guild ${guildId}); ${changes.join(', ')}. Local data files are not used for this check.`);
+                    console.log(`[CC LOG] Scout startup: ${result.alreadySeeded ? 'reconciled' : 'initialized'} MySQL member/friendly lists from Discord (guild ${guildId}); ${changes.join(', ')}. Local data files are not used for this check.`);
                     for (const update of result.profileUpdates || []) {
                         const details = update.changes.map(change => {
                             const list = change.list === 'friendly list'
@@ -37,12 +37,12 @@ module.exports = {
                                 `${field} ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
                             return `${list}: ${fields.join(', ')}`;
                         });
-                        console.log(`[WW LOG] Scout profile saved to MySQL for ${JSON.stringify(update.username)} (Discord ID ${update.discordId}): ${details.join('; ')}.`);
+                        console.log(`[CC LOG] Scout profile saved to MySQL for ${JSON.stringify(update.username)} (Discord ID ${update.discordId}): ${details.join('; ')}.`);
                     }
                 }
             } catch (error) {
                 if (stopped()) return;
-                console.error('[WW LOG] Could not initialize scout member list:', error);
+                console.error('[CC LOG] Could not initialize scout member list:', error);
                 retry = setTimeout(initializeRoster, 60_000);
                 retry.unref?.();
             }
@@ -56,7 +56,7 @@ module.exports = {
                 await store.handleMemberUpdate(oldMember, newMember, guildId, roleId);
             } catch (error) {
                 if (stopped()) return;
-                console.error(`[WW LOG] Could not update scout member ${newMember.id}:`, error);
+                console.error(`[CC LOG] Could not update scout member ${newMember.id}:`, error);
             }
         });
 
@@ -67,7 +67,7 @@ module.exports = {
                 await store.handleMemberAdd(member, guildId, roleId);
             } catch (error) {
                 if (stopped()) return;
-                console.error(`[WW LOG] Could not update scout member ${member.id}:`, error);
+                console.error(`[CC LOG] Could not update scout member ${member.id}:`, error);
             }
         });
 
@@ -78,7 +78,7 @@ module.exports = {
                 await store.handleMemberRemove(member, guildId);
             } catch (error) {
                 if (stopped()) return;
-                console.error(`[WW LOG] Could not mark scout member ${member.id} as former:`, error);
+                console.error(`[CC LOG] Could not mark scout member ${member.id} as former:`, error);
             }
         });
     }

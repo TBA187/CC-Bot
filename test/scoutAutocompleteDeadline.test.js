@@ -142,7 +142,7 @@ test('fresh empty typed results remain empty and known filler names are excluded
 });
 
 function cacheFile(t) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-scout-autocomplete-test-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-scout-autocomplete-test-'));
     const filename = path.join(directory, 'cache.json');
     t.after(() => {
         for (const file of [filename, `${filename}.tmp`]) if (fs.existsSync(file)) fs.unlinkSync(file);

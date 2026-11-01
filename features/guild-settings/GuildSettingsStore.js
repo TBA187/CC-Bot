@@ -37,7 +37,7 @@ class GuildSettingsStore {
 
     defaultRows() {
         if (!this.guildId) return [];
-        return [{ guild_id: String(this.guildId), guild_name: 'White Walkers', xp_enabled: 1,
+        return [{ guild_id: String(this.guildId), guild_name: 'Crow Control', xp_enabled: 1,
             xp_date_enabled: '2026-05-11 04:56:00', logging_enabled: 1, updated_at: '2026-06-05 02:12:20' }];
     }
 
@@ -73,7 +73,7 @@ class GuildSettingsStore {
     loadMirror({ quiet = false } = {}) {
         const mirror = this.readMirror();
         this.cacheRows(mirror.settings);
-        if (!quiet) this.console.warn(`[WW LOG] Loaded ${this.cache.size} guild setting(s) from JSON mirror.`);
+        if (!quiet) this.console.warn(`[CC LOG] Loaded ${this.cache.size} guild setting(s) from JSON mirror.`);
         return mirror;
     }
 
@@ -112,7 +112,7 @@ class GuildSettingsStore {
         const mirror = this.readMirror();
         if (!this.canUseMysql()) {
             this.cacheRows(mirror.settings);
-            if (!quiet) this.console.warn(`[WW LOG] Loaded ${this.cache.size} guild setting(s) from JSON mirror.`);
+            if (!quiet) this.console.warn(`[CC LOG] Loaded ${this.cache.size} guild setting(s) from JSON mirror.`);
             return false;
         }
         try {
@@ -120,7 +120,7 @@ class GuildSettingsStore {
                 await this.upsertRows(mirror.settings);
                 if (this.stopping) return false;
                 this.writeMirror(mirror.settings, false);
-                this.console.log(`[WW LOG] Synced ${mirror.settings.length} pending guild setting(s) to MySQL.`);
+                this.console.log(`[CC LOG] Synced ${mirror.settings.length} pending guild setting(s) to MySQL.`);
             }
             await this.db.query(`
                 UPDATE guild_settings
@@ -132,7 +132,7 @@ class GuildSettingsStore {
             if (this.stopping) return false;
             const settings = rows.map(normalizeRow);
             if (!settings.length) {
-                this.console.log('[WW LOG] ⚠️ No rows found in guild_settings table.');
+                this.console.log('[CC LOG] ⚠️ No rows found in guild_settings table.');
                 this.loadMirror();
                 return false;
             }
@@ -140,19 +140,19 @@ class GuildSettingsStore {
             this.cacheRows(settings);
             if (this.mysqlOutage) {
                 this.mysqlOutage = false;
-                this.console.log('[WW LOG] Guild settings MySQL restored; the JSON mirror is synchronized.');
+                this.console.log('[CC LOG] Guild settings MySQL restored; the JSON mirror is synchronized.');
             }
-            if (!quiet || mirror.pendingSync || changed) this.console.log(`[WW LOG] ✅ Cached settings for ${this.cache.size} guilds.`);
+            if (!quiet || mirror.pendingSync || changed) this.console.log(`[CC LOG] ✅ Cached settings for ${this.cache.size} guilds.`);
             return true;
         } catch (error) {
             if (this.stopping) return false;
             if (this.db.isDatabaseUnavailableError?.(error)) {
                 if (!this.mysqlOutage) {
                     this.mysqlOutage = true;
-                    this.console.warn(`[WW LOG] Guild settings MySQL unavailable (${this.db.getErrorCode?.(error) || error.code || error.message}). `
+                    this.console.warn(`[CC LOG] Guild settings MySQL unavailable (${this.db.getErrorCode?.(error) || error.code || error.message}). `
                         + 'Using the JSON mirror; the five-minute sync loop remains active.');
                 }
-            } else this.console.error('[WW LOG] ❌ Failed to sync settings:', error);
+            } else this.console.error('[CC LOG] ❌ Failed to sync settings:', error);
             this.loadMirror({ quiet: true });
             return false;
         }
@@ -160,7 +160,7 @@ class GuildSettingsStore {
 
     addGuild(guild) {
         return this.enqueue(async () => {
-            this.console.log(`[WW LOG] New Guild joined: ${guild.name} (${guild.id})`);
+            this.console.log(`[CC LOG] New Guild joined: ${guild.name} (${guild.id})`);
             const row = normalizeRow({ guild_id: guild.id, guild_name: guild.name,
                 xp_enabled: 0, xp_date_enabled: null, logging_enabled: 0, updated_at: new Date().toISOString() });
             const mirror = this.readMirror();
@@ -175,7 +175,7 @@ class GuildSettingsStore {
                     await this.upsertRows([row]);
                     if (!this.stopping) this.writeMirror(settings, mirror.pendingSync);
                 } catch (error) {
-                    if (!this.stopping) this.console.error('[WW LOG] Error setting up new guild:', error);
+                    if (!this.stopping) this.console.error('[CC LOG] Error setting up new guild:', error);
                 }
             }
             return true;
@@ -185,7 +185,7 @@ class GuildSettingsStore {
     startSyncLoop() {
         if (this.stopping || this.timer !== null) return;
         this.timer = this.schedule(() => {
-            this.sync({ quiet: true }).catch(error => this.console.error('[WW LOG] Guild settings sync loop failed:', error));
+            this.sync({ quiet: true }).catch(error => this.console.error('[CC LOG] Guild settings sync loop failed:', error));
         }, this.syncIntervalMs);
         this.timer?.unref?.();
     }

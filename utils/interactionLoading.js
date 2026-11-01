@@ -53,14 +53,14 @@ async function withButtonLoading(interaction, work, {
                     await interaction.editReply({ content: loadingContent, embeds: [], components: [] });
                 } catch (error) {
                     // A transient status update should not prevent the search itself.
-                    console.warn(`[WW LOG] Could not show ${logContext} loading status: ${error.message}`);
+                    console.warn(`[CC LOG] Could not show ${logContext} loading status: ${error.message}`);
                 }
             }
             const payload = await work();
             await interaction.editReply(payload);
             onLoaded?.(payload);
         } catch (error) {
-            console.warn(`[WW LOG] ${logContext} failed: ${error.message}`);
+            console.warn(`[CC LOG] ${logContext} failed: ${error.message}`);
             await interaction.editReply({ content: feedback(error), embeds: [], components: [] });
         }
         return true;
@@ -130,7 +130,7 @@ async function withButtonLoading(interaction, work, {
         await stop();
         // Let the interaction dispatcher handle a failed acknowledgement.
         if (!acknowledged) throw error;
-        console.warn(`[WW LOG] ${logContext} failed: ${error.message}`);
+        console.warn(`[CC LOG] ${logContext} failed: ${error.message}`);
         await interaction.editReply({ components: original }).catch(() => {});
         await interaction.followUp({ content: feedback(error), flags: MessageFlags.Ephemeral });
     } finally {

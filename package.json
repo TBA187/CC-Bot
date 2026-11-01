@@ -11,9 +11,9 @@
     "typescript": "6.0.3",
     "undici": "^6.29.0"
   },
-  "name": "discord-bot",
+  "name": "crow-control",
   "version": "1.0.0",
-  "description": "",
+  "description": "Crow Control Discord bot for Pokemon Revolution Online",
   "main": "index.js",
   "engines": {
     "node": ">=22"

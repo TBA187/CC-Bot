@@ -268,7 +268,7 @@ test('new source-management actions have timestamped logo audit embeds with befo
         sources: [{ messageId: REPLY, before: { rootMessageId: ROOT, ign: 'Blacku' }, after: { rootMessageId: TARGET, ign: 'Vegeta111' } }] });
     const embed = payload.embeds[0].toJSON(); assert.equal(embed.title, 'Scout Source Attached');
     assert.match(embed.fields.find(field => field.name === 'Scout Report ID').value, /Before.*\n.*After/us);
-    assert.ok(embed.timestamp); assert.equal(embed.footer.icon_url, 'attachment://ww_logo.png');
+    assert.ok(embed.timestamp); assert.equal(embed.footer.icon_url, 'attachment://cc_logo.webp');
 });
 
 function catchupFixture(count = 3, cursor = ROOT) {

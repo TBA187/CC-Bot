@@ -68,7 +68,7 @@ class GuildForumPostNotifier {
     }
 
     content(record) {
-        return `<@${this.ownerId}>, a new message was detected on the **White Walkers guild application forum page**, but it was **not** classified as a valid guild application!\n`
+        return `<@${this.ownerId}>, a new message was detected on the **Crow Control guild application forum page**, but it was **not** classified as a valid guild application!\n`
             .trim();
     }
 
@@ -78,7 +78,7 @@ class GuildForumPostNotifier {
             .setColor(EMBED_COLOR)
             .setFooter({
                 text: `Forum Post Created: ${formatSubmittedDate(record.postedAt, this.botTimezone)}`,
-                iconURL: 'attachment://ww_logo.png'
+                iconURL: 'attachment://cc_logo.webp'
             })
             .addFields(
                 { name: 'Probability Score', value: `**${percentage}%**`, inline: true },
@@ -104,7 +104,7 @@ class GuildForumPostNotifier {
                 needles: [record.postUrl, 'classified as a valid guild application']
             });
             if (existing) {
-                console.log(`[WW LOG] Recovered non-application alert for forum post ${record.postId}; duplicate send skipped.`);
+                console.log(`[CC LOG] Recovered non-application alert for forum post ${record.postId}; duplicate send skipped.`);
                 record.notificationStatus = 'non_application_alert_sent';
                 record.notifiedAt = record.notifiedAt || existing.createdAt?.toISOString?.() || new Date().toISOString();
                 record.officerMessageId = existing.id;
@@ -114,7 +114,7 @@ class GuildForumPostNotifier {
             }
         } catch (error) {
             console.warn(
-                `[WW LOG] Could not check recent Officer messages for duplicate forum post ${record.postId || 'unknown'}: `
+                `[CC LOG] Could not check recent Officer messages for duplicate forum post ${record.postId || 'unknown'}: `
                 + `${error.code || error.message}`
             );
         }

@@ -89,7 +89,7 @@ async function findModerationAuditEntry(guild, actionType, userId, {
         try {
             fetchedLogs = await fetchModerationAuditLogs(guild, actionType);
         } catch (error) {
-            console.warn(`[WW LOG] Audit details unavailable for guild ${guild.id}:`, error.message);
+            console.warn(`[CC LOG] Audit details unavailable for guild ${guild.id}:`, error.message);
             onUnavailable(error);
             return null;
         }
@@ -236,7 +236,7 @@ module.exports = {
                         }
                     }
                 } catch (error) {
-                    if (!timeoutTrackingStopped) console.error(`[WW LOG] Could not restore active timeout countdowns for ${guild.id}:`, error);
+                    if (!timeoutTrackingStopped) console.error(`[CC LOG] Could not restore active timeout countdowns for ${guild.id}:`, error);
                 } finally {
                     recoveringTimeouts.delete(guild.id);
                 }

@@ -337,8 +337,8 @@ function justIgn(text, ign) {
 
 function identityWarningFor(ign, identity) {
     const name = `**${identity?.mention || safeText(canonicalIgn(ign), 64)}**`;
-    if (identity?.type === 'member') return `-# ⚠️ ${name} is a current/former White Walkers member. Please accept or send a **draw request** using the \`/draw\` command in the in-game chat.`;
-    if (identity?.type === 'friend') return `-# ⚠️ ${name} is a friend of White Walkers. Please accept or send a **draw request** using the \`/draw\` command in the in-game chat.`;
+    if (identity?.type === 'member') return `-# ⚠️ ${name} is a current/former Crow Control member. Please accept or send a **draw request** using the \`/draw\` command in the in-game chat.`;
+    if (identity?.type === 'friend') return `-# ⚠️ ${name} is a friend of Crow Control. Please accept or send a **draw request** using the \`/draw\` command in the in-game chat.`;
     return '';
 }
 
@@ -463,7 +463,7 @@ class Scout {
                 .setMaxLength(32)
                 .setAutocomplete(true))
             .addStringOption(option => option.setName('server')
-                .setDescription('Select Server (optional) — Save your default server for future Scout Reports with: /ww-settings')
+                .setDescription('Select Server (optional) — Save your default server for future Scout Reports with: /cc-settings')
                 .addChoices({ name: 'Gold', value: 'gold' }, { name: 'Silver', value: 'silver' }, { name: 'Cross Server', value: 'cross' }));
     }
 
@@ -551,16 +551,16 @@ class Scout {
                 + alternativeText + '\n'
                 + 'Select your server only once, and the bot will remember it for future commands so you won\'t need to specify it every time.\n'
                 + 'You can still view Scout Reports for different servers inside the `/scout` command.\n\n'
-                + '**You can change your default server at any time with the**\n**`/ww-settings` command.**'
+                + '**You can change your default server at any time with the**\n**`/cc-settings` command.**'
             : '**Select your prefered default Server below:**\n'
                 + `- ${SERVERS.gold.markup} **Gold:** Press this button to select the **Gold Server**.\n`
                 + `- ${SERVERS.silver.markup} **Silver:** Press this button to select the **Silver Server**.\n`
                 + `- ${SERVERS.cross.markup} **Cross Server:** Press this button to select **Cross Server**.\n\n`
                 + 'Select your server only once, and the bot will remember it for future commands so you won\'t need to specify it every time.\n'
                 + 'You can still view Scout Reports for different servers inside the `/scout` command.\n\n'
-                + '**You can change your default server at any time with the**\n**`/ww-settings` command.**';
+                + '**You can change your default server at any time with the**\n**`/cc-settings` command.**';
         const embed = new EmbedBuilder().setColor((explicit || SERVERS.cross).color).setTitle('One-time default server setup').setDescription(description)
-            .setFooter({ text: 'White Walker Server Settings' }).setTimestamp();
+            .setFooter({ text: 'Crow Control Server Settings' }).setTimestamp();
         const avatar = interaction.member?.displayAvatarURL?.({ size: 256 })
             || interaction.user.displayAvatarURL?.({ size: 256 });
         if (avatar) embed.setThumbnail(avatar);
@@ -599,7 +599,7 @@ class Scout {
             await interaction.editReply(scoutPayload(await view.teamsPayload(setup.ign, ownerId, interaction.guild), interaction.message));
             this.setupSessions.delete(token);
         } catch (error) {
-            console.error('[WW LOG] Could not save /scout server settings:', error);
+            console.error('[CC LOG] Could not save /scout server settings:', error);
             await interaction.followUp({
                 content: error.message === 'No permission!' ? 'No permission!'
                     : saved ? 'Your default server was saved, but the scout reports could not load. Use `/scout` again.'
@@ -729,7 +729,7 @@ class Scout {
         try {
             return await this.rosterStore?.noticeForIgn(String(guild?.id || this.guildId || ''), ign, guild);
         } catch (error) {
-            console.warn(`[WW LOG] Could not look up scout identity for ${ign}: ${error.message}`);
+            console.warn(`[CC LOG] Could not look up scout identity for ${ign}: ${error.message}`);
             return null;
         }
     }
@@ -982,7 +982,7 @@ class Scout {
                 try {
                     downloaded[index] = await downloadImageAttachment(images[index], maxBytes);
                 } catch (error) {
-                    console.warn(`[WW LOG] Could not attach scout screenshot from message ${images[index].sourceId}: ${error.message}`);
+                    console.warn(`[CC LOG] Could not attach scout screenshot from message ${images[index].sourceId}: ${error.message}`);
                 }
             }
         }));
@@ -1179,7 +1179,7 @@ class Scout {
             const contexts = this.registry?.contexts() || [];
             void Promise.all(contexts.filter(context => this.server === 'cross' || context.server === this.server)
                 .map(context => context.store.autocomplete('', context.channelId)))
-                .catch(error => console.warn(`[WW LOG] Could not refresh scout search suggestions: ${error.message}`));
+                .catch(error => console.warn(`[CC LOG] Could not refresh scout search suggestions: ${error.message}`));
         });
         return modal;
     }
@@ -1352,7 +1352,7 @@ class Scout {
                 ? new EmbedBuilder(embed.toJSON()).setImage(after) : embed);
             await interaction.editReply({ embeds, allowedMentions: { parse: [] } });
         } catch (error) {
-            console.warn(`[WW LOG] Could not refresh a /scout screenshot in the background: ${error.message}`);
+            console.warn(`[CC LOG] Could not refresh a /scout screenshot in the background: ${error.message}`);
         }
     }
 
@@ -1370,7 +1370,7 @@ class Scout {
             await interaction.editReply(scoutPayload(payload));
             return;
         } catch (error) {
-            console.error('[WW LOG] /scout lookup failed:', error);
+            console.error('[CC LOG] /scout lookup failed:', error);
             return interaction.editReply({ content: 'The scouting database is unavailable right now. Please try again later.', embeds: [], components: [] });
         }
     }
@@ -1410,20 +1410,20 @@ class Scout {
             setImmediate(() => {
                 if (selected === undefined && this.serverSettings) {
                     void this.serverSettings.getSelectedServer(this.guildId, interaction.user.id)
-                        .catch(error => console.warn(`[WW LOG] Could not refresh scout server preference: ${error.message}`));
+                        .catch(error => console.warn(`[CC LOG] Could not refresh scout server preference: ${error.message}`));
                 }
                 void Promise.resolve().then(() => {
                     const refresh = contexts.flatMap(context => [context.store.autocomplete('', context.channelId),
                         ...(term ? [context.store.autocomplete(term, context.channelId)] : [])]);
                     return Promise.all(refresh);
-                }).catch(error => console.warn(`[WW LOG] /scout autocomplete cache refresh failed: ${error.message}`));
+                }).catch(error => console.warn(`[CC LOG] /scout autocomplete cache refresh failed: ${error.message}`));
             });
         } catch (error) {
             if ([10062, 40060].includes(Number(error.code))) {
                 this.logAutocompleteDelay(`reply rejected (${error.code}; ${receivedAge}ms old on arrival, ${Date.now() - interaction.createdTimestamp}ms old after the API request)`);
                 return;
             }
-            console.warn(`[WW LOG] /scout autocomplete failed: ${error.message}`);
+            console.warn(`[CC LOG] /scout autocomplete failed: ${error.message}`);
             if (!responseAttempted && Date.now() - (interaction.createdTimestamp || Date.now()) < AUTOCOMPLETE_REPLY_BY_MS) {
                 await interaction.respond([]).catch(() => { });
             }
@@ -1438,11 +1438,11 @@ class Scout {
         this.autocompleteDelayWindow.count++;
         if (!this.autocompleteExpiryLogAt || now - this.autocompleteExpiryLogAt >= 60_000) {
             this.autocompleteExpiryLogAt = now;
-            console.log(`[WW LOG] /scout autocomplete ${message}.`);
+            console.log(`[CC LOG] /scout autocomplete ${message}.`);
         }
         // A single expired request can be network jitter; repeated misses need attention.
         if (this.autocompleteDelayWindow.count === 5) {
-            console.warn('[WW LOG] /scout autocomplete missed its Discord response deadline 5 times within 5 minutes. '
+            console.warn('[CC LOG] /scout autocomplete missed its Discord response deadline 5 times within 5 minutes. '
                 + `Check host load and the Discord connection. Latest delay: ${message}.`);
         }
     }
@@ -1634,7 +1634,7 @@ class Scout {
                 : `Thank you for submitting the Scout report for **${ign}**.`;
             await interaction.editReply({ content: response, allowedMentions: { parse: [] } });
         } catch (error) {
-            console.error('[WW LOG] /scout report submission failed:', error);
+            console.error('[CC LOG] /scout report submission failed:', error);
             await interaction.editReply(posted
                 ? 'The scout report was posted, but its archive processing could not be confirmed. Check the scouting channel before submitting it again.'
                 : 'Could not save the scout report right now. Please try again.');

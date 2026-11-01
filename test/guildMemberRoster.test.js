@@ -121,11 +121,11 @@ test('cancelling all consumers stops pagination and a later caller starts a fres
     assert.equal((await fetchGuildMemberRoster(guild)).size, 1); assert.equal(calls, 2);
 });
 
-test('timeout recovery, WW tag startup, and the real scout seed share REST instead of competing gateway fetches', async t => {
+test('timeout recovery, CC tag startup, and the real scout seed share REST instead of competing gateway fetches', async t => {
     const controller = new AbortController(); t.after(() => controller.abort());
     const pending = deferred(), client = new EventEmitter(); let lists = 0, seeded = 0;
     const guild = { id: 'guild', available: true, roles: { cache: new Collection([
-        ['ww-role', { id: 'ww-role', editable: true, managed: false }]
+        ['cc-role', { id: 'cc-role', editable: true, managed: false }]
     ]) } };
     const member = { id: '1', guild, user: { id: '1', username: 'example', bot: false },
         nickname: null, roles: { cache: new Collection() }, communicationDisabledUntilTimestamp: null };
@@ -133,7 +133,7 @@ test('timeout recovery, WW tag startup, and the real scout seed share REST inste
         list: () => { lists++; return pending.promise; }, fetch: () => assert.fail('Unexpected gateway member fetch') };
     client.guilds = { cache: new Collection([['guild', guild]]) };
     client.rest = { get: async () => ({ primary_guild: null }) };
-    const policy = new ServerTagRoleManager({ client, guildId: 'guild', roleId: 'ww-role', signal: controller.signal, spacingMs: 0 });
+    const policy = new ServerTagRoleManager({ client, guildId: 'guild', roleId: 'cc-role', signal: controller.signal, spacingMs: 0 });
     exits.initializeTimeoutTracking(client, { guildId: 'guild', shutdownSignal: controller.signal,
         memberHistory: { seedMembers: members => { seeded++; assert.equal(members.has('1'), true); } } });
     const store = new ScoutRosterStore({ db: { query: async sql => {

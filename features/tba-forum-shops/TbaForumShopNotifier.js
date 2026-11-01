@@ -101,7 +101,7 @@ class TbaForumShopNotifier {
             )) || null;
         } catch (error) {
             console.warn(
-                `[WW LOG] Could not check recent DMs for duplicate ${post.postId || 'unknown'}; ` +
+                `[CC LOG] Could not check recent DMs for duplicate ${post.postId || 'unknown'}; ` +
                 `the shared checkpoint will remain the primary guard: ${error.code || error.message}`
             );
             return null;
@@ -186,7 +186,7 @@ class TbaForumShopNotifier {
         const owner = await this.getOwner();
         const existing = await this.findExistingNotification(owner, post);
         if (existing) {
-            console.log(`[WW LOG] Skipped duplicate ${shop.name} DM for forum post ${post.postId}.`);
+            console.log(`[CC LOG] Skipped duplicate ${shop.name} DM for forum post ${post.postId}.`);
             return existing;
         }
         const payload = this.buildPayload(shop, post, downloadedImages);

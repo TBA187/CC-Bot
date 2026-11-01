@@ -89,7 +89,7 @@ test('empty and singular startup counts remain correct and unknown application t
     assert.ok(other.lines.includes(' - Other application commands (1): Activity'));
 });
 
-test('all current WW command declarations and loaded prefix forms appear in the startup inventory offline', t => {
+test('all current CC command declarations and loaded prefix forms appear in the startup inventory offline', t => {
     // Fail rather than initialize a database, read environment secrets, or write
     // runtime state while inspecting the real command builders.
     const originalLoad = Module._load;
@@ -162,14 +162,14 @@ test('startup prints dynamic prefix metadata beneath registration before event l
     await application.bootstrap();
     assert.deepEqual(loaded, ['commands/future.js', 'events/future.js', 'events/future-group.js']);
     assert.deepEqual(hooks, ['messageCreate', 'group', 'login']);
-    const registered = output.indexOf('[WW LOG] Registering Guild slash commands...');
+    const registered = output.indexOf('[CC LOG] Registering Guild slash commands...');
     assert.deepEqual(output.slice(registered, registered + 5), [
-        '[WW LOG] Registering Guild slash commands...',
-        '[WW LOG] ✅ Guild slash commands registered to Discord',
+        '[CC LOG] Registering Guild slash commands...',
+        '[CC LOG] ✅ Guild slash commands registered to Discord',
         'Loaded 3 commands:',
         ' - Standalone slash commands (1): future_command',
         ' - Prefix commands (2): future (!future / ?future), group (!group)'
     ]);
-    assert.ok(output[registered + 5].startsWith('[WW LOG] Registered Event:'));
-    assert.ok(output[registered + 6].startsWith('[WW LOG] Registered Event Group:'));
+    assert.ok(output[registered + 5].startsWith('[CC LOG] Registered Event:'));
+    assert.ok(output[registered + 6].startsWith('[CC LOG] Registered Event Group:'));
 });

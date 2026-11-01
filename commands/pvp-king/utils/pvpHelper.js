@@ -77,7 +77,7 @@ async function refreshGuildMembers(guild, contextLabel) {
     try {
         await fetchGuildMemberRoster(guild);
     } catch (err) {
-        console.error(`[WW LOG] Failed to refresh members for ${contextLabel}:`, err.code || err.message);
+        console.error(`[CC LOG] Failed to refresh members for ${contextLabel}:`, err.code || err.message);
         return false;
     }
     memberRefreshCache.set(guild, Date.now());

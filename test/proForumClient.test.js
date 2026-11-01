@@ -7,7 +7,7 @@ const { ProForumClient } = require('../features/guild-applications/forum/ProForu
 const html = `
 <!doctype html>
 <html>
-<head><link rel="last" href="https://pokemonrevolution.net/forum/topic/228820-white-walkers-the-memory-of-the-winter/page/12/"></head>
+<head><link rel="last" href="https://pokemonrevolution.net/forum/topic/228820-crow-control-in-both-servers-ready-for-new-members/page/12/"></head>
 <body>
   <nav data-ips-pagination-pages="12"><a data-page="11"></a><a data-page="12"></a></nav>
   <article data-ips-hook="postWrapper" data-commentid="1729000">
@@ -49,7 +49,7 @@ test('discovers dynamic pagination and isolates the applicant post body', () => 
     ]);
     assert.equal(
         parsed.posts[0].postUrl,
-        'https://pokemonrevolution.net/forum/topic/228820-white-walkers-the-memory-of-the-winter/page/12/#findComment-1729000'
+        'https://pokemonrevolution.net/forum/topic/228820-crow-control-in-both-servers-ready-for-new-members/page/12/#findComment-1729000'
     );
 });
 
@@ -102,7 +102,7 @@ test('removes copied recruitment-template images learned from the topic owner', 
           <div data-ips-hook="postUsername"><a href="/forum/profile/163701-vangogsan/">Vangogsan</a></div>
           <div data-role="commentContent">
             <img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4cc.png">
-            <img src="/forum/uploads/monthly_2026_01/ww.png.14a076b219f04cdecfd7863e4969cab3.png">
+            <img src="/forum/uploads/monthly_2026_01/cc.png.14a076b219f04cdecfd7863e4969cab3.png">
           </div>
         </article>
         <article data-commentid="2" data-ips-hook="postWrapper">
@@ -110,7 +110,7 @@ test('removes copied recruitment-template images learned from the topic owner', 
           <div data-role="commentContent">
             <p>IGN: Applicant<br>Age: 22<br>Country: Denmark</p>
             <img src="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/72x72/1f4cc.png">
-            <img src="/forum/uploads/monthly_2026_01/ww.png.14a076b219f04cdecfd7863e4969cab3.png">
+            <img src="/forum/uploads/monthly_2026_01/cc.png.14a076b219f04cdecfd7863e4969cab3.png">
             <img src="/forum/uploads/monthly_2026_07/trainer-card.png" alt="trainer card">
           </div>
         </article>

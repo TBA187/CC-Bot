@@ -120,8 +120,8 @@ test('write publication keeps message.client audit delivery, hidden labels and i
         assert.equal(embed.fields.find(field => field.name === 'Message ID').value, '`sent-message`');
         assert.equal(embed.fields.find(field => field.name === 'Message Link').value, `[Jump to message](${state.sentMessage.url})`);
         assert.equal(embed.fields.at(-1).value, '```text\nLogged text\n```');
-        assert.equal(embed.footer.text, 'White Walker Logs');
-        assert.equal(payload.files[0].name, 'wwLogo.png');
+        assert.equal(embed.footer.text, 'Crow Control Logs');
+        assert.equal(payload.files[0].name, 'cc_logo.webp');
     }
     const state = fixture('?write text', 'officer-role', { logChannelID: 'log-channel', ignoredLogChannels: ['channel'] });
     await messageCreate.execute(state.message, state.config);
@@ -134,7 +134,7 @@ test('welcome commands and prefix command guards retain their existing behavior'
         state.message.mentions.members.set('new-member', { id: 'new-member' });
         await messageCreate.execute(state.message, state.config);
         assert.equal(state.calls[0][0], 'send');
-        assert.match(state.calls[0][1], /Welcome to White Walkers, <@new-member>/);
+        assert.match(state.calls[0][1], /Welcome to Crow Control, <@new-member>/);
         assert.match(state.calls[0][1], /<#1469101041189523657>/);
         state.calls.length = 0;
         state.message.mentions.members.clear();

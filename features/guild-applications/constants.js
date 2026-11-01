@@ -3,7 +3,7 @@
 // Shared defaults for the PRO forum monitor, parsing, storage, and Discord notices.
 const path = require('path');
 
-const TOPIC_URL = 'https://pokemonrevolution.net/forum/topic/228820-white-walkers-the-memory-of-the-winter/';
+const TOPIC_URL = 'https://pokemonrevolution.net/forum/topic/228820-crow-control-in-both-servers-ready-for-new-members/';
 const TOPIC_ID = '228820';
 const TEMPLATE_FORUM_USER_ID = '163701';
 const TEMPLATE_FORUM_USERNAME = 'vangogsan';

@@ -1,4 +1,4 @@
-// Keep the White Walker role aligned with each member's server tag.
+// Keep the Crow Control role aligned with each member's server tag.
 'use strict';
 
 const { Events, PermissionFlagsBits, Routes } = require('discord.js');
@@ -7,7 +7,7 @@ const { runtimeActivity } = require('./runtimeActivity.js');
 const { abortableDelay } = require('./abortable.js');
 const { networkErrorCode, isTransientDiscordError } = require('./networkErrors.js');
 
-const POLICY_REASON_PREFIX = '[WW tag policy]';
+const POLICY_REASON_PREFIX = '[CC tag policy]';
 
 function serverTagStatus(user, guildId) {
     if (!user) return undefined;
@@ -25,8 +25,8 @@ function serverTagStatus(user, guildId) {
 
 function policyReason(enabled) {
     return `${POLICY_REASON_PREFIX} ${enabled
-        ? 'This member is wearing the WW Server Tag, so they must keep the White Walker role.'
-        : 'This member is not wearing the WW Server Tag, so they cannot keep the White Walker role.'}`;
+        ? 'This member is wearing the CC Server Tag, so they must keep the Crow Control role.'
+        : 'This member is not wearing the CC Server Tag, so they cannot keep the Crow Control role.'}`;
 }
 
 class ServerTagRoleManager {
@@ -57,7 +57,7 @@ class ServerTagRoleManager {
         const previous = this.lastIssues.get(code);
         if (previous !== undefined && this.now() - previous < this.intervalMs) return false;
         this.lastIssues.set(code, this.now());
-        console.warn(`[WW TAG] ${error.message}`);
+        console.warn(`[CC TAG] ${error.message}`);
         return true;
     }
 
@@ -66,7 +66,7 @@ class ServerTagRoleManager {
         this.networkFailures.add(id);
         if (this.networkUnavailable) return;
         this.networkUnavailable = true;
-        console.warn(`[WW TAG] Discord verification unavailable (${networkErrorCode(error)}). Tag checks will retry automatically; existing roles remain pending verification.`);
+        console.warn(`[CC TAG] Discord verification unavailable (${networkErrorCode(error)}). Tag checks will retry automatically; existing roles remain pending verification.`);
     }
 
     noteVerified(id) {
@@ -75,7 +75,7 @@ class ServerTagRoleManager {
         this.networkUnavailable = false;
         if (this.retryTimer !== null) this.cancelTimeout(this.retryTimer);
         this.retryTimer = null;
-        console.log('[WW TAG] Discord verification restored. Pending tag checks have completed.');
+        console.log('[CC TAG] Discord verification restored. Pending tag checks have completed.');
     }
 
     retryVerification() {
@@ -104,10 +104,10 @@ class ServerTagRoleManager {
 
     async editableRole(guild) {
         const role = guild.roles.cache.get(this.roleId) || await guild.roles.fetch(this.roleId);
-        if (!role || role.managed) throw Object.assign(new Error('The configured White Walker role is missing or is managed by an integration.'), { code: 'WW_ROLE_UNAVAILABLE' });
+        if (!role || role.managed) throw Object.assign(new Error('The configured Crow Control role is missing or is managed by an integration.'), { code: 'CC_ROLE_UNAVAILABLE' });
         const me = guild.members.me || await guild.members.fetchMe();
         if (!me.permissions.has(PermissionFlagsBits.ManageRoles) || !role.editable) {
-            throw Object.assign(new Error('WW-Bot needs Manage Roles and a highest role above the White Walker role to enforce the server-tag policy.'), { code: 'WW_ROLE_PERMISSIONS' });
+            throw Object.assign(new Error('Crow Control needs Manage Roles and a highest role above the Crow Control role to enforce the server-tag policy.'), { code: 'CC_ROLE_PERMISSIONS' });
         }
         return role;
     }
@@ -140,7 +140,7 @@ class ServerTagRoleManager {
                 const transient = isTransientDiscordError(error);
                 if (!this.stopped && error.code !== 10007) {
                     if (transient) { this.noteUnavailable(member.id, error); this.retryVerification(); }
-                    else this.reportIssue(error.code || 'WW_TAG_LOOKUP', error);
+                    else this.reportIssue(error.code || 'CC_TAG_LOOKUP', error);
                 }
                 return { status: error.code === 10007 ? 'left' : transient ? 'unavailable' : 'failed' };
             }).finally(() => {
@@ -167,7 +167,7 @@ class ServerTagRoleManager {
         }
         if (enabled === undefined) {
             state.checkedAt = null;
-            this.reportIssue('WW_TAG_METADATA', new Error('Discord did not provide primary-guild metadata; the WW role was left pending verification.'));
+            this.reportIssue('CC_TAG_METADATA', new Error('Discord did not provide primary-guild metadata; the CC role was left pending verification.'));
             return { status: 'unknown' };
         }
         const before = state.enabled ?? previousTag;
@@ -177,7 +177,7 @@ class ServerTagRoleManager {
         if (!recentlyChecked) state.checkedAt = this.now();
         if (announce && before !== enabled && (before !== undefined || (source === 'join' && enabled))) {
             try { await this.onTagChange(member, enabled); }
-            catch (error) { this.reportIssue('WW_TAG_LOG', error); }
+            catch (error) { this.reportIssue('CC_TAG_LOG', error); }
         }
         if (!this.current(member, state, revision)) return { status: 'stale' };
         const cached = member.guild.members.cache.get(member.id) || member;
@@ -197,10 +197,10 @@ class ServerTagRoleManager {
             else await current.roles.remove(this.roleId, reason);
             const verified = await member.guild.members.fetch({ user: member.id, force: true, cache: false });
             if (!this.current(member, state, revision)) return { status: 'stale' };
-            if (verified.roles.cache.has(this.roleId) !== enabled) throw new Error('Discord has not confirmed the requested WW role correction.');
+            if (verified.roles.cache.has(this.roleId) !== enabled) throw new Error('Discord has not confirmed the requested CC role correction.');
             const result = { status: 'corrected', enabled, added: enabled, role, source, reason, success: true };
             try { if (reportCorrection) await this.onCorrection(verified, result); }
-            catch (error) { this.reportIssue('WW_TAG_LOG', error); }
+            catch (error) { this.reportIssue('CC_TAG_LOG', error); }
             return result;
         } catch (error) {
             if (token) {
@@ -214,10 +214,10 @@ class ServerTagRoleManager {
                 this.retryVerification();
                 return { status: 'unavailable', enabled, role, reason };
             }
-            if (this.reportIssue(error.code || 'WW_TAG_CORRECTION', error)) {
-                try { if (reportCorrection) await this.onCorrection(member, { added: enabled, role: role || { id: this.roleId, name: 'White Walker' }, source,
+            if (this.reportIssue(error.code || 'CC_TAG_CORRECTION', error)) {
+                try { if (reportCorrection) await this.onCorrection(member, { added: enabled, role: role || { id: this.roleId, name: 'Crow Control' }, source,
                     reason, success: false, error: error.message }); }
-                catch (logError) { this.reportIssue('WW_TAG_LOG', logError); }
+                catch (logError) { this.reportIssue('CC_TAG_LOG', logError); }
             }
             return { status: 'failed', enabled, role, reason, error: error.message };
         }
@@ -235,7 +235,7 @@ class ServerTagRoleManager {
     async sweep({ startup = false } = {}) {
         if (this.stopped || this.sweeping) return;
         this.sweeping = true;
-        const finishActivity = this.activity.begin(`WW server-tag verification${startup ? ' (startup)' : ''}`);
+        const finishActivity = this.activity.begin(`CC server-tag verification${startup ? ' (startup)' : ''}`);
         try {
             const guild = this.client.guilds.cache.get(this.guildId);
             if (!guild || !guild.available) return;
@@ -256,7 +256,7 @@ class ServerTagRoleManager {
         } catch (error) {
             if (!this.stopped) {
                 if (isTransientDiscordError(error)) { this.noteUnavailable('sweep', error); this.retryVerification(); }
-                else this.reportIssue(error.code || 'WW_TAG_SWEEP', error);
+                else this.reportIssue(error.code || 'CC_TAG_SWEEP', error);
             }
         } finally { this.sweeping = false; finishActivity(); }
     }

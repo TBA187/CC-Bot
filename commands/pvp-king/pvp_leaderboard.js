@@ -21,7 +21,7 @@ class PvpLeaderboard {
         this.historyThreadID = config.historyThreadID;
         this.data = new SlashCommandBuilder()
             .setName('pvp_leaderboard')
-            .setDescription('Display all PvP Kings — White Walker Hall of Fame!');
+            .setDescription('Display all PvP Kings — Crow Control Hall of Fame!');
     }
 
     async execute(interaction) {
@@ -86,7 +86,7 @@ class PvpLeaderboard {
                     .setThumbnail(interaction.guild.iconURL())
                     .setTimestamp()
                     .setFooter({
-                        text: `WW PvP King System • ${this.pvpServerName} • Page ${page + 1} of ${totalPages}`,
+                        text: `CC PvP King System • ${this.pvpServerName} • Page ${page + 1} of ${totalPages}`,
                         iconURL: interaction.guild.iconURL()
                     });
 
@@ -98,7 +98,7 @@ class PvpLeaderboard {
                 };
                 const activeSort = sortTitles[currentSort] || sortTitles.total_wins;
 
-                let descriptionText = `## 🏆\u2002White Walkers — PvP Hall of Fame in ${this.pvpServerName}\u2002🏆\n` +
+                let descriptionText = `## 🏆\u2002Crow Control — PvP Hall of Fame in ${this.pvpServerName}\u2002🏆\n` +
                     `**In the grip of endless winter, \`${total_kings}\` PvP Kings stand frozen in time, their legacy etched in ice forever!\u2002🧊**\n` +
                     `-# - **Current PvP King:\u2002👑\u2002${currentKingText}\u2002👑**\n` +
                     `-# - Challenge the current PvP King with: **\`/pvp_challenge\`**\n` +
@@ -194,7 +194,7 @@ class PvpLeaderboard {
 
                     collector.resetTimer();
                 } catch (error) {
-                    console.warn('[WW LOG] PvP leaderboard control failed:', error.code || error.name);
+                    console.warn('[CC LOG] PvP leaderboard control failed:', error.code || error.name);
                 }
             });
 

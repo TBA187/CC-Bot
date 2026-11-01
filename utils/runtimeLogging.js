@@ -8,7 +8,7 @@ const { StringDecoder } = require('node:string_decoder');
 const { formatTimestamp, stripBotLogPrefix } = require('./logFormat.js');
 const { createMonthlyFileHandler } = require('./logFiles.js');
 
-const DEFAULT_LOG_PATH = 'data/logs/ww.log';
+const DEFAULT_LOG_PATH = 'data/logs/cc.log';
 const DEFAULT_LOG_RETENTION_MONTHS = 12;
 const DEFAULT_LOG_MAX_TOTAL_MIB = 100;
 const DEFAULT_LOG_MIN_FREE_MIB = 100;
@@ -112,7 +112,7 @@ class TimestampedConsole {
         for (let fragment of fragments) {
             // A direct writer can split the bot tag across calls. Buffer only
             // its possible nine-character prefix, keeping normal writes immediate.
-            if (atLineStart && !final && '[WW LOG] '.startsWith(fragment)) {
+            if (atLineStart && !final && ['[CC LOG] ', '[WW LOG] '].some(prefix => prefix.startsWith(fragment))) {
                 this.pendingPrefix = fragment;
                 break;
             }

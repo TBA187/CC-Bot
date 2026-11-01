@@ -87,12 +87,12 @@ module.exports = {
                 if (config.logChannelID && !config.ignoredLogChannels.includes(message.channel.id)) {
                     try {
                         const logChannel = await message.client.channels.fetch(config.logChannelID);
-                        const imagePath = path.join(__dirname, '../images/ww_logo.png');
-                        const wwLogo = new AttachmentBuilder(imagePath, { name: 'wwLogo.png' });
+                        const imagePath = path.join(__dirname, '../images/cc_logo.webp');
+                        const ccLogo = new AttachmentBuilder(imagePath, { name: 'cc_logo.webp' });
                         const logEmbed = new EmbedBuilder()
                             .setTitle(`💻 \u2002\`${command}\` command used!`)
                             .setColor(0x57F287)
-                            .setDescription(`<@${message.author.id}> (${message.author.username}) commanded the WW Bot to write a message.`)
+                            .setDescription(`<@${message.author.id}> (${message.author.username}) commanded the CC Bot to write a message.`)
                             .addFields(
                                 { name: 'Executor', value: `\`${message.author.displayName}\``, inline: true },
                                 { name: 'Channel', value: `<#${message.channel.id}>`, inline: true },
@@ -106,12 +106,12 @@ module.exports = {
                                     inline: false
                                 }
                             )
-                            .setFooter({ text: 'White Walker Logs', iconURL: 'attachment://wwLogo.png' })
+                            .setFooter({ text: 'Crow Control Logs', iconURL: 'attachment://cc_logo.webp' })
                             .setTimestamp();
 
-                        await logChannel.send({ embeds: [logEmbed], files: [wwLogo] });
+                        await logChannel.send({ embeds: [logEmbed], files: [ccLogo] });
                     } catch (logErr) {
-                        console.error('[WW LOG] Failed to log write command:', logErr);
+                        console.error('[CC LOG] Failed to log write command:', logErr);
                     }
                 }
             } catch (err) {
@@ -132,7 +132,7 @@ module.exports = {
             }
 
             return message.channel.send(
-                `## 🎉  Welcome to White Walkers, <@${member.id}> — We're happy to have you here!  🎉\n` +
+                `## 🎉  Welcome to Crow Control, <@${member.id}> — We're happy to have you here!  🎉\n` +
                 `### 📜 **Guild Rules:** <#1246059221280096357>\n` +
                 `### 📑 **Discord Information:** <#1454633218094530700>\n` +
                 `### 📢 **Guild Announcements:** <#1180559473501290688>\n_ _\n` +

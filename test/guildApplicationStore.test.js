@@ -11,7 +11,7 @@ const {
 } = require('../features/guild-applications/storage/GuildApplicationStore.js');
 
 function tempFile() {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-guild-applications-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-guild-applications-'));
     return path.join(directory, 'guild_applications.json');
 }
 
@@ -268,7 +268,7 @@ test('removes known decorative image URLs from the local fallback records', asyn
     });
 
     await store.removeStoredImageUrls([
-        'https://pokemonrevolution.net/forum/uploads/monthly_2026_01/ww.png.14a076b219f04cdecfd7863e4969cab3.png'
+        'https://pokemonrevolution.net/forum/uploads/monthly_2026_01/cc.png.14a076b219f04cdecfd7863e4969cab3.png'
     ]);
 
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));

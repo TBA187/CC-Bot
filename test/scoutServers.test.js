@@ -117,7 +117,7 @@ test('scout registers all three server options while retaining required IGN auto
     assert.equal(options[0].required, true); assert.equal(options[0].autocomplete, true);
     assert.equal(options[1].name, 'server'); assert.equal(Boolean(options[1].required), false);
     assert.deepEqual(options[1].choices.map(({ name, value }) => ({ name, value })), [{ name: 'Gold', value: 'gold' }, { name: 'Silver', value: 'silver' }, { name: 'Cross Server', value: 'cross' }]);
-    assert.equal(options[1].description, 'Select Server (optional) — Save your default server for future Scout Reports with: /ww-settings');
+    assert.equal(options[1].description, 'Select Server (optional) — Save your default server for future Scout Reports with: /cc-settings');
 });
 
 test('first-use autocomplete offers cached opponents in the requested archives', async () => {
@@ -150,7 +150,7 @@ test('first-use setup is private and branded and remembers the chosen IGN', asyn
     assert.deepEqual(i.calls[0], ['deferReply', { flags: MessageFlags.Ephemeral }]);
     const payload = lastEdit(i), embed = payload.embeds[0].toJSON();
     assert.equal(payload.content, `### <@${USER_ID}>, please select your default server below.`);
-    assert.equal(embed.footer.text, 'White Walker Server Settings');
+    assert.equal(embed.footer.text, 'Crow Control Server Settings');
     assert.equal(embed.footer.icon_url, undefined);
     assert.equal(embed.thumbnail.url, 'https://example.com/avatar.png'); assert.ok(embed.timestamp);
     assert.deepEqual(buttons(payload).map(button => button.label), ['Gold', 'Silver', 'Cross Server']);

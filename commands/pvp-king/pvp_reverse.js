@@ -135,7 +135,7 @@ class PvpReverse {
                                 });
                             }
 
-                            console.warn('[WW LOG] PvP reversal save could not be confirmed:', err.code || err.name);
+                            console.warn('[CC LOG] PvP reversal save could not be confirmed:', err.code || err.name);
                             return await interaction.editReply({
                                 content: '### ⚠️ Could not confirm that the PvP reversal was saved. Check `/pvp_history` before retrying.',
                                 components: []
@@ -264,7 +264,7 @@ class PvpReverse {
                         console.log("------------------------------------------");
                     }
                 } catch (error) {
-                    console.warn('[WW LOG] PvP reversal control failed:', error.code || error.name);
+                    console.warn('[CC LOG] PvP reversal control failed:', error.code || error.name);
                     await interaction.editReply({
                         content: reversalSaved
                             ? '### ⚠️ The reversal is saved, but Discord updates were incomplete. Do not run `/pvp_reverse` again for this event. Officers should check the King roles and `/pvp_history`.'

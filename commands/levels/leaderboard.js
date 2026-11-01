@@ -171,8 +171,8 @@ class Leaderboard {
                 [guildId, track, limit, offset]
             );
 
-            const logoPath = path.join(__dirname, '../../images/ww_logo.png');
-            const logoFile = new AttachmentBuilder(logoPath, { name: 'ww_logo.png' });
+            const logoPath = path.join(__dirname, '../../images/cc_logo.webp');
+            const logoFile = new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' });
             const leaderboardTitle = trackInfo.isGlobal
                 ? `Leaderboard for ${guildName}`
                 : `Leaderboard for ${trackInfo.displayName}:`;
@@ -180,9 +180,9 @@ class Leaderboard {
 
             const lbEmbed = new EmbedBuilder()
                 .setTitle(leaderboardTitle)
-                .setThumbnail('attachment://ww_logo.png')
+                .setThumbnail('attachment://cc_logo.webp')
                 .setColor(trackInfo.color || '#F1C40F')
-                .setFooter({ text: `${trackingSince}  •  Page ${page}`, iconURL: 'attachment://ww_logo.png' })
+                .setFooter({ text: `${trackingSince}  •  Page ${page}`, iconURL: 'attachment://cc_logo.webp' })
                 .setTimestamp();
 
             if (!trackInfo.isGlobal) {
@@ -230,7 +230,7 @@ class Leaderboard {
                 if (interaction.replied || interaction.deferred) return interaction.editReply(payload);
                 return interaction.update(payload);
             }
-            console.error('[WW LOG] Level Leaderboard Error:', err);
+            console.error('[CC LOG] Level Leaderboard Error:', err);
             const payload = { content: 'Error fetching leaderboard data.', components: [] };
             if (interaction.replied || interaction.deferred) return interaction.editReply(payload);
             return interaction.update(payload);

@@ -116,7 +116,7 @@ class EditBotMsg {
         this.onCooldown = config.onCooldown || (() => false);
         this.data = [
             new SlashCommandBuilder().setName('edit_bot_msg')
-                .setDescription('Edit messages sent by White Walker Bot (Officer only)').setDMPermission(false)
+                .setDescription('Edit messages sent by Crow Control Bot (Officer only)').setDMPermission(false)
                 .addStringOption(option => option.setName('channel_id')
                     .setDescription('Channel ID where the message is located').setRequired(true))
                 .addStringOption(option => option.setName('message_id')
@@ -358,7 +358,7 @@ class EditBotMsg {
         try {
             const logChannel = await interaction.client.channels.fetch(this.logChannelID);
             if (!logChannel?.send) return;
-            const embed = new EmbedBuilder().setColor(0x00FFFF).setTitle('🤖  Bot Message Edited  ✏️')
+            const embed = new EmbedBuilder().setColor(0xe63b50).setTitle('🤖  Bot Message Edited  ✏️')
                 .setDescription('Edited by <@' + interaction.user.id + '> (' + interaction.user.username + ')')
                 .addFields(
                     { name: 'Channel:', value: '<#' + channel.id + '>', inline: true },
@@ -370,7 +370,7 @@ class EditBotMsg {
                 { name: 'Difference:', value: formatMessageDiff(oldContent, finalContent), inline: false }
             ).setTimestamp();
             const logo = logoFile();
-            const footer = { text: 'White Walker Logs' };
+            const footer = { text: 'Crow Control Logs' };
             if (logo) footer.iconURL = LOGO_ATTACHMENT_URL;
             embed.setFooter(footer);
             await logChannel.send({ embeds: [embed], ...(logo ? { files: [logo] } : {}) });

@@ -96,7 +96,7 @@ class ScoutMessageFeedback {
         const context = { component: 'Scout feedback', reportId: rootId, messageId: /^\d+$/u.test(id) ? id : undefined };
         const run = work => this.diagnostics ? this.diagnostics.run(context, work) : work();
         const pending = previous.then(() => this.stopped() || this.closing ? null : run(task)).catch(error => run(() => {
-            console.warn(`[WW LOG] Could not update public scout feedback for ${id}: ${error.message}`);
+            console.warn(`[CC LOG] Could not update public scout feedback for ${id}: ${error.message}`);
             return null;
         }));
         this.pending.set(id, pending);
@@ -246,7 +246,7 @@ class ScoutMessageFeedback {
                     sources: context.sources.filter(source => feedbackOutcome(source, root)?.reaction === UP)
                         .map(source => ({ message_id: source.message_id, author_id: source.author_id,
                             author_username: source.author_username })) }).catch(error => {
-                    console.warn(`[WW LOG] Could not prepare scout publication log for ${latest.message_id}: ${error.message}`);
+                    console.warn(`[CC LOG] Could not prepare scout publication log for ${latest.message_id}: ${error.message}`);
                 });
             }
             await this.clearRunFeedback(context.run.slice(0, -1));
@@ -405,7 +405,7 @@ class ScoutMessageFeedback {
                 }
             }
         } catch (error) {
-            console.warn(`[WW LOG] Could not refresh grouped scout feedback for ${rootId}: ${error.message}`);
+            console.warn(`[CC LOG] Could not refresh grouped scout feedback for ${rootId}: ${error.message}`);
         }
     }
 

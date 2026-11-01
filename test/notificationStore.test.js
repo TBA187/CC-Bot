@@ -76,7 +76,7 @@ for (const kind of ['settings', 'subscriptions']) {
 }
 
 function tempDataFile() {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-notifications-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-notifications-'));
     return path.join(directory, 'notifications.json');
 }
 

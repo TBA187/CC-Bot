@@ -38,7 +38,7 @@ function createBotApplication({ appConfig, runtimeLogging, processObject = proce
         return null;
     }
     const {
-        botTimezone, guildId, welcomeChannelID, ownerID, leaderRoleID, adminRoleID, officerRoleID, guildMemberRoleID, pvpKingRoleID, pvpKingSilverRoleID, pvpWarriorRoleID, wwRoleID, botChannelID, logChannelID, ignoredLogChannels, ignoreLogPrivateChannelCreate, blockedEditBotMsgChannels, pvpKingChannelID, pvpKingSilverChannelID, pvpScoutingGoldChannelID, pvpScoutingSilverChannelID, goldRoleID, silverRoleID, historyThreadID, historySilverThreadID, dungeonChannelID, dungeonRoleID, giveawayChannelID
+        botTimezone, guildId, welcomeChannelID, ownerID, leaderRoleID, adminRoleID, officerRoleID, guildMemberRoleID, pvpKingRoleID, pvpKingSilverRoleID, pvpWarriorRoleID, ccRoleID, botChannelID, logChannelID, ignoredLogChannels, ignoreLogPrivateChannelCreate, blockedEditBotMsgChannels, pvpKingChannelID, pvpKingSilverChannelID, pvpScoutingGoldChannelID, pvpScoutingSilverChannelID, goldRoleID, silverRoleID, historyThreadID, historySilverThreadID, dungeonChannelID, dungeonRoleID, giveawayChannelID
     } = appConfig;
 
     let interactionDiagnostics;
@@ -119,7 +119,7 @@ function createBotApplication({ appConfig, runtimeLogging, processObject = proce
         pvpKingRoleID,
         pvpKingSilverRoleID,
         pvpWarriorRoleID,
-        wwRoleID,
+        ccRoleID,
         botChannelID,
         logChannelID,
         memberHistory,

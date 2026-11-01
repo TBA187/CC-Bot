@@ -119,7 +119,7 @@ class LevelAdmin {
                 { name: 'New Level', value: `${adjustment.finalLevel}`, inline: true },
                 { name: 'New Total XP', value: `${adjustment.finalXp}`, inline: true }
             )
-            .setFooter({ text: 'White Walkers' })
+            .setFooter({ text: 'Crow Control' })
             .setTimestamp();
     }
 
@@ -230,7 +230,7 @@ class LevelAdmin {
 
             return interaction.editReply({ embeds: [embed] });
         } catch (err) {
-            console.error('[WW LOG] Level Admin database error:', err);
+            console.error('[CC LOG] Level Admin database error:', err);
             return interaction.editReply('Database error. Check console.');
         }
     }
@@ -298,7 +298,7 @@ class LevelAdmin {
                 components: []
             });
         } catch (err) {
-            console.error('[WW LOG] Level Admin role confirmation error:', err);
+            console.error('[CC LOG] Level Admin role confirmation error:', err);
             return interaction.editReply({
                 content: 'Could not assign the required role or update the database. No level changes were completed. Check console.',
                 embeds: [],

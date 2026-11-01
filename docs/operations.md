@@ -43,6 +43,7 @@ An unreadable guild-settings, dungeon or notification recovery file is preserved
 | `dungeonChannelID`, `dungeonRoleID`, `giveawayChannelID` | Recruitment and giveaway destinations. |
 | `officerChannelID`, `courtHouseChannelID` | Guild application alerts and voting polls. |
 | `ownerID` | Owner-only forum review alerts and shop notifications. |
+| `brandingImageURL` | Crow Control banner image URL hosted online. |
 
 The invoking PvP King channel selects the corresponding crown, challenge state, history and notifications. Message-builder previews remain private until the owner confirms sending or saving.
 
@@ -105,7 +106,7 @@ Stop the old bot instance before moving hosts. Back up MySQL and preserve the fe
 | `tba_forum_shops.json` | Forum shop recovery checkpoints. |
 | `scout-autocomplete-cache.json`, `scout-autocomplete-silver-cache.json` | Rebuildable Gold and Silver search indexes. |
 | `tesseract-cache/` | Reusable OCR language data. |
-| `logs/ww-YYYY-MM.log` | Runtime diagnostic output. |
+| `logs/cc-YYYY-MM.log` | Runtime diagnostic output. |
 
 Runtime state files are ignored by Git; bundled reference data under `data/` is tracked. Avoid editing state files while the bot is running.
 
@@ -117,7 +118,7 @@ Maintenance runs at startup, rollover and every hour. Defaults retain the newest
 
 | Environment variable | Default | Purpose |
 | --- | --- | --- |
-| `BOT_LOG_PATH` | `data/logs/ww.log` | Base filename; `-YYYY-MM` is inserted before the extension. |
+| `BOT_LOG_PATH` | `data/logs/cc.log` | Base filename; `-YYYY-MM` is inserted before the extension. |
 | `BOT_LOG_RETENTION_MONTHS` | `12` | Maximum retained monthly files, including the active file. |
 | `BOT_LOG_MAX_TOTAL_MIB` | `100` | Matching log storage cap; `0` disables the cap. |
 | `BOT_LOG_MIN_FREE_MIB` | `100` | Low-free-space cleanup trigger; `0` disables it. |
@@ -133,7 +134,7 @@ Console and monthly logs record failures immediately; Discord waits for persiste
 | Problem | Discord alert timing |
 | --- | --- |
 | JSON save failures, corrupted data, unexpected errors, failed background jobs | Immediately |
-| MySQL outages and feature storage fallbacks, Discord REST warmup, WW tag verification, command registration, unavailable container memory accounting | After 5 minutes |
+| MySQL outages and feature storage fallbacks, Discord REST warmup, CC tag verification, command registration, unavailable container memory accounting | After 5 minutes |
 | PRO forum outages, including application and shop scans | After 10 minutes |
 | Discord Gateway disconnection | After 1 minute |
 | Memory pressure | Immediately |

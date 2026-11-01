@@ -51,7 +51,7 @@ class PvpCurrentKing {
             const firstCrowned = stats?.first_crowned ? `<t:${Math.floor(new Date(stats?.first_crowned).getTime() / 1000)}:F>` : '*Never*';
             const lastCrowned = stats?.crowned_at ? `<t:${Math.floor(new Date(stats?.crowned_at).getTime() / 1000)}:F>` : '*Never*';
             const embed = new EmbedBuilder()
-                .setTitle(`<:kyurem:1472065995089645609>\u2002White Walker PvP King — ${this.pvpServerName} ${this.pvpServerEmoji}`)
+                .setTitle(`<:dark_murkrow:1565243892255694908>\u2002Crow Control PvP King — ${this.pvpServerName} ${this.pvpServerEmoji}`)
                 .setDescription(`## 👑\u2002<@${currentKing.id}>\u2002👑`)
                 .addFields(
                     { name: `🔥\u2002 Current Win Streak:\u2002${currentStreak}`, value: '\u2002', inline: false },

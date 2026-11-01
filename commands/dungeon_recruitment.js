@@ -129,7 +129,7 @@ function formatDungeonTime(date, isClosed) {
 }
 
 function createFooterLogoAttachment() {
-    return new AttachmentBuilder(path.join(__dirname, '../images/ww_logo.png'), { name: 'ww_logo.png' });
+    return new AttachmentBuilder(path.join(__dirname, '../images/cc_logo.webp'), { name: 'cc_logo.webp' });
 }
 
 function parseRelativeTime(input, nowMs) {
@@ -241,7 +241,7 @@ class DungeonRecruitment {
         this.restoreOnReady = () => {
             if (this.stopped) return;
             this.restorePromise = this.restorePersistedRuns()
-                .catch(err => console.error('[WW LOG] Failed to restore Dungeon recruitments:', err));
+                .catch(err => console.error('[CC LOG] Failed to restore Dungeon recruitments:', err));
         };
         if (this.client?.isReady?.()) {
             this.restoreOnReady();
@@ -380,14 +380,14 @@ class DungeonRecruitment {
 
     noteMysqlFailure(err) {
         if (this.db?.isDatabaseUnavailableError && !this.db.isDatabaseUnavailableError(err)) {
-            console.error('[WW LOG] Unexpected MySQL Dungeon storage error:', err);
+            console.error('[CC LOG] Unexpected MySQL Dungeon storage error:', err);
             return;
         }
         if (this.mysqlOutage) return;
         this.mysqlOutage = true;
         const errorCode = this.db?.getErrorCode?.(err) || err?.causeCode || err?.code || err?.message || err;
         console.warn(
-            `[WW LOG] MySQL Dungeon storage unavailable (${errorCode}). ` +
+            `[CC LOG] MySQL Dungeon storage unavailable (${errorCode}). ` +
             'Using JSON; pending runs will synchronize automatically.'
         );
     }
@@ -395,7 +395,7 @@ class DungeonRecruitment {
     noteMysqlRestored() {
         if (!this.mysqlOutage) return;
         this.mysqlOutage = false;
-        console.log('[WW LOG] MySQL Dungeon storage restored; pending JSON runs are synchronizing.');
+        console.log('[CC LOG] MySQL Dungeon storage restored; pending JSON runs are synchronizing.');
     }
 
     async mysqlQuery(sql, params = []) {
@@ -655,7 +655,7 @@ class DungeonRecruitment {
         }
 
         if (skipped > 0) {
-            console.warn(`[WW LOG] Skipped ${skipped} invalid persisted Dungeon run(s).`);
+            console.warn(`[CC LOG] Skipped ${skipped} invalid persisted Dungeon run(s).`);
             this.saveRuns();
         }
     }
@@ -756,7 +756,7 @@ class DungeonRecruitment {
         this.pendingStorageWrite = this.pendingStorageWrite
             .catch(() => { })
             .then(work);
-        void this.pendingStorageWrite.catch(err => console.error('[WW LOG] Failed to persist Dungeon recruitments:', err));
+        void this.pendingStorageWrite.catch(err => console.error('[CC LOG] Failed to persist Dungeon recruitments:', err));
         return this.pendingStorageWrite;
     }
 
@@ -790,7 +790,7 @@ class DungeonRecruitment {
             this.writeJsonStore([], JSON_SOURCES.MYSQL_FALLBACK, false);
         } catch (err) {
             // The change is already durable; leave the pending snapshot for a safe replay.
-            console.error('[WW LOG] Failed to clear synchronized Dungeon recovery data:', err);
+            console.error('[CC LOG] Failed to clear synchronized Dungeon recovery data:', err);
         }
     }
 
@@ -805,7 +805,7 @@ class DungeonRecruitment {
         }
 
         this.writeJsonStore([], JSON_SOURCES.MYSQL_FALLBACK, false);
-        console.log(`[WW LOG] Synced ${store.runs.length} fallback Dungeon run(s) to MySQL.`);
+        console.log(`[CC LOG] Synced ${store.runs.length} fallback Dungeon run(s) to MySQL.`);
         return true;
     }
 
@@ -863,7 +863,7 @@ class DungeonRecruitment {
             await message.edit({
                 embeds: [this.buildEmbed(run)],
                 components: this.buildComponents(run)
-            }).catch(err => console.error('[WW LOG] Failed to refresh persisted dungeon recruitment:', err));
+            }).catch(err => console.error('[CC LOG] Failed to refresh persisted dungeon recruitment:', err));
 
             this.scheduleDeadline(run);
         }
@@ -1166,8 +1166,8 @@ class DungeonRecruitment {
             .setColor(run.color)
             .setDescription(descriptionLines.join('\n'))
             .setFooter({
-                text: 'White Walker Dungeon Organizer',
-                iconURL: 'attachment://ww_logo.png'
+                text: 'Crow Control Dungeon Organizer',
+                iconURL: 'attachment://cc_logo.webp'
             })
             .setTimestamp();
 
@@ -1212,8 +1212,8 @@ class DungeonRecruitment {
             )
             .setColor(run.color)
             .setFooter({
-                text: 'White Walker Dungeon Organizer',
-                iconURL: 'attachment://ww_logo.png'
+                text: 'Crow Control Dungeon Organizer',
+                iconURL: 'attachment://cc_logo.webp'
             })
             .setTimestamp()
             .addFields(
@@ -1405,7 +1405,7 @@ class DungeonRecruitment {
                 allowedMentions: { users: [run.partyLeaderId] }
             });
         } catch (err) {
-            console.warn(`[WW LOG] Failed to send Dungeon ${action} notification for ${run.dungeonName} (${run.id}):`, err);
+            console.warn(`[CC LOG] Failed to send Dungeon ${action} notification for ${run.dungeonName} (${run.id}):`, err);
         }
     }
 
@@ -1432,7 +1432,7 @@ class DungeonRecruitment {
 
     closeRunAtDeadline(run, sourceMessage = null) {
         return this.closeRun(run.id, 'deadline', this.client, sourceMessage).catch(err => {
-            console.error('[WW LOG] Dungeon deadline close failed:', err);
+            console.error('[CC LOG] Dungeon deadline close failed:', err);
             if (this.stopped || run.closed || this.activeRuns.get(run.id) !== run) return;
 
             // A failed local save leaves the run open; retry without a tight timer loop.
@@ -1614,7 +1614,7 @@ class DungeonRecruitment {
             await message.edit({
                 embeds: [this.buildEmbed(run)],
                 components: this.buildComponents(run)
-            }).catch(err => console.error('[WW LOG] Failed to edit closed dungeon recruitment:', err));
+            }).catch(err => console.error('[CC LOG] Failed to edit closed dungeon recruitment:', err));
         }
 
         const channel = message?.channel ?? await client.channels.fetch(run.channelId).catch(() => null);
@@ -1655,13 +1655,13 @@ class DungeonRecruitment {
                 });
             } catch (err) {
                 console.warn(
-                    `[WW LOG] Could not check recent Dungeon close messages for run ${run.id}: `
+                    `[CC LOG] Could not check recent Dungeon close messages for run ${run.id}: `
                     + `${err.code || err.message}`
                 );
             }
 
             if (existingCloseMessage) {
-                console.log(`[WW LOG] Recovered close notification for Dungeon run ${run.id}; duplicate send skipped.`);
+                console.log(`[CC LOG] Recovered close notification for Dungeon run ${run.id}; duplicate send skipped.`);
             } else {
                 await channel.send({
                     content,

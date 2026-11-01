@@ -102,7 +102,7 @@ class PvpCrownKing {
             } catch (error) {
                 failedUpdates.push(label);
                 // REST errors contain credentials and request bodies; log only safe identifiers.
-                console.warn(`[WW LOG] PvP ${label} failed; the crown is saved:`, {
+                console.warn(`[CC LOG] PvP ${label} failed; the crown is saved:`, {
                     interactionId: interaction.id, code: interactionErrorCode(error)
                 });
                 return null;
@@ -143,7 +143,7 @@ class PvpCrownKing {
                 if (oldKing && usersToNotify.length > 0 && this.pvpKingChannelID) {
                     const pvpKingChannel = guild.channels.cache.get(this.pvpKingChannelID);
                     if (pvpKingChannel) {
-                        const logoFile = new AttachmentBuilder('./images/ww_logo.png', { name: 'ww_logo.png' });
+                        const logoFile = new AttachmentBuilder('./images/cc_logo.webp', { name: 'cc_logo.webp' });
                         const pvpKingCdEmbed = new EmbedBuilder()
                             .setColor(this.pvpServerColor)
                             .setTitle(`🔔 PvP Cooldowns Cleared! — ${this.pvpServerName} ${this.pvpServerEmoji}`)
@@ -156,7 +156,7 @@ class PvpCrownKing {
                                 { name: '👑 New PvP King', value: `<@${newKing.id}>`, inline: true },
                                 { name: 'Old PvP King', value: `<@${oldKing.id}>`, inline: true }
                             )
-                            .setFooter({ text: `WW PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://ww_logo.png' })
+                            .setFooter({ text: `CC PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                             .setTimestamp();
 
                         for (const content of splitMessageParts(usersToNotify, ' ')) {
@@ -179,7 +179,7 @@ class PvpCrownKing {
 
             // Public Feedback Message
             const oldKingTag = oldKing ? `<@${oldKing.id}> ` : '*No previous PvP King!*';
-            const attachment = new AttachmentBuilder('./images/ww_logo.png', { name: 'ww_logo.png' });
+            const attachment = new AttachmentBuilder('./images/cc_logo.webp', { name: 'cc_logo.webp' });
             const crownEmbed = new EmbedBuilder()
                 .setDescription(`### 👑\u2002 <@${newKing.id}> ${isDefense ? 'defended' : 'conquered'} the PvP Throne in ${this.pvpServerName}\u2002${isDefense ? '🛡️' : '⚔️'}`)
                 .addFields(
@@ -189,7 +189,7 @@ class PvpCrownKing {
                 )
                 .setColor(isDefense ? 0x9b59b6 : this.pvpServerColor)
                 .setThumbnail(newKing.displayAvatarURL())
-                .setFooter({ text: `WW PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://ww_logo.png' })
+                .setFooter({ text: `CC PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                 .setTimestamp();
 
             if (!isDefense) {
@@ -219,7 +219,7 @@ class PvpCrownKing {
                     )
                     .setColor(isDefense ? 0x9b59b6 : this.pvpServerColor)
                     .setThumbnail(newKing.displayAvatarURL())
-                    .setFooter({ text: `WW PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://ww_logo.png' })
+                    .setFooter({ text: `CC PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                     .setTimestamp();
 
                 if (!isDefense) {
@@ -250,7 +250,7 @@ class PvpCrownKing {
                     )
                     .setColor(isDefense ? 0x9b59b6 : this.pvpServerColor)
                     .setThumbnail(newKing.displayAvatarURL())
-                    .setFooter({ text: `WW PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://ww_logo.png' })
+                    .setFooter({ text: `CC PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                     // Match history to the saved event even if Discord updates took time.
                     .setTimestamp(crownResult.history?.created_at ? utcEventDate(crownResult.history.created_at) : new Date());
 
@@ -267,7 +267,7 @@ class PvpCrownKing {
             }
             setInteractionContext(interaction, { phase: failedUpdates.length ? 'saved with Discord update failures' : 'complete' });
         } catch (err) {
-            console.error(`[WW LOG] PvP crown failed; ${crownSaved ? 'the crown is saved' : 'save status is uncertain'}:`, {
+            console.error(`[CC LOG] PvP crown failed; ${crownSaved ? 'the crown is saved' : 'save status is uncertain'}:`, {
                 interactionId: interaction.id, code: interactionErrorCode(err)
             });
             const message = crownSaved

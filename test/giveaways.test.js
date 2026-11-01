@@ -19,7 +19,7 @@ const Giveaways = require('../commands/giveaways.js');
 const { ChannelType } = require('discord.js');
 
 function tempDataFile() {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-giveaways-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-giveaways-'));
     return path.join(directory, 'giveaways.json');
 }
 
@@ -161,7 +161,7 @@ test('a Join button completes its deferred ephemeral reply without a follow-up',
     };
     const replies = [];
     const interaction = {
-        customId: 'ww_giveaway:join_leave',
+        customId: 'cc_giveaway:join_leave',
         user: { id: 'user-2', bot: false },
         message: { id: 'message-1' },
         member: { id: 'user-2', roles: { cache: { some: () => false } } },
@@ -291,7 +291,7 @@ test('the recovery mirror keeps active and recent giveaway entries and draws ava
     };
     process.env.DB_HOST = 'localhost';
     process.env.DB_USER = 'bot';
-    process.env.DB_NAME = 'ww_bot';
+    process.env.DB_NAME = 'cc_bot';
 
     try {
         const store = createGiveawayStore({ db, dataFile: file });
@@ -341,7 +341,7 @@ test('expired giveaway clicks stop before changing entries and log briefly', asy
     console.info = message => logs.push(message);
     try {
         await handleGiveawayButton({
-            customId: 'ww_giveaway:join_leave',
+            customId: 'cc_giveaway:join_leave',
             user: { bot: false },
             message: { id: 'message-1' },
             deferReply: async () => { throw Object.assign(new Error('Unknown interaction'), { code: 10062 }); }

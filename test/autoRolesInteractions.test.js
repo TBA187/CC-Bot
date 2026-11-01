@@ -33,7 +33,9 @@ test('role button writes verified panel provenance on both assign and remove req
     const guild = { roles: { cache: new Collection([[role.id, role]]) }, members: { me: { permissions: { has: () => true }, roles: { highest: {} } }, fetch: async () => member } };
     const interaction = { customId: panel.customIdForRole(choice.key), channelId: '1184121209609269409', user: member.user, member, guild,
         async deferReply() { this.deferred = true; }, editReply: async () => {} };
-    await handleAutoRoleButton(interaction); await handleAutoRoleButton(interaction);
+    await handleAutoRoleButton(interaction);
+    interaction.customId = interaction.customId.replace('cc:auto_roles:', 'ww:auto_roles:');
+    await handleAutoRoleButton(interaction);
     assert.equal(calls.length, 2);
     for (const reason of calls) assert.equal(roleSource({ executor: bot, reason }, member, bot.id).kind, 'self_panel');
 });
@@ -44,28 +46,28 @@ test('role dropdown records its actual channel and cannot label a panel elsewher
         add: async (_, reason) => calls.push(reason), remove: async (_, reason) => calls.push(reason) } };
     const guild = { roles: { cache: new Collection(panel.roles.map(choice => [choice.roleId, { id: choice.roleId, comparePositionTo: () => -1 }])) },
         members: { me: { permissions: { has: () => true }, roles: { highest: {} } }, fetch: async () => member } };
-    await handleAutoRoleSelect({ customId: panel.selectCustomId, values: ['europe'], channelId: '123456789012345678', user: member.user, member, guild,
+    await handleAutoRoleSelect({ customId: panel.selectCustomId.replace('cc:auto_roles:', 'ww:auto_roles:'), values: ['europe'], channelId: '123456789012345678', user: member.user, member, guild,
         async deferReply() { this.deferred = true; }, editReply: async () => {} });
     assert.equal(calls.length, 1);
     assert.equal(roleSource({ executor: bot, reason: calls[0] }, member, bot.id).kind, 'other_panel');
 });
 
-test('switching panel roles uses single-role routes and preserves a WW role added while the cache is stale', async () => {
+test('switching panel roles uses single-role routes and preserves a CC role added while the cache is stale', async () => {
     const panel = findAutoRolePanel('region_roles');
     const definitions = new Collection(panel.roles.map(choice => [choice.roleId, { id: choice.roleId, comparePositionTo: () => -1 }]));
     const oldId = panel.roles.find(choice => choice.key === 'europe').roleId;
     const nextId = panel.roles.find(choice => choice.key === 'north_america').roleId;
-    const ww = '1483676323301036072', actual = new Set([oldId]), calls = [];
+    const cc = '1483676323301036072', actual = new Set([oldId]), calls = [];
     const member = { id: '296447098298171393', user: { id: '296447098298171393' }, roles: {
         cache: new Collection([[oldId, definitions.get(oldId)]]),
-        async remove(id) { assert.equal(typeof id, 'string'); calls.push(['remove', id]); actual.delete(id); actual.add(ww); },
+        async remove(id) { assert.equal(typeof id, 'string'); calls.push(['remove', id]); actual.delete(id); actual.add(cc); },
         async add(id) { assert.equal(typeof id, 'string'); calls.push(['add', id]); actual.add(id); }
     } };
     await handleAutoRoleSelect({ customId: panel.selectCustomId, values: ['north_america'], channelId: '1184121209609269409', user: member.user, member,
         guild: { roles: { cache: definitions }, members: { me: { permissions: { has: () => true }, roles: { highest: {} } } } },
         async deferReply() { this.deferred = true; }, editReply: async () => {} });
     assert.deepEqual(calls, [['remove', oldId], ['add', nextId]]);
-    assert.deepEqual([...actual].sort(), [ww, nextId].sort());
+    assert.deepEqual([...actual].sort(), [cc, nextId].sort());
 });
 
 function defaultPanelChannel(t) {
@@ -102,7 +104,7 @@ function colorRequest(userId) {
     const calls = [];
     return {
         id: `click-${userId}`, user: { id: userId }, guildId: 'guild', guild: { features: [] }, channelId: 'channel', calls,
-        customId: 'ww:auto_roles:color_roles:select:0', values: ['ice'],
+        customId: 'cc:auto_roles:color_roles:select:0', values: ['ice'],
         message: { id: 'panel', components: [], async edit() { calls.push('panel'); } },
         async deferReply(payload) { calls.push(['defer', payload]); this.deferred = true; },
         async editReply(payload) { calls.push(['edit', payload]); },
@@ -135,7 +137,7 @@ test('color selection acknowledges before replacing a preview or rendering its P
     assert.deepEqual(next.calls.map(call => typeof call === 'string' ? call : call[0]), ['defer', 'edit', 'panel']);
     assert.equal(next.calls[1][1].files[0].name, 'role-color-preview.png');
     const close = colorRequest(first.user.id);
-    close.customId = 'ww:auto_roles:color_roles:dismiss';
+    close.customId = 'cc:auto_roles:color_roles:dismiss';
     await handleAutoRoleButton(close);
 });
 
@@ -150,7 +152,7 @@ test('expired color-preview acknowledgement stops before PNG preparation', async
 
 test('custom color modal opener responds with the modal directly', async () => {
     const interaction = colorRequest('modal-opener');
-    interaction.customId = 'ww:auto_roles:color_roles:modal:solid';
+    interaction.customId = 'cc:auto_roles:color_roles:modal:solid';
     interaction.showModal = async payload => { interaction.replied = true; interaction.calls.push(['modal', payload]); };
     await handleAutoRoleButton(interaction);
     assert.deepEqual(interaction.calls.map(call => typeof call === 'string' ? call : call[0]), ['modal', 'panel']);
@@ -166,6 +168,6 @@ test('custom color modal submission defers privately before image rendering', as
     await handleAutoRoleModal(interaction);
     assert.deepEqual(interaction.calls.map(call => typeof call === 'string' ? call : call[0]), ['defer', 'edit']);
     const close = colorRequest(interaction.user.id);
-    close.customId = 'ww:auto_roles:color_roles:dismiss';
+    close.customId = 'cc:auto_roles:color_roles:dismiss';
     await handleAutoRoleButton(close);
 });

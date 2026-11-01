@@ -18,16 +18,20 @@ const MAX_FIELDS = 25;
 const MAX_EMBED_TEXT = 6000;
 const MAX_MESSAGE_ATTACHMENTS = 10;
 const IMAGE_EXTENSIONS = new Set(['.avif', '.gif', '.jpeg', '.jpg', '.png', '.webp']);
-const WHITE_WALKER_BRANDING_COLOR = '#00E4FF';
-const MESSAGE_JSON_FORMAT = 'white-walker-custom-message';
+const CROW_CONTROL_BRANDING_COLOR = '#E63B50';
+const MESSAGE_JSON_FORMAT = 'crow-control-custom-message';
 const MESSAGE_JSON_VERSION = 1;
 const MAX_MESSAGE_JSON_BYTES = 50 * 1024 * 1024;
 const INVISIBLE_COLOR_ONLY_FIELD = '\u200b';
-const FOOTER_TEXT = 'White Walker Guild';
-const LOGO_FILENAME = 'ww_logo.png';
+const FOOTER_TEXT = 'Crow Control Guild';
+const LOGO_FILENAME = 'cc_logo.webp';
 const LOGO_PATH = path.join(__dirname, '..', '..', 'images', LOGO_FILENAME);
 const LOGO_ATTACHMENT_URL = 'attachment://' + LOGO_FILENAME;
 const LOGO_URL = LOGO_ATTACHMENT_URL;
+function isBrandedFooter(text, icon) {
+    if (text === FOOTER_TEXT) return icon.replace(/\/+$/, '') === LOGO_URL || icon.includes('/emojis/1565243892255694908');
+    return text === 'White Walker Guild' && (icon.replace(/\/+$/, '') === 'attachment://ww_logo.png' || icon.includes('/emojis/1472065995089645609'));
+}
 class DraftValidationError extends Error {
     constructor(message, options) { super(message, options); this.name = 'DraftValidationError'; }
 }
@@ -236,7 +240,7 @@ class ImportedAttachment {
     }
 }
 function logoAttachment() {
-    return new ImportedAttachment({ id: 'ww-brand-logo', filename: LOGO_FILENAME, data: fs.readFileSync(LOGO_PATH), contentType: 'image/png' });
+    return new ImportedAttachment({ id: 'cc-brand-logo', filename: LOGO_FILENAME, data: fs.readFileSync(LOGO_PATH), contentType: 'image/webp' });
 }
 function logoFile() { return new AttachmentBuilder(LOGO_PATH, { name: LOGO_FILENAME }); }
 // Imported copies of the same named file may have different export indexes/IDs.
@@ -286,7 +290,7 @@ class MessageAttachmentDraft {
 class EmbedDraft {
     constructor(values = {}) {
         Object.assign(this, {
-            messageContent: '', messageAttachments: [], whiteWalkerBranding: false,
+            messageContent: '', messageAttachments: [], crowControlBranding: false,
             title: '', titleUrl: '', authorName: '', authorUrl: '', authorIcon: new EmbedMediaDraft(),
             thumbnail: new EmbedMediaDraft(), description: '', image: new EmbedMediaDraft(), fields: [],
             footerText: '', footerIcon: new EmbedMediaDraft(), timestamp: null, useCurrentTimestamp: false, color: ''
@@ -344,17 +348,17 @@ class EmbedDraft {
             thumbnail: this.effectiveThumbnail.sourceLabel, description: this.description, image: this.image.sourceLabel,
             fields: this.fields.map(field => field.toDict ? field.toDict() : { name: field.name, value: field.value, inline: Boolean(field.inline) }), footerText: this.effectiveFooterText, footerIcon: this.effectiveFooterIcon.sourceLabel,
             timestamp: this.timestamp ? formatEmbedTimestamp(this.timestamp) : this.useCurrentTimestamp ? 'Current timestamp' : '',
-            color: this.effectiveColor, whiteWalkerBranding: this.whiteWalkerBranding
+            color: this.effectiveColor, crowControlBranding: this.crowControlBranding
         };
     }
 }
-function applyWhiteWalkerBrandingDefaults(draft) {
-    draft.whiteWalkerBranding = true;
+function applyCrowControlBrandingDefaults(draft) {
+    draft.crowControlBranding = true;
     if (!draft.footerText) draft.footerText = FOOTER_TEXT;
     const attachment = logoAttachment();
     if (!draft.footerIcon.hasSource) draft.footerIcon = new EmbedMediaDraft({ attachment, filename: LOGO_FILENAME, isNewUpload: true });
     if (!draft.thumbnail.hasSource) draft.thumbnail = new EmbedMediaDraft({ attachment, filename: LOGO_FILENAME, isNewUpload: true });
-    if (!draft.color) draft.color = WHITE_WALKER_BRANDING_COLOR;
+    if (!draft.color) draft.color = CROW_CONTROL_BRANDING_COLOR;
     if (!draft.timestamp) draft.useCurrentTimestamp = true;
 }
 function mediaFromEmbed(payload, attachments) {
@@ -395,8 +399,7 @@ function draftFromMessage(message) {
         timestamp: payload.timestamp ? parseEmbedTimestamp(String(payload.timestamp)) : null,
         color: payload.color == null ? '' : '#' + Number(payload.color).toString(16).padStart(6, '0').toUpperCase()
     });
-    draft.whiteWalkerBranding = draft.footerText === FOOTER_TEXT &&
-        (draft.footerIcon.inputUrl.replace(/\/+$/, '') === LOGO_URL || draft.footerIcon.inputUrl.includes('/emojis/1472065995089645609'));
+    draft.crowControlBranding = isBrandedFooter(draft.footerText, draft.footerIcon.inputUrl);
     const referencedIds = attachmentIdsReferencedByEmbeds(embeds, attachments);
     draft.messageAttachments = attachments.filter(attachment => !referencedIds.has(attachmentId(attachment)))
         .map(attachment => new MessageAttachmentDraft(attachment, false));
@@ -452,7 +455,7 @@ function referencedAttachmentIds(draft) {
 }
 function relatedAttachmentIdsFromMessage(message, draft) {
     const related = referencedAttachmentIds(draft);
-    if (draft.whiteWalkerBranding) {
+    if (draft.crowControlBranding) {
         for (const attachment of asArray(message.attachments)) {
             if (attachmentName(attachment).toLowerCase() === LOGO_FILENAME.toLowerCase()) related.add(attachmentId(attachment));
         }
@@ -601,7 +604,7 @@ function additionalEmbedsFromJson(payload) {
     });
 }
 function draftFromExport(payload) {
-    if (payload.version !== MESSAGE_JSON_VERSION) throw new DraftValidationError('Unsupported White Walker message JSON version. Expected version ' + MESSAGE_JSON_VERSION + '.');
+    if (payload.version !== MESSAGE_JSON_VERSION) throw new DraftValidationError('Unsupported Crow Control message JSON version. Expected version ' + MESSAGE_JSON_VERSION + '.');
     const message = payload.message || {}, embed = payload.embed || {};
     if (!isObject(message) || !isObject(embed)) throw new DraftValidationError('The exported message and embed values must be JSON objects.');
     const attachments = message.attachments || [];
@@ -635,7 +638,7 @@ function draftFromDiscordJson(payload) {
     if ('embeds' in payload || 'content' in payload) {
         content = String(payload.content || '');
         const attachments = payload.attachments || [];
-        if (Array.isArray(attachments) ? attachments.length : Boolean(attachments)) throw new DraftValidationError('External message attachments are supported only when they contain White Walker Base64 file data.');
+        if (Array.isArray(attachments) ? attachments.length : Boolean(attachments)) throw new DraftValidationError('External message attachments are supported only when they contain Crow Control Base64 file data.');
         embeds = payload.embeds || [];
         if (!Array.isArray(embeds)) throw new DraftValidationError('The ' + quoted('embeds') + ' value must be a JSON array.');
     } else if (isObject(payload.embed)) {
@@ -652,8 +655,7 @@ function draftFromDiscordJson(payload) {
         fields: fieldsFromJson(primary.fields), footerText: String(footer.text || ''), footerIcon: mediaFromDiscordJson(footer, { icon: true }),
         timestamp: primary.timestamp ? parseEmbedTimestamp(String(primary.timestamp)) : null,
         color: Number.isInteger(primary.color) ? '#' + primary.color.toString(16).padStart(6, '0').toUpperCase() : String(primary.color || '') });
-    draft.whiteWalkerBranding = draft.footerText === FOOTER_TEXT &&
-        (draft.footerIcon.url.replace(/\/+$/, '') === LOGO_URL || draft.footerIcon.url.includes('/emojis/1472065995089645609'));
+    draft.crowControlBranding = isBrandedFooter(draft.footerText, draft.footerIcon.url);
     return { draft, additionalEmbeds: additionalEmbedsFromJson(embeds.slice(1)) };
 }
 function jsonErrorDetails(text) {
@@ -745,11 +747,11 @@ function importMessageJson(data) {
 const PROPERTY_LABELS = Object.freeze({
     messageAttachments: 'Message attachments', title: 'Title', titleUrl: 'Title URL', authorName: 'Author name',
     authorUrl: 'Author URL', authorIcon: 'Author icon', thumbnail: 'Thumbnail', description: 'Description', image: 'Image',
-    footerText: 'Footer text', footerIcon: 'Footer icon', timestamp: 'Footer timestamp', color: 'Embed color', whiteWalkerBranding: 'White Walker branding'
+    footerText: 'Footer text', footerIcon: 'Footer icon', timestamp: 'Footer timestamp', color: 'Embed color', crowControlBranding: 'Crow Control branding'
 });
 function populatedEmbedProperties(draft) {
     const snapshot = draft.snapshot();
-    const populated = Object.entries(PROPERTY_LABELS).filter(([key]) => key !== 'whiteWalkerBranding' &&
+    const populated = Object.entries(PROPERTY_LABELS).filter(([key]) => key !== 'crowControlBranding' &&
         (Array.isArray(snapshot[key]) ? snapshot[key].length : Boolean(snapshot[key]))).map(([, label]) => label);
     if (draft.fields.length) populated.push(draft.fields.length + ' field' + (draft.fields.length === 1 ? '' : 's'));
     return populated;
@@ -807,12 +809,12 @@ function visibleEmbedEditOptions(message) {
 module.exports = {
     visibleEmbedEditOptions,
     MAX_MESSAGE_CONTENT, MAX_TITLE, MAX_DESCRIPTION, MAX_AUTHOR_NAME, MAX_FOOTER_TEXT, MAX_FIELD_NAME, MAX_FIELD_VALUE,
-    MAX_FIELDS, MAX_EMBED_TEXT, MAX_MESSAGE_ATTACHMENTS, IMAGE_EXTENSIONS, WHITE_WALKER_BRANDING_COLOR,
+    MAX_FIELDS, MAX_EMBED_TEXT, MAX_MESSAGE_ATTACHMENTS, IMAGE_EXTENSIONS, CROW_CONTROL_BRANDING_COLOR,
     MESSAGE_JSON_FORMAT, MESSAGE_JSON_VERSION, MAX_MESSAGE_JSON_BYTES, INVISIBLE_COLOR_ONLY_FIELD,
     FOOTER_TEXT, LOGO_PATH, LOGO_FILENAME, LOGO_ATTACHMENT_URL, LOGO_URL, COLOR_NAMES, PROPERTY_LABELS,
     DraftValidationError, ImportedAttachment, EmbedFieldDraft, EmbedMediaDraft, MessageAttachmentDraft, EmbedDraft,
     expandLiteralLineBreaks, expandFieldSpacingEscapes, isHttpsUrl, parseEmbedTimestamp, formatEmbedTimestamp, normalizeEmbedColor,
-    logoAttachment, logoFile, isImageAttachment, applyWhiteWalkerBrandingDefaults, draftFromMessage, validateEmbedDraft,
+    logoAttachment, logoFile, isImageAttachment, applyCrowControlBrandingDefaults, draftFromMessage, validateEmbedDraft,
     mediaAttachmentIds, referencedAttachmentIds, relatedAttachmentIdsFromMessage, attachmentIdsReferencedByEmbeds,
     attachmentToFile, readAttachmentBytes, buildNewAttachmentFiles, buildMediaFiles, buildMessageAttachmentFiles,
     reconcileEditAttachments, closeFiles, brandedEditAttachments, exportMessageJson, importMessageJson,

@@ -15,7 +15,7 @@ function deferred() {
 }
 
 function fixture(t, options = {}) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-guild-settings-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-guild-settings-'));
     const store = new GuildSettingsStore({ guildId: '123456789012345678', storageMode: 'json',
         filePath: path.join(directory, 'settings.json'), consoleObject: { log() {}, warn() {}, error() {} }, ...options });
     t.after(async () => { await store.stop(); fs.rmSync(directory, { recursive: true, force: true }); });

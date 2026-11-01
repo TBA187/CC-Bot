@@ -25,7 +25,7 @@ function scoutIds(reportId, messageId) {
 }
 
 function scoutIdFooter(reportId, messageId) {
-    return String(reportId) === String(messageId) ? `WW • Scout Message ID: ${messageId}` : `WW • Scout Report ID: ${reportId}`;
+    return String(reportId) === String(messageId) ? `CC • Scout Message ID: ${messageId}` : `CC • Scout Report ID: ${reportId}`;
 }
 
 module.exports = { attachmentIdentity, sameValue, scoutIds, scoutIdFooter };

@@ -36,7 +36,7 @@ test('mentions only the owner for a newly observed non-application forum post', 
     const embed = sent[0].embeds[0].toJSON();
 
     assert.match(sent[0].content, /<@owner-id>/);
-    assert.match(sent[0].content, /\*\*White Walkers guild application forum page\*\*/);
+    assert.match(sent[0].content, /\*\*Crow Control guild application forum page\*\*/);
     assert.doesNotMatch(sent[0].content, /Application likelihood|View Forum Application/);
     assert.deepEqual(sent[0].allowedMentions, { parse: [], users: ['owner-id'] });
     const feedbackRow = sent[0].components[0].toJSON();
@@ -45,7 +45,7 @@ test('mentions only the owner for a newly observed non-application forum post', 
     assert.equal(feedbackRow.components[0].style, 1);
     assert.equal(feedbackRow.components[0].emoji.name, '⭐');
     assert.doesNotMatch(sent[0].content, /officer-role/i);
-    assert.equal(embed.color, 0x1bb4c5);
+    assert.equal(embed.color, 0xe63b50);
     assert.equal(embed.title, undefined);
     assert.equal(embed.url, undefined);
     assert.equal(embed.footer.text, 'Forum Post Created: July 14, 2026 12:34');

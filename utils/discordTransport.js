@@ -128,13 +128,13 @@ function createDiscordTransport({
                 await new Promise(resolve => setImmediate(resolve));
                 if (!response.ok) throw Object.assign(new Error('Gateway warmup rejected'), { code: `HTTP_${response.status}` });
                 if (warmupFailed && !stopped) {
-                    try { consoleObject.log('[WW LOG] Discord interaction connection warmup recovered.'); } catch {}
+                    try { consoleObject.log('[CC LOG] Discord interaction connection warmup recovered.'); } catch {}
                 }
                 warmupFailed = false;
                 return true;
             } catch (error) {
                 if (!warmupFailed && !stopped) {
-                    try { consoleObject.warn(`[WW LOG] Discord interaction connection warmup failed (${safeErrorCode(error)}). Initial responses may need a new connection.`); } catch {}
+                    try { consoleObject.warn(`[CC LOG] Discord interaction connection warmup failed (${safeErrorCode(error)}). Initial responses may need a new connection.`); } catch {}
                 }
                 warmupFailed = true;
                 return false;

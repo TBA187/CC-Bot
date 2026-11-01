@@ -18,9 +18,9 @@ const json = payload => payload.embeds[0].toJSON();
 
 function fixture({ tag = true, hasRole = false, permission = true, editable = true, onCorrection } = {}) {
     const client = new EventEmitter();
-    client.user = { id: BOT, username: 'WW-Bot', bot: true };
+    client.user = { id: BOT, username: 'Crow Control', bot: true };
     client.isReady = () => true;
-    const role = { id: ROLE, name: 'White Walker', managed: false, editable };
+    const role = { id: ROLE, name: 'Crow Control', managed: false, editable };
     const guild = { id: GUILD, available: true, memberCount: 184,
         roles: { cache: new Collection([[ROLE, role]]) }, channels: { cache: new Collection() } };
     const user = { id: USER, username: 'kaasfondue', globalName: 'Kaasfondue', bot: false,
@@ -165,7 +165,7 @@ test('tag metadata distinguishes absent or incomplete data from an explicit tag 
     assert.equal(serverTagStatus({ primaryGuild: { identityEnabled: true, identityGuildId: 'other' } }, GUILD), false);
 });
 
-test('WW-Bot assigns a role for its tag and removes an unauthorized role without RaidProtect', async () => {
+test('Crow Control assigns a role for its tag and removes an unauthorized role without RaidProtect', async () => {
     for (const tag of [true, false]) {
         const f = fixture({ tag, hasRole: !tag });
         const result = await f.manager.request(f.member);
@@ -183,7 +183,7 @@ test('manual removal is restored for a tag wearer and invalid manual addition is
     for (const tag of [true, false]) {
         const f = fixture({ tag, hasRole: !tag });
         const enforcement = await f.manager.request(f.member, { reportCorrection: false });
-        const payload = json(roleEvents.buildWwRolePayload(f.member, { role: f.role, added: !tag, entry: { executor: actor }, enforcement }));
+        const payload = json(roleEvents.buildCcRolePayload(f.member, { role: f.role, added: !tag, entry: { executor: actor }, enforcement }));
         assert.match(payload.author.name, /Intercepted/);
         assert.match(payload.description, /<@123456789012345678> tried to/);
         assert.match(payload.description, tag ? /restored the role/ : /removed the role again/);
@@ -197,7 +197,7 @@ test('unknown metadata never strips a role or invents a confirmed interception',
     const f = fixture({ hasRole: true }); f.setTag({ id: USER });
     const enforcement = await f.manager.request(f.member);
     assert.equal(enforcement.status, 'unknown'); assert.equal(f.calls.length, 0);
-    const payload = json(roleEvents.buildWwRolePayload(f.member, { role: f.role, added: true, entry: { executor: actor }, enforcement }));
+    const payload = json(roleEvents.buildCcRolePayload(f.member, { role: f.role, added: true, entry: { executor: actor }, enforcement }));
     assert.doesNotMatch(payload.description, /intercepted|Confirmed/);
     assert.match(payload.description, /Pending/);
 });
@@ -208,7 +208,7 @@ test('permission and hierarchy failures remain pending and do not claim a restor
         const f = fixture(options), enforcement = await f.manager.request(f.member);
         assert.equal(enforcement.status, 'failed'); assert.equal(f.calls.length, 0);
         assert.equal(f.corrections[0].success, false);
-        const payload = json(roleEvents.buildWwRolePayload(f.member, { role: f.role, added: false, entry: { executor: actor }, enforcement }));
+        const payload = json(roleEvents.buildCcRolePayload(f.member, { role: f.role, added: false, entry: { executor: actor }, enforcement }));
         assert.doesNotMatch(payload.description, /intercepted the change|Confirmed/);
         assert.match(payload.description, /Manage Roles/);
     }
@@ -297,7 +297,7 @@ test('shutdown and departed members invalidate an in-flight role lookup', async 
     }
 });
 
-test('a departure from another guild cannot invalidate WW tag verification', async () => {
+test('a departure from another guild cannot invalidate CC tag verification', async () => {
     const f = fixture(); let resolve;
     f.client.rest.get = () => new Promise(done => { resolve = done; });
     const pending = f.manager.request(f.member);
@@ -310,7 +310,7 @@ test('a departure from another guild cannot invalidate WW tag verification', asy
 
 test('failed role corrections keep inline code separate from the user-detail subtext style', () => {
     const f = fixture();
-    const payload = json(roleEvents.buildWwCorrectionPayload(f.member, {
+    const payload = json(roleEvents.buildCcCorrectionPayload(f.member, {
         added: true, role: f.role, source: 'periodic', reason: policyReason(true), success: false, error: 'Missing permissions'
     }, f.client.user));
     assert.match(payload.description, /Failed — `Missing permissions`/);
@@ -324,12 +324,12 @@ test('notification failure cannot turn a confirmed role correction into a failed
     assert.equal(f.member.roles.cache.has(ROLE), true);
 });
 
-test('the registered WW-Bot listeners enforce tags and send exactly one public member ping', async () => {
+test('the registered Crow Control listeners enforce tags and send exactly one public member ping', async () => {
     const f = fixture({ tag: false });
     const sent = [], welcomes = [];
     for (const [id, sink] of [['log', sent], ['welcome', welcomes]]) f.guild.channels.cache.set(id, { isTextBased: () => true, send: async payload => sink.push(payload) });
     f.client.isReady = () => false;
-    const config = { client: f.client, guildId: GUILD, wwRoleID: ROLE, logChannelID: 'log', welcomeChannelID: 'welcome', shutdownSignal: f.controller.signal, ownerID: actor.id };
+    const config = { client: f.client, guildId: GUILD, ccRoleID: ROLE, logChannelID: 'log', welcomeChannelID: 'welcome', shutdownSignal: f.controller.signal, ownerID: actor.id };
     roleEvents.register(f.client, config);
     const manager = config.serverTagRoleManager;
     try {
@@ -346,7 +346,7 @@ test('the registered WW-Bot listeners enforce tags and send exactly one public m
     } finally { f.controller.abort(); }
 });
 
-test('self-panel provenance requires the correct channel, actor, target, and WW-Bot executor', () => {
+test('self-panel provenance requires the correct channel, actor, target, and Crow Control executor', () => {
     const f = fixture();
     const interaction = { user: { id: USER }, channelId: PANEL };
     const entry = { executor: f.client.user, reason: rolePanelReason(interaction, 'Role selection dropdown') };
@@ -356,6 +356,9 @@ test('self-panel provenance requires the correct channel, actor, target, and WW-
     assert.equal(roleSource(entry, { id: 'other-user' }, BOT).kind, 'bot');
     assert.equal(roleSource({ executor: f.client.user, reason: 'XP level reward: reached level 10' }, f.member, BOT).kind, 'automatic');
     assert.equal(roleSource({ executor: f.client.user, reason: 'Command /level: XP track' }, f.member, BOT).kind, 'command');
+    assert.equal(roleSource({ ...entry, reason: entry.reason.replace('[CC role panel', '[WW role panel') }, f.member, BOT).kind, 'self_panel');
+    assert.equal(roleSource({ ...entry, reason: 'White Walker game-server preference' }, f.member, BOT).kind, 'settings');
+    assert.equal(roleSource({ ...entry, reason: 'Crow Control game-server preference' }, f.member, BOT).kind, 'settings');
 });
 
 test('role formatting keeps IDs beside mentions, uses nested lists for batches, and marks both directions', () => {
@@ -363,7 +366,7 @@ test('role formatting keeps IDs beside mentions, uses nested lists for batches, 
     const payload = json(roleEvents.buildRoleAuditPayload(f.member, { addedRoles: [f.role, extra], removedRoles: [{ id: '323456789012345678', name: 'Guild Member' }], entry: { executor: actor } }));
     assert.match(payload.description, /- \*\*\+\*\* \*\*Roles Added:\*\*\n  - <@&1483676323301036072> \(`1483676323301036072`\)/);
     assert.match(payload.description, /- \*\*-\*\* \*\*Role Removed:\*\*/);
-    assert.doesNotMatch(payload.description, /Role ID:|`White Walker`|User Details|Reason:/);
+    assert.doesNotMatch(payload.description, /Role ID:|`Crow Control`|User Details|Reason:/);
     assert.equal(payload.color, 0x5865F2);
 });
 
@@ -401,7 +404,7 @@ test('timeout layouts always have a user ID footer, timing under reason, and no 
             timingLines: ['- **Timeout Ended:** <t:1792018800:F> (<t:1792018800:R>)'] }));
         assert.equal(payload.footer.text, `User ID: ${USER}`);
         assert.ok(Number.isFinite(Date.parse(payload.timestamp)));
-        assert.doesNotMatch(payload.description, /Discord Member Count|White Walkers/);
+        assert.doesNotMatch(payload.description, /Discord Member Count|Crow Control/);
         assert.match(payload.description, /Reason:\*\* Example reason\n- \*\*Timeout Ended:/);
         assert.equal(payload.fields.length, 3);
         assert.ok(payload.fields.every(field => field.inline));
@@ -440,7 +443,7 @@ test('join safety facts appear only when supplied and never label an account saf
 
 test('all shared member embeds use the shortened labels and affected member avatar', () => {
     const f = fixture(), payload = json(buildMemberAuditPayload({ member: f.member, authorName: 'Member Left 👋', actionText: 'left.', memberCount: 184 }));
-    assert.deepEqual(payload.fields.map(field => field.name), ['Username', 'Global Display Name', 'WW Server Nickname']);
+    assert.deepEqual(payload.fields.map(field => field.name), ['Username', 'Global Display Name', 'CC Server Nickname']);
     assert.ok(payload.fields.every(field => field.inline));
     assert.equal(payload.fields[0].value, '-# kaasfondue');
     assert.ok(payload.description.startsWith(`**<@${USER}> left.**`));
@@ -449,14 +452,14 @@ test('all shared member embeds use the shortened labels and affected member avat
     assert.equal(payload.author.icon_url, f.user.displayAvatarURL()); assert.equal(payload.footer.text, `User ID: ${USER}`);
 });
 
-test('real member-role handlers intercept invalid edits and suppress duplicate WW-Bot correction events', async () => {
+test('real member-role handlers intercept invalid edits and suppress duplicate Crow Control correction events', async () => {
     for (const tag of [true, false]) {
         const f = fixture({ tag, hasRole: !tag }), sent = [];
         f.guild.channels.cache.set('log', { isTextBased: () => true, send: async payload => sent.push(payload) });
         const entry = { id: `change-${tag}`, targetId: USER, executor: actor, reason: null, createdTimestamp: Date.now(),
             changes: [{ key: tag ? '$remove' : '$add', new: [{ id: ROLE }] }] };
         f.guild.fetchAuditLogs = async () => ({ entries: new Collection([[entry.id, entry]]) });
-        const config = { client: f.client, guildId: GUILD, logChannelID: 'log', wwRoleID: ROLE, serverTagRoleManager: f.manager };
+        const config = { client: f.client, guildId: GUILD, logChannelID: 'log', ccRoleID: ROLE, serverTagRoleManager: f.manager };
         const prior = { ...f.member, roles: { cache: new Collection(tag ? [[ROLE, f.role]] : []) } };
         await roleEvents.handleRoleUpdate(prior, f.member, config);
         assert.equal(f.member.roles.cache.has(ROLE), tag); assert.equal(sent.length, 1);
@@ -470,6 +473,6 @@ test('real member-role handlers intercept invalid edits and suppress duplicate W
 test('policy enforcement still works when the staff log channel is not configured', async () => {
     const f = fixture({ tag: false, hasRole: true });
     const before = { ...f.member, roles: { cache: new Collection() } };
-    await roleEvents.handleRoleUpdate(before, f.member, { client: f.client, guildId: GUILD, wwRoleID: ROLE, serverTagRoleManager: f.manager });
+    await roleEvents.handleRoleUpdate(before, f.member, { client: f.client, guildId: GUILD, ccRoleID: ROLE, serverTagRoleManager: f.manager });
     assert.equal(f.member.roles.cache.has(ROLE), false);
 });

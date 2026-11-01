@@ -1,8 +1,8 @@
-# WW-Bot Development Instructions
+# Crow Control Development Instructions
 
 ## Project overview
 
-WW-Bot is the White Walker guild's Discord bot for Pokemon Revolution Online. It uses Node.js, CommonJS JavaScript, discord.js v14, and MySQL/MariaDB through `mysql2/promise`. Features include Gold and Silver PvP scouting and PvP King challenges, guild applications, forum shop notifications, dungeon recruitment, giveaways, XP rewards, message editing, role management, and audit logging. Feature-specific JSON files preserve supported state and pending operations during database outages. OCR uses Sharp and Tesseract through a shared helper process.
+Crow Control is the Crow Control guild's Discord bot for Pokemon Revolution Online. It uses Node.js, CommonJS JavaScript, discord.js v14, and MySQL/MariaDB through `mysql2/promise`. Features include Gold and Silver PvP scouting and PvP King challenges, guild applications, forum shop notifications, dungeon recruitment, giveaways, XP rewards, message editing, role management, and audit logging. Feature-specific JSON files preserve supported state and pending operations during database outages. OCR uses Sharp and Tesseract through a shared helper process.
 
 ## Development commands
 

@@ -103,8 +103,8 @@ class EmbedBuilderSession {
         const hasEmbed = this.draft.hasEmbedProperties() || this.additionalEmbeds.length > 0;
         const hasMessage = Boolean(this.draft.messageContent || this.draft.messageAttachments.length);
         const lines = [`### ${this.editing ? 'Edit' : 'Send'} Custom Bot Message\u2002🤖`, `-# - Channel: ${channelMention(this.target.channel)}`];
-        if (this.draft.whiteWalkerBranding)
-            lines.push('-# - White Walker Branding: **Yes**');
+        if (this.draft.crowControlBranding)
+            lines.push('-# - Crow Control Branding: **Yes**');
         if (!this.draft.messageContent)
             lines.push(`-# - Message content: **${EMPTY_VALUE}**`);
         if (!hasEmbed)
@@ -119,7 +119,7 @@ class EmbedBuilderSession {
         return lines.join('\n');
     }
     jsonContent() {
-        const lines = ['### Import or Export JSON files', '- -# **Import JSON** accepts a White Walker export file or valid Discord-style message/embed JSON files.', '- -# **Export JSON** downloads the complete message preview, including the embed and uploaded files.', '- -# Imported data is validated before it replaces the current private draft.', '- -# Importing replaces all current message and embed content. **Export a backup first** if you may need the current draft.'];
+        const lines = ['### Import or Export JSON files', '- -# **Import JSON** accepts a Crow Control export file or valid Discord-style message/embed JSON files.', '- -# **Export JSON** downloads the complete message preview, including the embed and uploaded files.', '- -# Imported data is validated before it replaces the current private draft.', '- -# Importing replaces all current message and embed content. **Export a backup first** if you may need the current draft.'];
         if (this.additionalEmbeds.length)
             lines.push(`-# Additional embeds preserved: **${this.additionalEmbeds.length}**`);
         this.appendPreview(lines, '-# - No message embed to export. Import or create a message embed first.');
@@ -217,7 +217,7 @@ class EmbedBuilderSession {
         if (error) return error;
         if (this.editing) {
             if (!interaction.client.user?.id || message?.author?.id !== interaction.client.user.id)
-                return 'Only White Walker bot messages can be edited.';
+                return 'Only Crow Control bot messages can be edited.';
             const blocked = this.config.blockedEditBotMsgChannels || [];
             if ([this.target.channel?.id, this.target.message?.channelId, this.target.message?.channel?.id,
                 message.channelId, message.channel?.id].some(id => id && blocked.includes(id)))
@@ -322,7 +322,7 @@ class EmbedBuilderSession {
         const channel = interaction.client.channels.cache?.get(this.config.logChannelID) || await interaction.client.channels.fetch(this.config.logChannelID);
         if (!channel?.send)
             return;
-        const embed = new EmbedBuilder().setTitle(this.editing ? 'Bot Embed Edited' : 'Custom Bot Message Sent').setDescription(`Executor: <@${interaction.user.id}> (\`${interaction.user.username}\`)`).setColor(0x00ffff).setFooter({ text: 'White Walker Logs', iconURL: LOGO_ATTACHMENT_URL }).setTimestamp();
+        const embed = new EmbedBuilder().setTitle(this.editing ? 'Bot Embed Edited' : 'Custom Bot Message Sent').setDescription(`Executor: <@${interaction.user.id}> (\`${interaction.user.username}\`)`).setColor(0xE63B50).setFooter({ text: 'Crow Control Logs', iconURL: LOGO_ATTACHMENT_URL }).setTimestamp();
         if (this.editing) {
             embed.addFields({ name: 'Channel', value: channelMention(this.target.channel), inline: true }, { name: 'Message ID', value: `\`${message.id}\``, inline: true }, { name: 'Message', value: `[Jump to Message](${message.url})`, inline: false });
             if (this.originalDraft.messageContent !== this.draft.messageContent) {
@@ -332,7 +332,7 @@ class EmbedBuilderSession {
             embed.addFields({ name: 'Embed Changes', value: truncate(formatEmbedChanges(this.originalDraft, this.draft), 1024), inline: false });
         }
         else
-            embed.addFields({ name: 'Invocation Channel', value: this.target.invocationChannelId ? `<#${this.target.invocationChannelId}>` : 'Unknown', inline: true }, { name: 'Destination', value: channelMention(this.target.channel), inline: true }, { name: 'Message ID', value: `\`${message.id}\``, inline: true }, { name: 'Message', value: `[Jump to Message](${message.url})`, inline: false }, { name: 'White Walker Branding', value: this.draft.whiteWalkerBranding ? 'Yes' : 'No', inline: true }, { name: 'Populated Properties', value: truncate(populatedEmbedProperties(this.draft).join(', ') || 'Message content only', 1024), inline: false });
+            embed.addFields({ name: 'Invocation Channel', value: this.target.invocationChannelId ? `<#${this.target.invocationChannelId}>` : 'Unknown', inline: true }, { name: 'Destination', value: channelMention(this.target.channel), inline: true }, { name: 'Message ID', value: `\`${message.id}\``, inline: true }, { name: 'Message', value: `[Jump to Message](${message.url})`, inline: false }, { name: 'Crow Control Branding', value: this.draft.crowControlBranding ? 'Yes' : 'No', inline: true }, { name: 'Populated Properties', value: truncate(populatedEmbedProperties(this.draft).join(', ') || 'Message content only', 1024), inline: false });
         await channel.send({ embeds: [embed], files: [new AttachmentBuilder(LOGO_PATH, { name: LOGO_FILENAME })], allowedMentions: NO_MENTIONS });
     }
 }
@@ -427,7 +427,7 @@ function builderModal(session, kind, context = {}) {
         note(`-# **Note:** Leave empty to use command origin channel: ${channelMention(session.target.invocationChannel || session.target.channel)}`);
     }
     else if (kind === 'import') {
-        upload('JSON file', 'message_json_upload', 'Upload a White Walker export file or a Discord-style JSON file.', true);
+        upload('JSON file', 'message_json_upload', 'Upload a Crow Control export file or a Discord-style JSON file.', true);
         note('**⚠️\u2002Notice**\nImporting replaces all current message and embed content. **Export a backup first** if you may need the current draft.\n-# **Note:** Invalid files leave the current draft unchanged!');
     }
     else if (kind === 'color') {
@@ -494,7 +494,7 @@ class BuilderController {
         this.closed = new Map();
     }
     createSession(props) { return new EmbedBuilderSession(this, props); }
-    logError(message, error) { console.error(`[WW LOG] ${message}:`, { name: error?.name, code: error?.code, message: error?.message }); }
+    logError(message, error) { console.error(`[CC LOG] ${message}:`, { name: error?.name, code: error?.code, message: error?.message }); }
     async resolve(interaction, { modal = false } = {}) {
         const id = interaction.customId || '';
         if (!id.startsWith(PREFIX))
@@ -508,7 +508,7 @@ class BuilderController {
         const session = this.sessions.get(sessionId);
         if (!session) {
             if (!this.closed.has(sessionId) && !interaction.deferred && !interaction.replied) {
-                const recovery = mode === 'edit' ? 'Right-click the **original public White Walker bot message**, then select **Apps → Edit Bot Embed (Officer)** again.' : 'Run the `/send_message` command again to start a new builder.';
+                const recovery = mode === 'edit' ? 'Right-click the **original public Crow Control bot message**, then select **Apps → Edit Bot Embed (Officer)** again.' : 'Run the `/send_message` command again to start a new builder.';
                 await privateError(interaction, `### Embed builder session ended\nThis preview was opened before the bot restarted. ${recovery}`);
             }
             return { handled: true };
@@ -788,7 +788,7 @@ class BuilderController {
             const uploadLimit = Number(interaction.guild?.maximumUploadLimit || interaction.guild?.filesizeLimit || 10 * 1024 * 1024);
             if (data.length > uploadLimit)
                 throw new DraftValidationError(`The export is ${(data.length / (1024 * 1024)).toFixed(1)} MB, but this server allows files up to ${(uploadLimit / (1024 * 1024)).toFixed(1)} MB. Remove large attachments or use image URLs before exporting.`);
-            await interaction.followUp({ content: '### JSON export file ready to download!\n- The JSON file below contains the message and embed draft.', files: [new AttachmentBuilder(data, { name: 'white-walker-message.json' })], flags: MessageFlags.Ephemeral });
+            await interaction.followUp({ content: '### JSON export file ready to download!\n- The JSON file below contains the message and embed draft.', files: [new AttachmentBuilder(data, { name: 'crow-control-message.json' })], flags: MessageFlags.Ephemeral });
         }
         catch (error) {
             if (!(error instanceof DraftValidationError)) {

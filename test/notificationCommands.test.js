@@ -104,7 +104,7 @@ test('/notifications shows global disabled state and selects existing subscripti
     assert.doesNotMatch(embed.description, /Next Race:/);
     assert.doesNotMatch(embed.description, /The BCC alternates|The FCC alternates/);
     assert.match(embed.description, /BCC and FCC alternates every Saturday/);
-    assert.equal(embed.footer.text, 'White Walker Notifications');
+    assert.equal(embed.footer.text, 'Crow Control Notifications');
     assert.equal(embed.thumbnail.url, 'https://example.com/avatar.png');
     assert.match(embed.description, /Next BCC: \*\*<t:/);
     assert.equal(menu.options.find(option => option.value === 'fish_catching_contest').default, true);

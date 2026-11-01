@@ -51,9 +51,9 @@ function registerEvents({ modules, client, commandConfig, lifecycle, consoleObje
         client[once ? 'once' : 'on'](name, (...args) => {
             if (lifecycle.stopping) return;
             try {
-                return Promise.resolve(handler(...args)).catch(error => consoleObject.error(`[WW LOG] Event ${name} failed:`, error));
+                return Promise.resolve(handler(...args)).catch(error => consoleObject.error(`[CC LOG] Event ${name} failed:`, error));
             } catch (error) {
-                consoleObject.error(`[WW LOG] Event ${name} failed:`, error);
+                consoleObject.error(`[CC LOG] Event ${name} failed:`, error);
             }
         });
     };
@@ -79,7 +79,7 @@ function registerEvents({ modules, client, commandConfig, lifecycle, consoleObje
             listen('guildMemberUpdate', (oldM, newM) => event.handleGuildMemberUpdate(oldM, newM, commandConfig));
         } else if (typeof event.register === 'function') {
             event.register(client, commandConfig);
-            consoleObject.log(`[WW LOG] Registered Event Group: ${basePath}${file}`);
+            consoleObject.log(`[CC LOG] Registered Event Group: ${basePath}${file}`);
         } else if (event.name && typeof event.execute === 'function') {
             const isXPFile = file.toLowerCase().startsWith('xp');
             listen(event.name, (...args) => {
@@ -90,7 +90,7 @@ function registerEvents({ modules, client, commandConfig, lifecycle, consoleObje
                 }
                 return event.execute(...args, commandConfig);
             }, event.once);
-            consoleObject.log(`[WW LOG] Registered Event: ${event.name} (${basePath}${file})`);
+            consoleObject.log(`[CC LOG] Registered Event: ${event.name} (${basePath}${file})`);
         }
     }
 }

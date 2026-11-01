@@ -24,7 +24,7 @@ const channelUpdateCache = new Map();
 
 function scheduleChannelUpdate(oldChannel, channelId, config) {
     return setTimeout(() => processBatchedUpdate(oldChannel, channelId, config)
-        .catch(error => console.error('[WW LOG] Channel update log failed:', error)), 2500);
+        .catch(error => console.error('[CC LOG] Channel update log failed:', error)), 2500);
 }
 
 function normalizeForumLayout(value) {

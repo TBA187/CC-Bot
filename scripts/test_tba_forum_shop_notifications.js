@@ -125,18 +125,18 @@ async function main() {
             const images = await forumClient.downloadPostImages(post);
             const sentMessage = await notifier.notify(selection, post, images);
             if (!sentMessage) {
-                console.log(`[WW LOG] Skipped ignored ${selection.name} test post ${selected.id}.`);
+                console.log(`[CC LOG] Skipped ignored ${selection.name} test post ${selected.id}.`);
                 continue;
             }
             sentCount++;
-            console.log(`[WW LOG] Sent ${selection.name} test post ${selected.id}: ${selected.label}`);
+            console.log(`[CC LOG] Sent ${selection.name} test post ${selected.id}: ${selected.label}`);
             await sleep(1500);
         }
     }
-    console.log(`[WW LOG] Sent ${sentCount} TBA forum shop test preview(s) to ${ownerId}.`);
+    console.log(`[CC LOG] Sent ${sentCount} TBA forum shop test preview(s) to ${ownerId}.`);
 }
 
 main().catch(error => {
-    console.error('[WW LOG] TBA forum shop test failed:', error);
+    console.error('[CC LOG] TBA forum shop test failed:', error);
     process.exitCode = 1;
 });

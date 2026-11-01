@@ -45,7 +45,7 @@ class Giveaways {
 
         this.data = new SlashCommandBuilder()
             .setName('giveaway')
-            .setDescription('Create and manage White Walkers giveaways.')
+            .setDescription('Create and manage Crow Control giveaways.')
             .addSubcommand(sub =>
                 sub.setName('create')
                     .setDescription('Create a giveaway.')
@@ -69,7 +69,7 @@ class Giveaways {
                     )
                     .addStringOption(o =>
                         o.setName('name')
-                            .setDescription('Optional giveaway title. Leave empty to use White Walkers Giveaway  🎉.')
+                            .setDescription('Optional giveaway title. Leave empty to use Crow Control Giveaway  🎉.')
                             .setRequired(false)
                             .setMaxLength(256)
                     )
@@ -93,7 +93,7 @@ class Giveaways {
                     )
                     .addAttachmentOption(o =>
                         o.setName('thumbnail')
-                            .setDescription('Image for Giveaway (appears at the top right of the embed). Leave empty for White Walkers logo.')
+                            .setDescription('Image for Giveaway (appears at the top right of the embed). Leave empty for Crow Control logo.')
                             .setRequired(false)
                     )
                     .addStringOption(o =>
@@ -342,7 +342,7 @@ class Giveaways {
         try {
             message = await replyWithGiveawayMessage(interaction, giveaway, this.config);
         } catch (err) {
-            console.error('[WW LOG] Giveaway create message failed:', err);
+            console.error('[CC LOG] Giveaway create message failed:', err);
             await this.giveawayStore.updateGiveaway(giveawayId, {
                 status: GIVEAWAY_DELETED,
                 deleted_at: utcNowIso()
@@ -359,7 +359,7 @@ class Giveaways {
             try {
                 await message.pin('Giveaway created with pin enabled');
             } catch (err) {
-                console.warn(`[WW LOG] Could not pin giveaway ${giveawayId}: ${err.code || err.message}`);
+                console.warn(`[CC LOG] Could not pin giveaway ${giveawayId}: ${err.code || err.message}`);
                 pinNotice = '\nI could not pin the message. Check the bot’s Manage Messages permission.';
             }
         }

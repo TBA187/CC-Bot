@@ -112,10 +112,10 @@ class Database {
 }
 
 function fixture(t, options = {}) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-xp-test-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-xp-test-'));
     t.after(() => {
         assert.equal(path.dirname(path.resolve(directory)), path.resolve(os.tmpdir()));
-        assert.ok(path.basename(directory).startsWith('ww-xp-test-'));
+        assert.ok(path.basename(directory).startsWith('cc-xp-test-'));
         fs.rmSync(directory, { recursive: true, force: true });
     });
     const db = options.db || new Database();
@@ -266,7 +266,7 @@ test('special-track level rewards and embed text keep their existing behavior', 
     assert.match(embed.description, /Second reward/u);
     assert.equal(embed.fields[0].value, `${getTotalXpForLevel(2)} / ${getTotalXpForLevel(3)} XP`);
     assert.equal(embed.fields[1].value, `${getTotalXpForLevel(3) - getTotalXpForLevel(2)} XP`);
-    assert.equal(payload.files[0].name, 'ww_logo.png');
+    assert.equal(payload.files[0].name, 'cc_logo.webp');
 });
 
 for (const stage of ['track-read', 'reward-read']) {
@@ -452,7 +452,7 @@ test('shutdown during a database commit preserves the result and sends no late l
 function commandInteraction() {
     const payloads = [];
     const user = { id: 'user', username: 'Player', displayAvatarURL: () => 'https://example.com/avatar.png' };
-    return { payloads, user, member: { displayName: 'Player' }, guild: { id: 'guild', name: 'White Walkers' },
+    return { payloads, user, member: { displayName: 'Player' }, guild: { id: 'guild', name: 'Crow Control' },
         options: { getUser: () => null, getMember: () => null, getString: () => null },
         async deferReply() { this.deferred = true; }, async editReply(payload) { payloads.push(payload); },
         async reply(payload) { payloads.push(payload); }, async update(payload) { payloads.push(payload); } };

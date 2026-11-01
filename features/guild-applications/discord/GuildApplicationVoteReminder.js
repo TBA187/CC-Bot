@@ -30,10 +30,10 @@ class GuildApplicationVoteReminder {
         this.started = true;
         this.stopped = false;
         this.interval = setInterval(() => {
-            this.runOnce().catch(error => console.error('[WW LOG] Guild Application vote reminder failed:', error));
+            this.runOnce().catch(error => console.error('[CC LOG] Guild Application vote reminder failed:', error));
         }, this.intervalMs);
         this.interval.unref?.();
-        await this.runOnce().catch(error => console.error('[WW LOG] Guild Application vote reminder failed:', error));
+        await this.runOnce().catch(error => console.error('[CC LOG] Guild Application vote reminder failed:', error));
     }
 
     stop() {
@@ -154,13 +154,13 @@ class GuildApplicationVoteReminder {
                 });
             } catch (error) {
                 console.warn(
-                    `[WW LOG] Could not check recent vote reminders for Guild Application ${record.postId}: `
+                    `[CC LOG] Could not check recent vote reminders for Guild Application ${record.postId}: `
                     + `${error.code || error.message}`
                 );
             }
             if (reminder) {
                 console.log(
-                    `[WW LOG] Recovered ${stage.hours}-hour vote reminder for Guild Application ${record.postId}; `
+                    `[CC LOG] Recovered ${stage.hours}-hour vote reminder for Guild Application ${record.postId}; `
                     + 'duplicate send skipped.'
                 );
             } else {
@@ -198,7 +198,7 @@ class GuildApplicationVoteReminder {
                     await this.processCandidate(record, now, officerIds, courtChannel);
                 } catch (error) {
                     if (error.code === 'BOT_SHUTTING_DOWN') return false;
-                    console.error(`[WW LOG] Guild Application vote reminder ${record.postId} failed:`, error);
+                    console.error(`[CC LOG] Guild Application vote reminder ${record.postId} failed:`, error);
                 }
             }
             return true;

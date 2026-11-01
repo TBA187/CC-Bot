@@ -99,7 +99,7 @@ test('a late startup roster cannot overwrite a completed rejoin', () => {
 });
 
 test('outage history survives JSON restart, retains pending writes, and recovers into MySQL', async t => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-history-storage-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-history-storage-'));
     const filePath = path.join(directory, 'history.json');
     t.after(() => { fs.rmSync(filePath, { force: true }); fs.rmSync(`${filePath}.tmp`, { force: true }); fs.rmdirSync(directory); });
     t.mock.method(console, 'log', () => {});

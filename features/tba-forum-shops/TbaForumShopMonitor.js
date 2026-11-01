@@ -104,7 +104,7 @@ class TbaForumShopMonitor {
     }
 
     forumRestored(shop, state) {
-        if (state.forumUnavailable) console.log(`[WW LOG] ${shop.name} monitor connection restored.`);
+        if (state.forumUnavailable) console.log(`[CC LOG] ${shop.name} monitor connection restored.`);
         state.forumUnavailable = false;
         state.failureCount = 0;
         state.nextAttemptAt = 0;
@@ -115,7 +115,7 @@ class TbaForumShopMonitor {
         const delay = forumRetryDelay(this.intervalMs, state.failureCount, this.maxBackoffMs, error.retryAfterMs);
         state.nextAttemptAt = this.clock() + delay;
         if (!state.forumUnavailable) {
-            console.warn(`[WW LOG] ${shop.name} monitor is unavailable. Retrying in ${Math.ceil(delay / 60000)} minute(s):`, error.message);
+            console.warn(`[CC LOG] ${shop.name} monitor is unavailable. Retrying in ${Math.ceil(delay / 60000)} minute(s):`, error.message);
         }
         state.forumUnavailable = true;
     }
@@ -134,7 +134,7 @@ class TbaForumShopMonitor {
         } catch (error) {
             if (error.code === 'BOT_SHUTTING_DOWN') return false;
             if (error instanceof TbaForumRequestError) this.forumFailed(shop, state, error);
-            else console.error(`[WW LOG] ${shop.name} monitor failed:`, error);
+            else console.error(`[CC LOG] ${shop.name} monitor failed:`, error);
             return false;
         } finally {
             state.running = false;
@@ -199,7 +199,7 @@ class TbaForumShopMonitor {
             lastSeenPostId: latest?.postId || null,
             lastPage
         });
-        console.log(`[WW LOG] ${shop.name} baseline set at forum post ${latest?.postId || 'none'}.`);
+        console.log(`[CC LOG] ${shop.name} baseline set at forum post ${latest?.postId || 'none'}.`);
     }
 
     async scanShop(shop) {

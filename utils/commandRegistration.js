@@ -21,16 +21,16 @@ class CommandRegistration {
         this.timer = null;
         this.running = true;
         try {
-            this.console.log('[WW LOG] Registering Guild slash commands...');
+            this.console.log('[CC LOG] Registering Guild slash commands...');
             await this.register();
             if (!this.stopped) {
                 this.complete = true;
-                this.console.log('[WW LOG] ✅ Guild slash commands registered to Discord');
+                this.console.log('[CC LOG] ✅ Guild slash commands registered to Discord');
                 this.signal?.removeEventListener('abort', this.onAbort);
             }
         } catch (error) {
             if (this.stopped) return;
-            this.console.error('[WW LOG] ❌ ERROR: Command registration failed:', error);
+            this.console.error('[CC LOG] ❌ ERROR: Command registration failed:', error);
             this.timer = this.schedule(() => { this.timer = null; void this.start(); }, this.retryDelay);
             this.timer?.unref?.();
             this.retryDelay = Math.min(this.maxRetryMs, this.retryDelay * 2);

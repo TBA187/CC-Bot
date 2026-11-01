@@ -1,6 +1,6 @@
-# White Walker Bot
+# Crow Control Bot
 
-A Discord bot for the White Walker guild, built with Node.js and discord.js. It brings Gold and Silver PvP scouting, PvP King challenges, dungeon recruitment, giveaways, XP rewards, guild applications and forum notifications into the server.
+A Discord bot for the Crow Control guild, built with Node.js and discord.js. It brings Gold and Silver PvP scouting, PvP King challenges, dungeon recruitment, giveaways, XP rewards, guild applications and forum notifications into the server.
 
 ## Requirements
 
@@ -48,7 +48,7 @@ The bot registers its application commands in the configured guild at startup. K
 | Bot latency | `/ping` shows gateway latency and the measured response latency. |
 | PvP scouting | `/scout` searches opponent histories across Gold and Silver. `/scout-review` and `/scout-settings` provide staff review and management; `/scout-stats` shows archive totals. |
 | PvP King | The `/pvp_*` commands manage challenges, crowns, cooldowns, events, history, statistics and leaderboards in each server's configured channel. |
-| Guild preferences | `/ww-settings` saves a preferred game server. `/notifications` manages notification subscriptions. |
+| Guild preferences | `/cc-settings` saves a preferred game server. `/notifications` manages notification subscriptions. |
 | XP and rewards | `/rank`, `/level` and `/leaderboard` show progress, with configurable activity tracking and role rewards. |
 | Recruitment and events | Dungeon commands create team panels and reminders; `/giveaway` manages draws and participation. |
 | Server administration | Auto-role panels, welcome messages and configurable audit logging support server management. |

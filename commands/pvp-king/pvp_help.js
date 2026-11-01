@@ -25,7 +25,7 @@ class PvPKingHelp {
                 `### ⚔️\u2002/pvp_challenge\n- Send a challenge request to the current PvP King\n   - When the PvP King accepts your challenge, you'll receive a **48-hour cooldown** against this PvP King\n` +
                 `### ⏱️ /pvp_cooldown\n- Check your cooldown status against the current PvP King\n   - You can also enable/disable **Cooldown Notifications! 🔔**\n` +
                 `### <:pepe_king:1455434151262949535>\u2002/pvp_current_king\n- Show the current PvP King\n` +
-                `### 🏆\u2002/pvp_leaderboard\n- Display all PvP Kings — White Walker Hall of Fame!\n` +
+                `### 🏆\u2002/pvp_leaderboard\n- Display all PvP Kings — Crow Control Hall of Fame!\n` +
                 `### 📊\u2002/pvp_stats\n- Display PvP King stats for a user\n` +
                 `### 📚\u2002/pvp_history\n- History of all PvP King entries\n` +
                 `### ⭐ /pvp_event\n- View the finished PvP King Event results for this server\n` +
@@ -33,7 +33,7 @@ class PvPKingHelp {
                 `### 🔄\u2002/pvp_reverse\u2002—\u2002Officers only 🔒\n- Undo the most recent PvP Crown event and restore data for the previous/current PvP King`
             )
             .setColor(this.pvpServerColor)
-            .setThumbnail('attachment://ww_logo.png')
+            .setThumbnail('attachment://cc_logo.webp')
             .setFooter(createPvpFooter(this.pvpServerName))
             .setTimestamp();
 

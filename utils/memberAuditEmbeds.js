@@ -41,16 +41,16 @@ function buildMemberAuditPayload({ authorName, member, actionText, actionHeading
         fields.push(
             { name: 'Username', value: userDetail(user.username ?? user.tag ?? 'Unknown User') },
             { name: 'Global Display Name', value: userDetail(user.globalName ?? 'No Global Display Name') },
-            { name: 'WW Server Nickname', value: userDetail(member.nickname ?? 'No Server Nickname') },
+            { name: 'CC Server Nickname', value: userDetail(member.nickname ?? 'No Server Nickname') },
             ...detailFields
         );
     }
     const embed = new EmbedBuilder().setAuthor({ name: authorName, iconURL: memberAvatarURL(member) })
         .setColor(color).setDescription(lines.join('\n'))
-        .setFooter({ text: `User ID: ${member.id}`, iconURL: 'attachment://ww_logo.png' }).setTimestamp();
+        .setFooter({ text: `User ID: ${member.id}`, iconURL: 'attachment://cc_logo.webp' }).setTimestamp();
     if (fields.length) embed.addFields(fields.map(field => ({ ...field, inline: true })));
     if (warningFields.length) embed.addFields(warningFields.map(field => ({ ...field, inline: false })));
-    return { embeds: [embed], files: [new AttachmentBuilder(path.join(__dirname, '../images/ww_logo.png'), { name: 'ww_logo.png' })],
+    return { embeds: [embed], files: [new AttachmentBuilder(path.join(__dirname, '../images/cc_logo.webp'), { name: 'cc_logo.webp' })],
         allowedMentions: { parse: [] } };
 }
 

@@ -35,7 +35,7 @@ for (const [label, profile] of [
     assert.deepEqual(notice, { type: 'member', status: 'current', mention: `<@${ID}>` });
     assert.deepEqual(f.counts(), { queries: 0, fetches: 0 });
     const embed = report('Ragequit027', notice);
-    assert.match(embed.description, /⚠️ \*\*<@482354850110373898>\*\* is a current\/former White Walkers member/u);
+    assert.match(embed.description, /⚠️ \*\*<@482354850110373898>\*\* is a current\/former Crow Control member/u);
     assert.doesNotMatch(embed.description, /bogendorpher3779|Different/u);
     assert.equal(embed.footer.text, 'Report ID: 1350059044102078494 • Scout 1 of 5');
 });
@@ -71,7 +71,7 @@ test('friendly player warnings use the same mention fallbacks and preserve their
         const f = fixture({ friends: [{ ign: 'FriendlyIGN', discord_id: ID }], live: [member(profile)] });
         const notice = await f.store.noticeForIgn('guild', 'FriendlyIGN', f.guild);
         assert.deepEqual(notice, { type: 'friend', mention: `<@${ID}>` });
-        assert.match(report('FriendlyIGN', notice).description, /is a friend of White Walkers\. Please accept or send a \*\*draw request\*\* using the `\/draw` command/u);
+        assert.match(report('FriendlyIGN', notice).description, /is a friend of Crow Control\. Please accept or send a \*\*draw request\*\* using the `\/draw` command/u);
     }
 });
 

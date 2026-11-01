@@ -8,7 +8,7 @@ const path = require('node:path');
 const { readJsonObject, writeTextIfChanged } = require('../utils/jsonFile.js');
 
 test('a failed JSON snapshot write preserves the previous file and removes the partial temp file', t => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-json-write-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-json-write-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const file = path.join(directory, 'state.json');
     const temp = `${file}.tmp`;
@@ -35,7 +35,7 @@ test('a failed JSON snapshot write preserves the previous file and removes the p
 });
 
 test('corrupt JSON is preserved byte for byte and reading stops', t => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-json-corrupt-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-json-corrupt-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const file = path.join(directory, 'state.json');
     const bytes = Buffer.from('{"pendingSyncDrawIds":["saved-draw"],\xff', 'binary');
@@ -48,7 +48,7 @@ test('corrupt JSON is preserved byte for byte and reading stops', t => {
 });
 
 test('failed corrupt JSON preservation throws and leaves the original intact', t => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-json-preserve-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-json-preserve-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const file = path.join(directory, 'state.json');
     fs.writeFileSync(file, '{broken');
@@ -61,7 +61,7 @@ test('failed corrupt JSON preservation throws and leaves the original intact', t
 });
 
 test('a valid JSON value with invalid store structure is preserved rather than accepted', t => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-json-shape-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-json-shape-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const file = path.join(directory, 'state.json');
     fs.writeFileSync(file, '[]');

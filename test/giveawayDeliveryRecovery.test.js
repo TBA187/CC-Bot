@@ -8,7 +8,7 @@ const path = require('node:path');
 const { createGiveawayStore, endGiveaway } = require('../events/giveaways');
 
 function fixture(t) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-giveaway-delivery-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-giveaway-delivery-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const dataFile = path.join(directory, 'giveaways.json');
     const initial = {

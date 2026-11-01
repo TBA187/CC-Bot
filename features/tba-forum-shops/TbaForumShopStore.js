@@ -110,14 +110,14 @@ class TbaForumShopStore {
 
     noteMysqlFailure(error) {
         if (this.db?.isDatabaseUnavailableError && !this.db.isDatabaseUnavailableError(error)) {
-            console.error('[WW LOG] Unexpected TBA forum shop checkpoint MySQL error:', error);
+            console.error('[CC LOG] Unexpected TBA forum shop checkpoint MySQL error:', error);
             return;
         }
         if (this.mysqlOutage) return;
         this.mysqlOutage = true;
         const code = this.db?.getErrorCode?.(error) || error?.code || error?.message || 'UNKNOWN';
         console.warn(
-            `[WW LOG] Shared TBA forum shop checkpoints unavailable (${code}). ` +
+            `[CC LOG] Shared TBA forum shop checkpoints unavailable (${code}). ` +
             'Using the local JSON mirror until MySQL recovers.'
         );
     }
@@ -125,7 +125,7 @@ class TbaForumShopStore {
     noteMysqlRestored() {
         if (!this.mysqlOutage) return;
         this.mysqlOutage = false;
-        console.log('[WW LOG] Shared TBA forum shop checkpoints restored and synchronized.');
+        console.log('[CC LOG] Shared TBA forum shop checkpoints restored and synchronized.');
     }
 
     async ensureSchema() {

@@ -37,7 +37,7 @@ test('stopping during shop initialization cannot schedule new polls', async () =
 });
 
 function tempFile() {
-    return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ww-tba-monitor-')), 'tba_forum_shops.json');
+    return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cc-tba-monitor-')), 'tba_forum_shops.json');
 }
 
 function post(postId, forumUsername) {

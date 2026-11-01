@@ -91,7 +91,7 @@ class GuildApplicationMonitor {
             await this.runOnce();
             if (this.stopped) return;
             this.interval = setInterval(() => {
-                this.runOnce().catch(error => console.error('[WW LOG] Guild Application monitor failed:', error));
+                this.runOnce().catch(error => console.error('[CC LOG] Guild Application monitor failed:', error));
             }, this.intervalMs);
             this.interval.unref?.();
         } catch (error) {
@@ -115,7 +115,7 @@ class GuildApplicationMonitor {
     }
 
     forumRestored() {
-        if (this.forumUnavailable) console.log('[WW LOG] PRO Forum application monitor connection restored.');
+        if (this.forumUnavailable) console.log('[CC LOG] PRO Forum application monitor connection restored.');
         this.forumUnavailable = false;
         this.failureCount = 0;
         this.nextAttemptAt = 0;
@@ -126,7 +126,7 @@ class GuildApplicationMonitor {
         const delay = forumRetryDelay(this.intervalMs, this.failureCount, MAX_BACKOFF_MS, error.retryAfterMs);
         this.nextAttemptAt = Date.now() + delay;
         if (!this.forumUnavailable) {
-            console.warn(`[WW LOG] PRO Forum application monitor is unavailable. Retrying in ${Math.ceil(delay / 60000)} minute(s):`, error.message);
+            console.warn(`[CC LOG] PRO Forum application monitor is unavailable. Retrying in ${Math.ceil(delay / 60000)} minute(s):`, error.message);
         }
         this.forumUnavailable = true;
     }
@@ -152,7 +152,7 @@ class GuildApplicationMonitor {
             if (error.code === 'BOT_SHUTTING_DOWN') return false;
             if (error instanceof ForumRequestError) this.forumFailed(error);
             else if (error.guildApplicationStorage) this.store.noteLocalStorageFailure(error);
-            else console.error('[WW LOG] Guild Application monitor cycle failed:', error);
+            else console.error('[CC LOG] Guild Application monitor cycle failed:', error);
             return false;
         } finally {
             this.running = false;
@@ -222,7 +222,7 @@ class GuildApplicationMonitor {
             lastScanAt: this.clock().toISOString(),
             latestApplications
         });
-        console.log(`[WW LOG] Guild Application baseline stored ${records.length} forum post(s) without notifications.`);
+        console.log(`[CC LOG] Guild Application baseline stored ${records.length} forum post(s) without notifications.`);
     }
 
     pagesToInspect(lastPage, checkpoint) {
@@ -456,7 +456,7 @@ class GuildApplicationMonitor {
             record.notificationStatus = 'error';
             record.lastError = error.message;
             await this.store.saveRecord(record);
-            console.error(`[WW LOG] Guild Application notification ${record.postId} failed:`, error);
+            console.error(`[CC LOG] Guild Application notification ${record.postId} failed:`, error);
             return record;
         }
     }
@@ -473,7 +473,7 @@ class GuildApplicationMonitor {
             record.notificationStatus = 'non_application_alert_error';
             record.lastError = error.message;
             await this.store.saveRecord(record);
-            console.error(`[WW LOG] Guild Application non-application alert ${record.postId} failed:`, error);
+            console.error(`[CC LOG] Guild Application non-application alert ${record.postId} failed:`, error);
             return record;
         }
     }

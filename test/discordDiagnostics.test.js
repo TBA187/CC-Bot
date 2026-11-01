@@ -60,16 +60,16 @@ test('actionable warnings before Discord login stay in memory, then post once wi
 test('expected startup deadlines stay local while persistent fallback outages share one delayed database alert', async () => {
     const f = fixture();
     const notices = [
-        '[WW LOG] Scout autocomplete will refresh in the background (AUTOCOMPLETE_PRELOAD_TIMEOUT).',
-        '[WW LOG] Player server preferences will refresh when used (SERVER_PREFERENCE_PRELOAD_TIMEOUT).',
+        '[CC LOG] Scout autocomplete will refresh in the background (AUTOCOMPLETE_PRELOAD_TIMEOUT).',
+        '[CC LOG] Player server preferences will refresh when used (SERVER_PREFERENCE_PRELOAD_TIMEOUT).',
         '[DB LOG] MySQL connectivity issue detected (ECONNRESET: read ECONNRESET). Query retries and feature fallbacks are active.',
-        '[WW LOG] MySQL PvP King Gold storage unavailable (ETIMEDOUT). Using the synchronized JSON snapshot; writes will queue for recovery.',
+        '[CC LOG] MySQL PvP King Gold storage unavailable (ETIMEDOUT). Using the synchronized JSON snapshot; writes will queue for recovery.',
         '[PRO NOTIFICATIONS] MySQL storage unavailable (ECONNREFUSED). Using JSON; pending settings and subscriptions will retry automatically.'
     ];
     for (const notice of notices) f.consoleObject.warn(notice);
-    f.consoleObject.warn('[WW LOG] Could not preload scout autocomplete; background refresh will retry:',
+    f.consoleObject.warn('[CC LOG] Could not preload scout autocomplete; background refresh will retry:',
         Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
-    f.consoleObject.warn('[WW LOG] Could not preload player server preferences; lookups will retry:',
+    f.consoleObject.warn('[CC LOG] Could not preload player server preferences; lookups will retry:',
         Object.assign(new Error('MySQL is temporarily unavailable.'), { code: 'DATABASE_UNAVAILABLE', causeCode: 'ETIMEDOUT' }));
     f.logger.start();
     assert.equal(f.printed.length, notices.length + 2);
@@ -79,8 +79,8 @@ test('expected startup deadlines stay local while persistent fallback outages sh
     assert.equal(f.sent[0].statusKey, 'database:mysql');
     assert.equal(f.logger.waiting.size, 0);
     // A real preload failure and a non-transient database failure still need attention.
-    f.consoleObject.warn('[WW LOG] Could not preload player server preferences:', Object.assign(new Error('Access denied'), { code: 'ER_ACCESS_DENIED_ERROR' }));
-    f.consoleObject.error('[WW LOG] Unexpected MySQL PvP King storage error:', Object.assign(new Error('Lost write'), { code: 'ETIMEDOUT' }));
+    f.consoleObject.warn('[CC LOG] Could not preload player server preferences:', Object.assign(new Error('Access denied'), { code: 'ER_ACCESS_DENIED_ERROR' }));
+    f.consoleObject.error('[CC LOG] Unexpected MySQL PvP King storage error:', Object.assign(new Error('Lost write'), { code: 'ETIMEDOUT' }));
     assert.equal(f.sent.length, 3);
     f.logger.stop();
 });
@@ -132,7 +132,7 @@ test('persistent MySQL alerts ping once until confirmed recovery even across err
 test('persistent autocomplete alerts have a 15-minute Discord cooldown', () => {
     let now = 1000;
     const f = fixture({ now: () => now }); f.logger.start();
-    const notice = '[WW LOG] /scout autocomplete missed its Discord response deadline 5 times within 5 minutes.';
+    const notice = '[CC LOG] /scout autocomplete missed its Discord response deadline 5 times within 5 minutes.';
     f.consoleObject.warn(notice);
     now += 5 * 60_000;
     f.consoleObject.warn(notice);
@@ -186,7 +186,7 @@ test('Discord copies remove configured secrets, REST tokens, SQL and request bod
 test('failed log sends cannot recursively log themselves or interfere with the original console call', () => {
     const f = fixture({ send: () => { throw new Error('Discord unavailable'); } }); f.logger.start();
     assert.doesNotThrow(() => f.consoleObject.error('Original failure'));
-    f.consoleObject.warn('[WW LOG] Could not send bot diagnostic log: Missing permission');
+    f.consoleObject.warn('[CC LOG] Could not send bot diagnostic log: Missing permission');
     assert.equal(f.printed.length, 2);
     assert.equal(f.logger.recent.size, 1);
     f.logger.stop();
@@ -205,10 +205,10 @@ test('stopping restores console methods and does not modify unrelated logging ho
     consoleObject.error('Still logged'); assert.deepEqual(printed, ['Still logged']);
 });
 
-test('Discord diagnostic messages omit the redundant WW tag without changing component context', () => {
+test('Discord diagnostic messages omit the redundant CC tag without changing component context', () => {
     const f = fixture(); f.logger.start();
     f.logger.run({ component: 'Scout ingestion' }, () => {
-        f.consoleObject.error('[WW LOG] Could not save report.');
+        f.consoleObject.error('[CC LOG] Could not save report.');
     });
     assert.equal(f.sent[0].message, 'Could not save report.');
     assert.equal(f.sent[0].component, 'Scout ingestion');
@@ -221,16 +221,16 @@ test('Discord diagnostic messages omit the redundant WW tag without changing com
 test('recoverable warnings get a reply only after the same subsystem reports recovery', async () => {
     const { logger, consoleObject, sent, printed, clock } = fixture(); logger.start();
     const scenarios = [
-        ['[WW LOG] PRO Forum Shop monitor is unavailable. Retrying in 12 minute(s): fetch failed',
-            '[WW LOG] PRO Forum Shop monitor connection restored.'],
-        ['[WW LOG] PRO Dungeon Shop monitor is unavailable. Retrying in 12 minute(s): HTTP 522',
-            '[WW LOG] PRO Dungeon Shop monitor connection restored.'],
-        ['[WW LOG] Discord interaction connection warmup failed (ETIMEDOUT). Initial responses may need a new connection.',
-            '[WW LOG] Discord interaction connection warmup recovered.'],
+        ['[CC LOG] PRO Forum Shop monitor is unavailable. Retrying in 12 minute(s): fetch failed',
+            '[CC LOG] PRO Forum Shop monitor connection restored.'],
+        ['[CC LOG] PRO Dungeon Shop monitor is unavailable. Retrying in 12 minute(s): HTTP 522',
+            '[CC LOG] PRO Dungeon Shop monitor connection restored.'],
+        ['[CC LOG] Discord interaction connection warmup failed (ETIMEDOUT). Initial responses may need a new connection.',
+            '[CC LOG] Discord interaction connection warmup recovered.'],
         ['[RUNTIME MEMORY] CRITICAL: 460.8/512.0 MiB (90.0%; container); OCR 0 queued/active task(s).',
             '[RUNTIME MEMORY] Recovered below 75%: 380.0/512.0 MiB (container).'],
-        ['[WW LOG] MySQL PvP King Gold storage unavailable (ECONNREFUSED). Using the synchronized JSON snapshot; writes will queue for recovery.',
-            '[WW LOG] MySQL PvP King Gold storage restored; pending JSON operations will synchronize automatically.'],
+        ['[CC LOG] MySQL PvP King Gold storage unavailable (ECONNREFUSED). Using the synchronized JSON snapshot; writes will queue for recovery.',
+            '[CC LOG] MySQL PvP King Gold storage restored; pending JSON operations will synchronize automatically.'],
         ['[PRO NOTIFICATIONS] MySQL storage unavailable (ETIMEDOUT). Using JSON; pending settings and subscriptions will retry automatically.',
             '[PRO NOTIFICATIONS] MySQL storage restored; pending JSON data is synchronizing.']
     ];
@@ -254,15 +254,15 @@ test('recoverable warnings get a reply only after the same subsystem reports rec
 
 test('unmatched recovery logs do not create standalone Discord alerts', () => {
     const f = fixture(); f.logger.start();
-    f.consoleObject.log('[WW LOG] PRO Forum Shop monitor connection restored.');
+    f.consoleObject.log('[CC LOG] PRO Forum Shop monitor connection restored.');
     assert.deepEqual(f.sent, []);
     f.logger.stop();
 });
 
 test('a recoverable outage resolved before Discord is ready does not post a stale warning later', () => {
     const f = fixture();
-    f.consoleObject.warn('[WW LOG] PRO Forum Shop monitor is unavailable. Retrying in 1 minute(s): fetch failed');
-    f.consoleObject.log('[WW LOG] PRO Forum Shop monitor connection restored.');
+    f.consoleObject.warn('[CC LOG] PRO Forum Shop monitor is unavailable. Retrying in 1 minute(s): fetch failed');
+    f.consoleObject.log('[CC LOG] PRO Forum Shop monitor connection restored.');
     f.logger.start();
     assert.deepEqual(f.sent, []);
     assert.equal(f.logger.waiting.size, 0);
@@ -279,12 +279,12 @@ test('failed alert delivery retries with the same nonce, then recovery replies t
             return { id: `message-${calls}`, attachments: new Map() };
         } });
         t.after(() => f.logger.stop()); f.logger.start();
-        const warning = '[WW LOG] PRO Forum Shop monitor is unavailable. Retrying in 1 minute(s): fetch failed';
+        const warning = '[CC LOG] PRO Forum Shop monitor is unavailable. Retrying in 1 minute(s): fetch failed';
         f.consoleObject.warn(warning);
         await f.clock.advance(10 * 60_000);
         await f.clock.advance(30_000);
         assert.equal(sent[0].nonce, sent[1].nonce);
-        f.consoleObject.log('[WW LOG] PRO Forum Shop monitor connection restored.');
+        f.consoleObject.log('[CC LOG] PRO Forum Shop monitor connection restored.');
         await settle();
         assert.equal(sent[2].replyTo, 'message-2');
         f.consoleObject.warn(warning);
@@ -300,9 +300,9 @@ test('pending recovery replies are cancelled at shutdown', async () => {
     const sent = [], pending = new Promise(resolve => { finish = resolve; });
     const f = fixture({ send: event => { sent.push(event); return pending; } });
     f.logger.start();
-    f.consoleObject.warn('[WW LOG] PRO Forum Shop monitor is unavailable. Retrying in 1 minute(s): fetch failed');
+    f.consoleObject.warn('[CC LOG] PRO Forum Shop monitor is unavailable. Retrying in 1 minute(s): fetch failed');
     await f.clock.advance(10 * 60_000);
-    f.consoleObject.log('[WW LOG] PRO Forum Shop monitor connection restored.');
+    f.consoleObject.log('[CC LOG] PRO Forum Shop monitor connection restored.');
     f.logger.stop();
     finish({ id: 'warning' });
     await new Promise(resolve => setImmediate(resolve));
@@ -339,20 +339,20 @@ const timedServices = [
         warning: '[DB LOG] MySQL connectivity issue detected (ECONNREFUSED). Query retries and feature fallbacks are active.',
         recovery: '[DB LOG] MySQL connection restored after 5m (2 failed attempt(s)).' },
     { name: 'command registration', delay: 5 * 60_000,
-        warning: '[WW LOG] ❌ ERROR: Command registration failed: ETIMEDOUT',
-        recovery: '[WW LOG] ✅ Guild slash commands registered to Discord' },
+        warning: '[CC LOG] ❌ ERROR: Command registration failed: ETIMEDOUT',
+        recovery: '[CC LOG] ✅ Guild slash commands registered to Discord' },
     { name: 'Discord REST warmup', delay: 5 * 60_000,
-        warning: '[WW LOG] Discord interaction connection warmup failed (ETIMEDOUT). Initial responses may need a new connection.',
-        recovery: '[WW LOG] Discord interaction connection warmup recovered.' },
-    { name: 'WW tag verification', delay: 5 * 60_000,
-        warning: '[WW TAG] Discord verification unavailable (EAI_AGAIN). Tag checks will retry automatically.',
-        recovery: '[WW TAG] Discord verification restored. Pending tag checks have completed.' },
+        warning: '[CC LOG] Discord interaction connection warmup failed (ETIMEDOUT). Initial responses may need a new connection.',
+        recovery: '[CC LOG] Discord interaction connection warmup recovered.' },
+    { name: 'CC tag verification', delay: 5 * 60_000,
+        warning: '[CC TAG] Discord verification unavailable (EAI_AGAIN). Tag checks will retry automatically.',
+        recovery: '[CC TAG] Discord verification restored. Pending tag checks have completed.' },
     { name: 'container memory accounting', delay: 5 * 60_000,
         warning: '[RUNTIME MEMORY] Container accounting unavailable. Process RSS fallback is active.',
         recovery: '[RUNTIME MEMORY] Container accounting restored. Container memory checks are active.' },
     ...['PRO Forum Shop', 'PRO Dungeon Shop', 'PRO Forum application'].map(name => ({ name, delay: 10 * 60_000,
-        warning: `[WW LOG] ${name} monitor is unavailable. Retrying in 12 minute(s): fetch failed`,
-        recovery: `[WW LOG] ${name} monitor connection restored.` }))
+        warning: `[CC LOG] ${name} monitor is unavailable. Retrying in 12 minute(s): fetch failed`,
+        recovery: `[CC LOG] ${name} monitor connection restored.` }))
 ];
 
 for (const service of timedServices) {
@@ -412,28 +412,28 @@ test('urgent data loss and unexpected failures alert immediately and corruption 
     const f = fixture(); t.after(() => f.logger.stop()); f.logger.start();
     f.consoleObject.error('Background job crashed:', new Error('Unexpected exception'));
     f.consoleObject.error('Could not save settings JSON:', Object.assign(new Error('Permission denied'), { code: 'EACCES' }));
-    f.consoleObject.warn('[WW LOG] MySQL Guild Application storage unavailable. Using JSON fallback:',
+    f.consoleObject.warn('[CC LOG] MySQL Guild Application storage unavailable. Using JSON fallback:',
         Object.assign(new Error('JSON recovery paused; original data preserved at data.json.corrupt-123'), { code: 'JSON_STORE_CORRUPT' }));
-    f.consoleObject.warn('[WW LOG] Guild Application local JSON storage cannot write:',
+    f.consoleObject.warn('[CC LOG] Guild Application local JSON storage cannot write:',
         Object.assign(new Error('No space left on device'), { code: 'ENOSPC' }));
     assert.equal(f.sent.length, 4);
     assert.ok(f.sent.every(event => event.status !== 'recovered'));
-    f.consoleObject.log('[WW LOG] MySQL Guild Application storage restored.');
-    f.consoleObject.log('[WW LOG] Guild Application local JSON storage restored.');
+    f.consoleObject.log('[CC LOG] MySQL Guild Application storage restored.');
+    f.consoleObject.log('[CC LOG] Guild Application local JSON storage restored.');
     await f.clock.advance(10 * 60_000);
     assert.equal(f.sent.length, 4);
 });
 
 test('local JSON write retries and memory pressure alert immediately but do not repeatedly ping', async t => {
     const f = fixture(); t.after(() => f.logger.stop()); f.logger.start();
-    const json = '[WW LOG] Guild Application local JSON storage cannot write: EACCES';
+    const json = '[CC LOG] Guild Application local JSON storage cannot write: EACCES';
     const memory = '[RUNTIME MEMORY] WARNING: 420.0/512.0 MiB (82.0%; container).';
     f.consoleObject.warn(json); f.consoleObject.warn(memory); await settle();
     assert.equal(f.sent.length, 2);
     await f.clock.advance(30 * 60_000);
     f.consoleObject.warn(json); f.consoleObject.warn(memory);
     assert.equal(f.sent.length, 2);
-    f.consoleObject.log('[WW LOG] Guild Application local JSON storage restored.');
+    f.consoleObject.log('[CC LOG] Guild Application local JSON storage restored.');
     f.consoleObject.log('[RUNTIME MEMORY] Recovered below 75%: 370.0/512.0 MiB (container).');
     await settle();
     assert.equal(f.sent.length, 4);
@@ -477,7 +477,7 @@ test('pre-login memory warnings deliver as soon as Discord is ready', async t =>
 });
 
 test('OCR pressure warnings deliver immediately after login, including buffered startup warnings', async t => {
-    const notice = '[WW LOG] OCR memory pressure: briefly delaying the next image (up to 5 seconds).';
+    const notice = '[CC LOG] OCR memory pressure: briefly delaying the next image (up to 5 seconds).';
     for (const beforeLogin of [true, false]) {
         const f = fixture(); t.after(() => f.logger.stop());
         if (!beforeLogin) f.logger.start();
@@ -681,7 +681,7 @@ test('member audit database failures wait five minutes and recover after synchro
 
 test('a failed member audit JSON save alerts immediately instead of becoming a database outage', t => {
     const { MemberAuditHistory } = require('../utils/memberAuditHistory.js');
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-history-alert-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-history-alert-'));
     t.after(() => fs.rmdirSync(directory));
     const f = fixture(); t.after(() => f.logger.stop()); f.logger.start();
     for (const level of ['log', 'warn', 'error']) t.mock.method(console, level, f.consoleObject[level]);

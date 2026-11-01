@@ -139,7 +139,7 @@ class InteractionDiagnostics {
             else if (context.crownSaved === true) outcome = ' The crown or defense is saved. Do not repeat /pvp_crown for this battle.';
             else if (context.phase === 'saving crown') outcome = ' Crown save status is uncertain. Check /pvp_history before retrying.';
         }
-        return `[WW LOG] Discord interaction ${reason}: ${interaction.customId || interaction.commandName || 'unknown'} (${fields.join(', ')}).${outcome}`;
+        return `[CC LOG] Discord interaction ${reason}: ${interaction.customId || interaction.commandName || 'unknown'} (${fields.join(', ')}).${outcome}`;
     }
 
     errorReason(interaction, code) {

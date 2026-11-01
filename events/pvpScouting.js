@@ -16,7 +16,7 @@ module.exports = {
             try {
                 await context.ingestor?.handleCreate(message);
             } catch (error) {
-                console.error('[WW LOG] Failed to archive a PvP scouting message:', error);
+                console.error('[CC LOG] Failed to archive a PvP scouting message:', error);
             }
         });
 
@@ -26,7 +26,7 @@ module.exports = {
             try {
                 await context.ingestor?.handleUpdate(newMessage);
             } catch (error) {
-                console.error('[WW LOG] Failed to update an archived PvP scouting message:', error);
+                console.error('[CC LOG] Failed to update an archived PvP scouting message:', error);
             }
         });
 
@@ -36,7 +36,7 @@ module.exports = {
             try {
                 await context.ingestor?.handleDelete(message);
             } catch (error) {
-                console.error('[WW LOG] Failed to mark a deleted PvP scouting message:', error);
+                console.error('[CC LOG] Failed to mark a deleted PvP scouting message:', error);
             }
         });
 
@@ -46,7 +46,7 @@ module.exports = {
             try {
                 await context.ingestor?.handleDeleteBulk(messages.values());
             } catch (error) {
-                console.error('[WW LOG] Failed to mark bulk-deleted PvP scouting messages:', error);
+                console.error('[CC LOG] Failed to mark bulk-deleted PvP scouting messages:', error);
             }
         });
     }

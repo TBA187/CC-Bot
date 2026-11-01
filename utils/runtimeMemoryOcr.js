@@ -57,7 +57,7 @@ class OcrWorkerPool {
         this.idleTimer = this.setTimeout(() => {
             this.idleTimer = null;
             this.close().catch(error => {
-                console.warn('[WW LOG] Could not release the idle OCR worker:', error?.message || error);
+                console.warn('[CC LOG] Could not release the idle OCR worker:', error?.message || error);
             });
         }, this.idleTimeoutMs);
         this.idleTimer?.unref?.();
@@ -115,7 +115,7 @@ class OcrWorkerPool {
             try {
                 if (worker?.terminate) await worker.terminate();
             } catch (releaseError) {
-                console.warn('[WW LOG] Could not release the failed OCR worker:', releaseError?.message || releaseError);
+                console.warn('[CC LOG] Could not release the failed OCR worker:', releaseError?.message || releaseError);
             }
             throw error instanceof Error ? error : new Error(String(error));
         } finally {
@@ -158,7 +158,7 @@ class OcrWorkerPool {
         if (await this.memoryPressure()) {
             await this.releaseWorker();
             if (await this.memoryPressure()) {
-                this.log('[WW LOG] OCR memory pressure: briefly delaying the next image (up to 5 seconds).');
+                this.log('[CC LOG] OCR memory pressure: briefly delaying the next image (up to 5 seconds).');
                 for (let attempt = 0; attempt < 5; attempt++) {
                     await this.pause(1000);
                     if (!await this.memoryPressure()) break;

@@ -32,7 +32,7 @@ function display(value, max = 390) {
     return escapeMarkdown(text.slice(0, max)).slice(0, max) + (text.length > max ? '…' : '');
 }
 
-function auditPayload(event, logoPath = path.join(__dirname, '../../images/ww_logo.png')) {
+function auditPayload(event, logoPath = path.join(__dirname, '../../images/cc_logo.webp')) {
     const [title, color] = ACTIONS[event.action] || ['Scout Report Updated', 0x5865F2];
     const first = event.sources?.[0] || {};
     const before = first.before || {}, after = first.after || {};
@@ -42,7 +42,7 @@ function auditPayload(event, logoPath = path.join(__dirname, '../../images/ww_lo
         .setDescription(`**Officer:** <@${event.actorId}> (\`${event.actorId}\`)\n**Opponent:** ${display(ign, 64)}\n`
             + scoutIds(event.reportId, event.messageId)
             + (sourceUrl ? `\n[Jump to scout message ↗️](${sourceUrl})` : ''))
-        .setFooter({ text: `White Walkers • Message ID: ${event.messageId}`, iconURL: 'attachment://ww_logo.png' })
+        .setFooter({ text: `Crow Control • Message ID: ${event.messageId}`, iconURL: 'attachment://cc_logo.webp' })
         .setTimestamp(event.timestamp ? new Date(event.timestamp) : new Date());
     const sources = event.sources || [];
     const changes = first.changes || changesBetween(before, after);
@@ -57,14 +57,14 @@ function auditPayload(event, logoPath = path.join(__dirname, '../../images/ww_lo
     if ((!entries.length || event.action === 'edit_rejected') && event.action !== 'deleted') embed.addFields({ name: 'Decision',
         value: event.action === 'edit_rejected' ? 'The proposed changes were declined; the published report stays unchanged.'
             : 'The officer saved this review decision.', inline: false });
-    const files = [new AttachmentBuilder(logoPath, { name: 'ww_logo.png' })];
+    const files = [new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' })];
     // Preserve every before/after value, even when Discord's embed limits require shortened previews.
     if (entries.length || event.action === 'deleted') files.push(new AttachmentBuilder(Buffer.from(JSON.stringify(event, null, 2)),
         { name: `scout-${event.messageId}-changes.json` }));
     return { embeds: [embed], files, allowedMentions: { parse: [] } };
 }
 
-function publishedPayload(event, logoPath = path.join(__dirname, '../../images/ww_logo.png')) {
+function publishedPayload(event, logoPath = path.join(__dirname, '../../images/cc_logo.webp')) {
     const contributors = [...new Map((event.sources || []).map(source => [source.author_id,
         source.author_id ? `<@${source.author_id}>` : display(source.author_username || 'Unknown member', 80)])).values()];
     const embed = new EmbedBuilder().setColor(0x57F287).setTitle('✅ Scout Report Published')
@@ -73,11 +73,11 @@ function publishedPayload(event, logoPath = path.join(__dirname, '../../images/w
             + (contributors.length > 20 ? ` and ${contributors.length - 20} more` : '') + '\n'
             + scoutIds(event.reportId, event.messageId)
             + (event.sourceUrl ? `\n[**Jump to scout message ↗️**](${event.sourceUrl})` : ''))
-        .setFooter({ text: scoutIdFooter(event.reportId, event.messageId), iconURL: 'attachment://ww_logo.png' })
+        .setFooter({ text: scoutIdFooter(event.reportId, event.messageId), iconURL: 'attachment://cc_logo.webp' })
         .setTimestamp(event.timestamp ? new Date(event.timestamp) : new Date());
     if (event.rating != null) embed.addFields({ name: 'PvP Rating', value: String(event.rating), inline: true });
     embed.addFields({ name: 'Source messages', value: String(event.sources?.length || 1), inline: true });
-    return { embeds: [embed], files: [new AttachmentBuilder(logoPath, { name: 'ww_logo.png' })],
+    return { embeds: [embed], files: [new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' })],
         allowedMentions: { parse: [] }, nonce: `sp:${event.messageId}`, enforceNonce: true };
 }
 
@@ -92,7 +92,7 @@ function diffPreview(diff) {
     return `\`\`\`diff\n${safe.slice(0, 940)}\n\`\`\`` + (safe.length > 940 ? '\nFull changes attached.' : '');
 }
 
-function memberEditPayload(event, logoPath = path.join(__dirname, '../../images/ww_logo.png')) {
+function memberEditPayload(event, logoPath = path.join(__dirname, '../../images/cc_logo.webp')) {
     const before = event.before || {}, after = event.after || {};
     const ignored = ['ignored', 'not_scout'].includes(after.classification) || after.reviewStatus === 'not_scout';
     const failed = Boolean(event.failed) || after.reviewStatus === 'pending';
@@ -109,7 +109,7 @@ function memberEditPayload(event, logoPath = path.join(__dirname, '../../images/
             + `\n**Server:** ${event.server === 'silver' ? 'Silver' : 'Gold'}\n**Status:** ${status}`
             + '\n' + scoutIds(event.reportId, event.messageId)
             + (event.sourceUrl ? `\n[Jump to scout message ↗️](${event.sourceUrl})` : ''))
-        .setFooter({ text: scoutIdFooter(event.reportId, event.messageId), iconURL: 'attachment://ww_logo.png' })
+        .setFooter({ text: scoutIdFooter(event.reportId, event.messageId), iconURL: 'attachment://cc_logo.webp' })
         .setTimestamp(event.timestamp ? new Date(event.timestamp) : new Date());
     if (diff) embed.addFields({ name: 'Message changes', value: diffPreview(diff), inline: false });
     for (const [key, name, format] of [['ign', 'Opponent IGN', v => display(v, 64)],
@@ -128,43 +128,43 @@ function memberEditPayload(event, logoPath = path.join(__dirname, '../../images/
         : ignored ? 'Submit an opponent IGN and Pokémon team details or a screenshot.' : 'No corrections needed.', inline: false });
     if (!sameValue('rating', before.rating, after.rating)) embed.addFields({ name: 'PvP rating', value: `${display(before.rating)} → ${display(after.rating)}`, inline: true });
     if (attachmentsChanged) embed.addFields({ name: 'Attachments', value: `Before: ${display(attachmentNames(before), 350)}\nAfter: ${display(attachmentNames(after), 350)}`, inline: false });
-    const files = [new AttachmentBuilder(logoPath, { name: 'ww_logo.png' }),
+    const files = [new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' }),
         new AttachmentBuilder(Buffer.from(JSON.stringify(event, null, 2)), { name: `scout-edit-${event.messageId}.json` })];
     if (diff.length > 940) files.push(new AttachmentBuilder(Buffer.from(diff), { name: `scout-edit-${event.messageId}.diff.txt` }));
     return { embeds: [embed], files, allowedMentions: { parse: [] } };
 }
 
-function diagnosticPayload(event, ownerId, logoPath = path.join(__dirname, '../../images/ww_logo.png')) {
+function diagnosticPayload(event, ownerId, logoPath = path.join(__dirname, '../../images/cc_logo.webp')) {
     const warning = event.level === 'warn';
     const reportId = String(event.reportId || '').trim();
     const footer = reportId && reportId !== 'N/A' ? scoutIdFooter(reportId, event.messageId)
-        : `WW • ${event.component || 'Bot runtime'}`;
+        : `CC • ${event.component || 'Bot runtime'}`;
     const embed = new EmbedBuilder().setColor(warning ? 0xFEE75C : 0xED4245)
         .setTitle(warning ? '⚠️ Bot Warning' : '❌ Bot Error')
         .setDescription(event.message.slice(0, 3500) || 'No error details were available.')
-        .setFooter({ text: footer.slice(0, 256), iconURL: 'attachment://ww_logo.png' })
+        .setFooter({ text: footer.slice(0, 256), iconURL: 'attachment://cc_logo.webp' })
         .setTimestamp(event.timestamp ? new Date(event.timestamp) : new Date());
     if (event.component) embed.addFields({ name: 'Component', value: escapeMarkdown(event.component).slice(0, 256), inline: true });
     if (event.code) embed.addFields({ name: 'Error code', value: escapeMarkdown(String(event.code)).slice(0, 128), inline: true });
     if (event.messageId) embed.addFields({ name: 'Scout Message ID', value: `\`${event.messageId}\``, inline: true });
     if (event.repeats) embed.addFields({ name: 'Repeated occurrences', value: `${event.repeats} matching alert(s) were suppressed since the previous notification.`, inline: false });
     return { content: ownerId ? `<@${ownerId}>` : undefined, embeds: [embed],
-        files: [new AttachmentBuilder(logoPath, { name: 'ww_logo.png' })],
+        files: [new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' })],
         ...(event.nonce ? { nonce: event.nonce, enforceNonce: true } : {}),
         allowedMentions: { parse: [], users: ownerId ? [String(ownerId)] : [] } };
 }
 
-function recoveryPayload(event, logoPath = path.join(__dirname, '../../images/ww_logo.png')) {
+function recoveryPayload(event, logoPath = path.join(__dirname, '../../images/cc_logo.webp')) {
     const embed = new EmbedBuilder().setColor(0x57F287).setTitle('✅ Service Restored')
         .setDescription(event.message.slice(0, 3500) || 'The service is responding again.')
-        .setFooter({ text: `WW • ${event.component || 'Bot runtime'}`.slice(0, 256), iconURL: 'attachment://ww_logo.png' })
+        .setFooter({ text: `CC • ${event.component || 'Bot runtime'}`.slice(0, 256), iconURL: 'attachment://cc_logo.webp' })
         .setTimestamp(event.timestamp ? new Date(event.timestamp) : new Date());
     if (event.component) embed.addFields({ name: 'Component', value: escapeMarkdown(event.component).slice(0, 256), inline: true });
     if (Number.isFinite(event.durationMs)) {
         const seconds = Math.max(0, Math.floor(event.durationMs / 1000));
         embed.addFields({ name: 'Outage duration', value: `${Math.floor(seconds / 60)}m ${seconds % 60}s`, inline: true });
     }
-    return { embeds: [embed], files: [new AttachmentBuilder(logoPath, { name: 'ww_logo.png' })],
+    return { embeds: [embed], files: [new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' })],
         ...(event.nonce ? { nonce: event.nonce, enforceNonce: true } : {}),
         allowedMentions: { parse: [], repliedUser: false } };
 }
@@ -206,7 +206,7 @@ class ScoutAuditLogger {
             return channel.send(payload);
         });
         const result = queued.catch(error => {
-            console.warn(`[WW LOG] Could not send ${label}: ${error.message}`);
+            console.warn(`[CC LOG] Could not send ${label}: ${error.message}`);
             return null;
         });
         // The send result is useful to callers, but the idle queue must not retain a Discord Message.
@@ -222,7 +222,7 @@ class ScoutAuditLogger {
             const channel = this.client.channels.cache.get(this.channelId) || await this.client.channels.fetch(this.channelId);
             if (!channel?.send || channel.guildId !== this.guildId) throw new Error('Scout log channel is unavailable in this server.');
             await channel.send(auditPayload(saved, this.logoPath));
-        }).catch(error => console.warn(`[WW LOG] Could not send scout action log for ${saved.messageId}: ${error.message}. The saved change history is intact.`));
+        }).catch(error => console.warn(`[CC LOG] Could not send scout action log for ${saved.messageId}: ${error.message}. The saved change history is intact.`));
     }
 
     flush() { return this.pending; }

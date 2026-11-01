@@ -91,18 +91,18 @@ class Rank {
                     ? `To earn special **${trackInfo.displayName}** XP, you need to ${requirements.join(' and ')} below:`
                     : `No role or channel requirements are configured for this XP track.`;
 
-                const logoPath = path.join(__dirname, '../../images/ww_logo.png');
-                const logoFile = new AttachmentBuilder(logoPath, { name: 'ww_logo.png' });
+                const logoPath = path.join(__dirname, '../../images/cc_logo.webp');
+                const logoFile = new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' });
                 const noDataEmbed = new EmbedBuilder()
                     .setTitle('No XP Data Found!')
-                    .setColor(trackInfo.color || '#3f4bff')
+                    .setColor(trackInfo.color || '#e63b50')
                     .setDescription(
                         `${target} has no XP Data for the **${trackInfo.displayName}** XP-track.\n` +
                         `${requirementText}` +
                         `${trackRequirements.description ? `\n${trackRequirements.description}` : ''}`
                     )
                     .setThumbnail(target.displayAvatarURL({ dynamic: true }))
-                    .setFooter({ text: 'White Walker Level System', iconURL: 'attachment://ww_logo.png' })
+                    .setFooter({ text: 'Crow Control Level System', iconURL: 'attachment://cc_logo.webp' })
                     .setTimestamp();
 
                 if (trackRequirements.fields.length > 0) {
@@ -152,8 +152,8 @@ class Rank {
                 xpForNextLevel = `**${formatNumber(xpRemainder)} XP**`;
             }
 
-            const logoPath = path.join(__dirname, '../../images/ww_logo.png');
-            const logoFile = new AttachmentBuilder(logoPath, { name: 'ww_logo.png' });
+            const logoPath = path.join(__dirname, '../../images/cc_logo.webp');
+            const logoFile = new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' });
             const displayName = capitalizeDisplayName(getDisplayName(targetMember, target));
             const trackingSince = formatTrackingSince(data.xp_date);
             const rankTitle = trackInfo.isGlobal
@@ -164,7 +164,7 @@ class Rank {
             const rankEmbed = new EmbedBuilder()
                 .setTitle(rankTitle)
                 .setThumbnail(target.displayAvatarURL({ dynamic: true }))
-                .setColor(trackInfo.color || '#3f4bff')
+                .setColor(trackInfo.color || '#e63b50')
                 .addFields(
                     ...trackRequirements.fields,
                     { name: 'Level', value: `**${formatNumber(data.level)}**`, inline: true },
@@ -177,7 +177,7 @@ class Rank {
                     { name: '🎙️\u2002Voice Chat Hours       \u200b', value: `- Total: **${formatVoiceTime(data.total_voice_minutes)}**\n- XP: **${formatNumber(data.voice_xp)}**`, inline: true },
                     { name: '⌨️\u2002Commands used', value: `- Total: **${formatNumber(data.total_commands_used)}**\n- XP: **${formatNumber(data.command_xp)}**`, inline: true }
                 )
-                .setFooter({ text: `${trackingSince}`, iconURL: 'attachment://ww_logo.png' })
+                .setFooter({ text: `${trackingSince}`, iconURL: 'attachment://cc_logo.webp' })
                 .setTimestamp();
 
             if (trackRequirements.description) {
@@ -193,7 +193,7 @@ class Rank {
             if (this.config.db.isDatabaseUnavailableError?.(err)) {
                 return interaction.editReply({ content: 'XP data is temporarily unavailable while the database reconnects. New XP/activity is saved locally and will sync automatically.' });
             }
-            console.error('[WW LOG] Rank Command Error:', err);
+            console.error('[CC LOG] Rank Command Error:', err);
             return interaction.editReply({ content: 'Error fetching rank data.' });
         }
     }

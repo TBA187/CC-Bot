@@ -102,7 +102,7 @@ test('stopping dungeon recruitment clears deadlines and prevents late restoratio
 });
 
 test('corrupt dungeon recovery is preserved and cannot become an empty snapshot', async t => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-dungeon-corrupt-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-dungeon-corrupt-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const storageFile = path.join(dir, 'runs.json');
     fs.writeFileSync(storageFile, '{unsent run');
@@ -114,7 +114,7 @@ test('corrupt dungeon recovery is preserved and cannot become an empty snapshot'
 });
 
 test('dungeon storage keeps the current snapshot before waiting on MySQL', async t => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-dungeon-pending-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-dungeon-pending-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const { command, run } = fixture();
     Object.assign(command, { storageFile: path.join(dir, 'runs.json'), storageTempFile: path.join(dir, 'runs.tmp'), storageMode: 'auto' });
@@ -132,7 +132,7 @@ test('dungeon storage keeps the current snapshot before waiting on MySQL', async
 });
 
 test('dungeon saves each current and pending closed run once', async t => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-dungeon-once-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-dungeon-once-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const { command, run } = fixture();
     Object.assign(command, { storageFile: path.join(dir, 'runs.json'), storageTempFile: path.join(dir, 'runs.tmp'), storageMode: 'auto' });
@@ -147,7 +147,7 @@ test('dungeon saves each current and pending closed run once', async t => {
 });
 
 test('a failed dungeon database batch keeps the entire snapshot for replay', async t => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-dungeon-partial-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-dungeon-partial-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     const { command, run } = fixture();
     Object.assign(command, { storageFile: path.join(dir, 'runs.json'), storageTempFile: path.join(dir, 'runs.tmp'), storageMode: 'auto' });
@@ -166,7 +166,7 @@ test('a failed dungeon database batch keeps the entire snapshot for replay', asy
 });
 
 test('failure to clear a synced dungeon snapshot does not reject the saved change', async t => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-dungeon-cleanup-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-dungeon-cleanup-'));
     t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
     t.mock.method(console, 'error', () => {});
     const { command } = fixture();

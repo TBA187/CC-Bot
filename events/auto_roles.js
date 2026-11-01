@@ -23,7 +23,8 @@ const { rolePanelReason } = require('../utils/roleAuditSource.js');
 
 // AUTO ROLES - INTERNAL CONFIG TYPES
 const SUPPORTED_AUTO_ROLE_MODES = new Set(['buttons', 'dropdown', 'reactions', 'color_roles']);
-const CUSTOM_ID_PREFIX = 'ww:auto_roles';
+const CUSTOM_ID_PREFIX = 'cc:auto_roles';
+const COMPONENT_PREFIXES = [CUSTOM_ID_PREFIX, 'ww:auto_roles'];
 const COLOR_ROLE_PRESET_PAGE_SIZE = 25;
 const CUSTOM_COLOR_ROLE_ANCHOR_ID = botConfig.customColorRoleAnchorID;
 const COLOR_ROLE_PANEL_PAGE = 0;
@@ -233,16 +234,16 @@ const REGION_ROLES_PANEL = autoRolePanelConfig({
     allowMultiple: false,
     defaultChannelId: null,
     title: 'Region Roles',
-    titleUrl: 'https://www.image2url.com/r2/default/images/1782683416790-135d9832-afcd-4777-a13a-e9239b831ba1.png',
+    titleUrl: botConfig.brandingImageURL,
     description:
         '### Please select your region from the dropdown menu\n' +
-        'This way we can see where WW Members are playing from <:man_of_culture:1186287184106496112>',
-    colorHex: '#000080',
+        'This way we can see where CC Members are playing from <:man_of_culture:1186287184106496112>',
+    colorHex: '#e63b50',
     imagePath: 'images/world_globe.png',
     imageFilename: 'world_globe.png',
-    imageFooterPath: 'images/ww_logo.png',
-    imageFooterFilename: 'ww_logo.png',
-    footerText: 'White Walker Discord Roles',
+    imageFooterPath: 'images/cc_logo.webp',
+    imageFooterFilename: 'cc_logo.webp',
+    footerText: 'Crow Control Discord Roles',
     messageText: null,
     dropdownPlaceholder: 'Select your Region here!',
     roles: [
@@ -329,8 +330,8 @@ const GUILD_ROLES_PANEL = autoRolePanelConfig({
     mode: 'buttons',
     allowMultiple: true,
     defaultChannelId: null,
-    title: 'White Walker Guild Roles',
-    titleUrl: 'https://www.image2url.com/r2/default/images/1782683416790-135d9832-afcd-4777-a13a-e9239b831ba1.png',
+    title: 'Crow Control Guild Roles',
+    titleUrl: botConfig.brandingImageURL,
     description:
         '**Choose your Guild Roles by clicking the buttons below.**\nYou can select multiple roles.\n' +
         'To remove a role, simply click the button corresponding to the role you want to remove.\n' +
@@ -341,12 +342,12 @@ const GUILD_ROLES_PANEL = autoRolePanelConfig({
         '-# - Select **PRO Notifications 🔔** to receive notifications about useful game information, updates, and upcoming events.\n' +
         '-# - Select **Stream 🔔** to be pinged when someone from the Guild streams. You can also ping this role when you go live.\n' +
         '-# - Select your **Server Roles**. <@1470242342383521943> will remember your **Server** choice and use it for future commands.',
-    colorHex: '#02F3D7',
-    imagePath: 'images/ww_logo.png',
-    imageFilename: 'ww_logo.png',
-    imageFooterPath: 'images/ww_logo.png',
-    imageFooterFilename: 'ww_logo.png',
-    footerText: 'White Walker Discord Roles',
+    colorHex: '#e63b50',
+    imagePath: 'images/cc_logo.webp',
+    imageFilename: 'cc_logo.webp',
+    imageFooterPath: 'images/cc_logo.webp',
+    imageFooterFilename: 'cc_logo.webp',
+    footerText: 'Crow Control Discord Roles',
     messageText: null,
     dropdownPlaceholder: null,
     roles: [
@@ -450,7 +451,7 @@ const COLOR_ROLES_PANEL = autoRolePanelConfig({
     allowMultiple: false,
     defaultChannelId: null,
     title: 'Choose your personal display color',
-    titleUrl: 'https://www.image2url.com/r2/default/images/1782683416790-135d9832-afcd-4777-a13a-e9239b831ba1.png',
+    titleUrl: botConfig.brandingImageURL,
     description:
         '**You can change your name color in 3 different ways:**\n' +
         '- Pick a **preset color** (solid or gradient) from the dropdown\n' +
@@ -462,11 +463,11 @@ const COLOR_ROLES_PANEL = autoRolePanelConfig({
         'When you have selected a color, you will see a preview of the color.\n' +
         'Press **Confirm** after previewing to update your personal color.',
     colorHex: '#5865F2',
-    imagePath: 'images/ww_logo.png',
-    imageFilename: 'ww_logo.png',
-    imageFooterPath: 'images/ww_logo.png',
-    imageFooterFilename: 'ww_logo.png',
-    footerText: 'White Walker Discord Roles',
+    imagePath: 'images/cc_logo.webp',
+    imageFilename: 'cc_logo.webp',
+    imageFooterPath: 'images/cc_logo.webp',
+    imageFooterFilename: 'cc_logo.webp',
+    footerText: 'Crow Control Discord Roles',
     messageText: null,
     dropdownPlaceholder: 'Select preset colors here!',
     roles: []
@@ -685,7 +686,7 @@ function getConfiguredRole(guild, choice) {
 
 
 async function manageableRoleError(guild, role) {
-    if (role.id === botConfig.wwRoleID) return 'The White Walker role is managed automatically by your WW Server Tag. Equip or remove the tag to change this role.';
+    if (role.id === botConfig.ccRoleID) return 'The Crow Control role is managed automatically by your CC Server Tag. Equip or remove the tag to change this role.';
     const me = guild.members.me ?? await guild.members.fetchMe().catch(() => null);
     if (me === null) {
         return 'Bot role setup is incomplete.';
@@ -890,7 +891,7 @@ function buildApplyCustomId(style) {
 function getColorPanelPageFromMessage(message) {
     for (const row of message?.components ?? []) {
         for (const component of row.components ?? []) {
-            const match = component.customId?.match(/^ww:auto_roles:color_roles:select:(\d+)$/);
+            const match = component.customId?.match(/^(?:cc|ww):auto_roles:color_roles:select:(\d+)$/);
             if (match) {
                 return Number(match[1]) || COLOR_ROLE_PANEL_PAGE;
             }
@@ -952,7 +953,7 @@ async function refreshColorRolePanelMessage(message, page = COLOR_ROLE_PANEL_PAG
     }
 
     await message.edit({ components: buildColorRoleComponents(page) }).catch(err => {
-        console.warn('[WW LOG] Could not refresh Color Roles panel components:', err);
+        console.warn('[CC LOG] Could not refresh Color Roles panel components:', err);
     });
 }
 
@@ -1002,7 +1003,7 @@ async function dismissHiddenPreview(interaction) {
             components: [],
             attachments: []
         }).catch(fallbackErr => {
-            console.warn('[WW LOG] Could not dismiss color preview:', fallbackErr);
+            console.warn('[CC LOG] Could not dismiss color preview:', fallbackErr);
         });
     }
 }
@@ -1110,28 +1111,28 @@ async function getBotMember(guild) {
 async function maybePositionRoleUnderAnchor(guild, role, anchorRoleId, anchorLabel) {
     const me = await getBotMember(guild);
     if (me === null) {
-        console.warn(`[WW LOG] Could not fetch bot member while positioning ${role.name}.`);
+        console.warn(`[CC LOG] Could not fetch bot member while positioning ${role.name}.`);
         return false;
     }
 
     if (!me.permissions.has(PermissionsBitField.Flags.ManageRoles)) {
-        console.warn(`[WW LOG] Bot is missing Manage Roles; cannot position ${role.name}.`);
+        console.warn(`[CC LOG] Bot is missing Manage Roles; cannot position ${role.name}.`);
         return false;
     }
 
     const anchorRole = await fetchRoleById(guild, anchorRoleId);
     if (anchorRole === null) {
-        console.warn(`[WW LOG] ${anchorLabel} role not found: ${anchorRoleId}`);
+        console.warn(`[CC LOG] ${anchorLabel} role not found: ${anchorRoleId}`);
         return false;
     }
 
     if (anchorRole.comparePositionTo(me.roles.highest) >= 0) {
-        console.warn(`[WW LOG] Bot role must be above the ${anchorLabel} role.`);
+        console.warn(`[CC LOG] Bot role must be above the ${anchorLabel} role.`);
         return false;
     }
 
     if (role.comparePositionTo(me.roles.highest) >= 0) {
-        console.warn(`[WW LOG] Bot role must be above ${role.name} before it can move it.`);
+        console.warn(`[CC LOG] Bot role must be above ${role.name} before it can move it.`);
         return false;
     }
 
@@ -1140,7 +1141,7 @@ async function maybePositionRoleUnderAnchor(guild, role, anchorRoleId, anchorLab
         await guild.roles.setPosition(role.id, targetPosition, { reason: `Move ${role.name} under ${anchorLabel}` });
         return true;
     } catch (err) {
-        console.warn(`[WW LOG] Could not position ${role.name} under ${anchorLabel}:`, err);
+        console.warn(`[CC LOG] Could not position ${role.name} under ${anchorLabel}:`, err);
         return false;
     }
 }
@@ -1228,7 +1229,7 @@ async function syncMemberColorRoleName(member, user = member.user) {
 
     const roleError = await manageableRoleError(member.guild, role);
     if (roleError !== null) {
-        console.warn(`[WW LOG] Could not rename custom color role for ${user.tag ?? user.username} (${user.id}): ${roleError}`);
+        console.warn(`[CC LOG] Could not rename custom color role for ${user.tag ?? user.username} (${user.id}): ${roleError}`);
         return false;
     }
 
@@ -1338,7 +1339,7 @@ async function applyPresetColorRole(interaction, presetId) {
             return;
         }
 
-        console.error('[WW LOG] Preset color role apply error:', err);
+        console.error('[CC LOG] Preset color role apply error:', err);
         await editPreviewFeedback(interaction, 'Role update failed. Try again shortly.');
     }
 }
@@ -1421,7 +1422,7 @@ async function applyCustomColorRole(interaction, style) {
             return;
         }
 
-        console.error('[WW LOG] Custom color role apply error:', err);
+        console.error('[CC LOG] Custom color role apply error:', err);
         await editPreviewFeedback(interaction, 'Role update failed. Try again shortly.');
     }
 }
@@ -1477,7 +1478,7 @@ async function clearMemberColorRole(interaction) {
             return;
         }
 
-        console.error('[WW LOG] Color role clear error:', err);
+        console.error('[CC LOG] Color role clear error:', err);
         await sendHiddenFeedback(interaction, 'Role update failed. Try again shortly.');
     }
 }
@@ -1914,7 +1915,7 @@ async function handleServerRoleButton(interaction, server, serverSettings) {
         const result = await serverSettings.select(interaction, server, { toggle: true });
         await sendHiddenFeedback(interaction, selectionFeedback(result));
     } catch (error) {
-        console.error('[WW LOG] Could not save a guild member server preference:', error);
+        console.error('[CC LOG] Could not save a guild member server preference:', error);
         await sendHiddenFeedback(interaction, error.message === 'No permission!'
             ? 'No permission!'
             : 'Could not save your server selection and role. Please try again.');
@@ -1923,7 +1924,7 @@ async function handleServerRoleButton(interaction, server, serverSettings) {
 
 
 async function handleAutoRoleButton(interaction, serverSettings = null) {
-    if (!interaction.customId.startsWith(`${CUSTOM_ID_PREFIX}:`)) return false;
+    if (!COMPONENT_PREFIXES.some(prefix => interaction.customId.startsWith(`${prefix}:`))) return false;
 
     const [, , panelKey, componentType, ...args] = interaction.customId.split(':');
     if (panelKey === 'color_roles') {
@@ -1962,7 +1963,7 @@ async function handleAutoRoleButton(interaction, serverSettings = null) {
 
 
 async function handleAutoRoleSelect(interaction) {
-    if (!interaction.customId.startsWith(`${CUSTOM_ID_PREFIX}:`)) return false;
+    if (!COMPONENT_PREFIXES.some(prefix => interaction.customId.startsWith(`${prefix}:`))) return false;
 
     const [, , panelKey, componentType, ...args] = interaction.customId.split(':');
     if (panelKey === 'color_roles') {
@@ -2096,7 +2097,7 @@ async function handleColorRoleSelect(interaction, componentType, args) {
 
 
 async function handleAutoRoleModal(interaction) {
-    if (!interaction.customId.startsWith(`${CUSTOM_ID_PREFIX}:color_roles:modal_submit:`)) return false;
+    if (!COMPONENT_PREFIXES.some(prefix => interaction.customId.startsWith(`${prefix}:color_roles:modal_submit:`))) return false;
 
     const [, , , , modalType, ...sourceParts] = interaction.customId.split(':');
     const source = parseColorPanelSource(sourceParts);

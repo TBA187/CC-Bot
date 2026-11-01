@@ -10,6 +10,7 @@ const {
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { brandingImageURL } = require('../config.json');
 const { readJsonObject, writeJsonIfChanged } = require('../utils/jsonFile.js');
 
 const DEFAULT_GIVEAWAY_COLOR = '#39FF14';
@@ -17,13 +18,13 @@ const GIVEAWAY_ACTIVE = 'active';
 const GIVEAWAY_ENDED = 'ended';
 const GIVEAWAY_DELETED = 'deleted';
 const GIVEAWAY_STATUSES = new Set([GIVEAWAY_ACTIVE, GIVEAWAY_ENDED, GIVEAWAY_DELETED]);
-const DEFAULT_GIVEAWAY_TITLE = 'White Walkers Giveaway  🎉';
-const DEFAULT_GIVEAWAY_TITLE_URL = 'https://www.image2url.com/r2/default/images/1782683416790-135d9832-afcd-4777-a13a-e9239b831ba1.png';
+const DEFAULT_GIVEAWAY_TITLE = 'Crow Control Giveaway  🎉';
+const DEFAULT_GIVEAWAY_TITLE_URL = brandingImageURL;
 const GIVEAWAY_FOOTER_TEXT = 'All winners are selected completely at random!';
-const GIVEAWAY_BUTTON_ID = 'ww_giveaway:join_leave';
-const GIVEAWAY_PARTICIPANTS_BUTTON_ID = 'ww_giveaway:participants';
-const GIVEAWAY_PAGE_PREFIX = 'ww_giveaway:page';
-const GIVEAWAY_WINNERS_PREFIX = 'ww_giveaway:winners';
+const GIVEAWAY_BUTTON_ID = 'cc_giveaway:join_leave';
+const GIVEAWAY_PARTICIPANTS_BUTTON_ID = 'cc_giveaway:participants';
+const GIVEAWAY_PAGE_PREFIX = 'cc_giveaway:page';
+const GIVEAWAY_WINNERS_PREFIX = 'cc_giveaway:winners';
 const MAX_WINNERS = 100;
 const REROLL_AUTOCOMPLETE_WINDOW_MS = 48 * 60 * 60 * 1000;
 const GIVEAWAY_RECOVERY_WINDOW_MS = REROLL_AUTOCOMPLETE_WINDOW_MS;
@@ -40,8 +41,8 @@ const JSON_SOURCES = {
     JSON_ONLY: 'json_only'
 };
 const DEFAULT_DATA_FILE = path.join(process.cwd(), 'data', 'giveaways.json');
-const LOGO_PATH = path.join(process.cwd(), 'images', 'ww_logo.png');
-const LOGO_ATTACHMENT_URL = 'attachment://ww_logo.png';
+const LOGO_PATH = path.join(process.cwd(), 'images', 'cc_logo.webp');
+const LOGO_ATTACHMENT_URL = 'attachment://cc_logo.webp';
 const GIVEAWAY_RECOVERY_SWEEP_MS = 60 * 60 * 1000;
 const GIVEAWAY_MIN_RETRY_MS = 60 * 1000;
 const GIVEAWAY_END_LEASE_SECONDS = 300;
@@ -297,7 +298,7 @@ function messageLink(giveaway) {
 
 function logoFile() {
     if (!fs.existsSync(LOGO_PATH)) return null;
-    return new AttachmentBuilder(LOGO_PATH, { name: 'ww_logo.png' });
+    return new AttachmentBuilder(LOGO_PATH, { name: 'cc_logo.webp' });
 }
 
 function toJson(value) {
@@ -486,14 +487,14 @@ class GiveawayStore {
 
     noteMysqlFailure(err) {
         if (this.db?.isDatabaseUnavailableError && !this.db.isDatabaseUnavailableError(err)) {
-            console.error('[WW LOG] Unexpected MySQL giveaway storage error:', err);
+            console.error('[CC LOG] Unexpected MySQL giveaway storage error:', err);
             return;
         }
         if (this.mysqlOutage) return;
         this.mysqlOutage = true;
         const errorCode = this.db?.getErrorCode?.(err) || err?.causeCode || err?.code || err?.message || err;
         console.warn(
-            `[WW LOG] MySQL giveaway storage unavailable (${errorCode}). ` +
+            `[CC LOG] MySQL giveaway storage unavailable (${errorCode}). ` +
             'Using the local recovery cache; writes will queue in JSON for synchronization.'
         );
     }
@@ -501,7 +502,7 @@ class GiveawayStore {
     noteMysqlRestored() {
         if (!this.mysqlOutage) return;
         this.mysqlOutage = false;
-        console.log('[WW LOG] MySQL giveaway storage restored; pending JSON data will synchronize automatically.');
+        console.log('[CC LOG] MySQL giveaway storage restored; pending JSON data will synchronize automatically.');
     }
 
     async mysqlQuery(sql, params = [], retries = 1) {
@@ -577,7 +578,7 @@ class GiveawayStore {
             };
         } catch (err) {
             this.jsonRecoveryBlocked = true;
-            console.error('[WW LOG] Failed to read giveaway JSON storage:', err);
+            console.error('[CC LOG] Failed to read giveaway JSON storage:', err);
             throw err;
         }
     }
@@ -1455,7 +1456,7 @@ function giveawayMessageDrawId(giveaway, draws) {
 }
 
 function giveawayDescription(giveaway) {
-    const host = String(giveaway.host_text || 'White Walkers Team');
+    const host = String(giveaway.host_text || 'Crow Control Team');
     const hostText = /^(?:<@|@)/u.test(host) ? host : `@${host}`;
     const details = `<:man_of_culture:1186287184106496112>\u2002**Host:** ${hostText}\n`
         + `🎁\u2002**Prize:** ${giveaway.prize || 'Unknown'}`;
@@ -1734,7 +1735,7 @@ async function claimAndEndGiveawayLocked(client, config, giveaway, options = {})
         // A failed read is safe to release; an uncertain draw write keeps the claim until expiry.
         if (completed || !writeAttempted) {
             await config.giveawayStore.releaseEndClaim(giveawayId, claim).catch(err => {
-                console.warn(`[WW LOG] Could not release giveaway end claim ${giveawayId}: ${err.code || err.message}`);
+                console.warn(`[CC LOG] Could not release giveaway end claim ${giveawayId}: ${err.code || err.message}`);
             });
         }
     }
@@ -1769,10 +1770,10 @@ async function publishGiveawayEnd(client, config, giveaway, winnerIds, { announc
         throw new GiveawayFinalizationDeferred('The giveaway announcement receipt could not be confirmed.');
     }
     const finalized = confirmed;
-    console.log(`[WW LOG] Giveaway ${giveaway.giveaway_id} finalized; initial announcement confirmed.`);
+    console.log(`[CC LOG] Giveaway ${giveaway.giveaway_id} finalized; initial announcement confirmed.`);
     // Cosmetic edit pacing must not delay the initial announcement or its durable receipt.
     await refreshGiveawayMessage(client, config, finalized, { disabled: true }).catch(error => {
-        console.warn(`[WW LOG] Giveaway ${giveaway.giveaway_id} ended-message refresh failed: ${error.code || 'UNKNOWN'}`);
+        console.warn(`[CC LOG] Giveaway ${giveaway.giveaway_id} ended-message refresh failed: ${error.code || 'UNKNOWN'}`);
     });
     return finalized;
 }
@@ -1976,19 +1977,20 @@ async function sendGiveawayActionFeedback(interaction, embed) {
 }
 
 async function handleGiveawayButton(interaction, config) {
-    if (interaction.customId === GIVEAWAY_BUTTON_ID) {
+    const customId = interaction.customId.replace(/^ww_giveaway:/u, 'cc_giveaway:');
+    if (customId === GIVEAWAY_BUTTON_ID) {
         await handleJoinLeave(interaction, config);
         return true;
     }
-    if (interaction.customId === GIVEAWAY_PARTICIPANTS_BUTTON_ID) {
+    if (customId === GIVEAWAY_PARTICIPANTS_BUTTON_ID) {
         await handleParticipantsButton(interaction, config);
         return true;
     }
-    if (interaction.customId.startsWith(`${GIVEAWAY_WINNERS_PREFIX}:`)) {
+    if (customId.startsWith(`${GIVEAWAY_WINNERS_PREFIX}:`)) {
         await handleWinnersButton(interaction, config);
         return true;
     }
-    if (interaction.customId.startsWith(`${GIVEAWAY_PAGE_PREFIX}:`)) {
+    if (customId.startsWith(`${GIVEAWAY_PAGE_PREFIX}:`)) {
         await handlePaginationButton(interaction);
         return true;
     }
@@ -2009,7 +2011,7 @@ async function handleJoinLeave(interaction, config) {
         await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     } catch (err) {
         if (Number(err?.code || err?.rawError?.code) === 10062) {
-            console.info('[WW LOG] Giveaway entry click expired before Discord acknowledged it; the user can click again.');
+            console.info('[CC LOG] Giveaway entry click expired before Discord acknowledged it; the user can click again.');
             return;
         }
         throw err;
@@ -2085,7 +2087,7 @@ async function handleJoinLeave(interaction, config) {
 
     // Entry feedback should stay fast while the shared refresh queue updates the counter safely.
     void refreshGiveawayMessage(interaction.client, config, result.giveaway).catch(err => {
-        console.error('[WW LOG] Giveaway participant refresh failed:', err);
+        console.error('[CC LOG] Giveaway participant refresh failed:', err);
     });
     await sendGiveawayActionFeedback(interaction, giveawayActionEmbed(result.giveaway, { joined: result.joined }));
 }
@@ -2111,7 +2113,7 @@ function winnerDrawKey(drawId) {
 
 async function handleWinnersButton(interaction, config) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const match = /^ww_giveaway:winners:(.+):([a-f0-9]{16})$/.exec(interaction.customId);
+    const match = /^(?:cc|ww)_giveaway:winners:(.+):([a-f0-9]{16})$/.exec(interaction.customId);
     let giveaway = match && await config.giveawayStore.getGiveaway(match[1]);
     if (!giveaway || String(giveaway.guild_id) !== String(interaction.guildId)) {
         await interaction.editReply('That giveaway could not be found.');
@@ -2344,7 +2346,7 @@ function giveawayHostDisplayLabel(giveaway, guild = null) {
     }
     const hostText = String(giveaway.host_text || '').trim();
     if (hostText) return escapeDisplayMentions(hostText);
-    return escapeDisplayMentions(String(giveaway.created_by_name || 'White Walkers Team'));
+    return escapeDisplayMentions(String(giveaway.created_by_name || 'Crow Control Team'));
 }
 
 function hostUserIdFromGiveaway(giveaway) {
@@ -2562,7 +2564,7 @@ function startGiveawayLoop(client, config) {
                     }
                 } catch (err) {
                     if (!(err instanceof GiveawayFinalizationDeferred) && !config.giveawayStore.db?.isDatabaseUnavailableError?.(err)) {
-                        console.error(`[WW LOG] Could not end giveaway ${giveaway.giveaway_id || 'unknown'}:`, err);
+                        console.error(`[CC LOG] Could not end giveaway ${giveaway.giveaway_id || 'unknown'}:`, err);
                     }
                 }
                 if (index + 1 < dueGiveaways.length) await wait(GIVEAWAY_END_PACING_MS);
@@ -2577,7 +2579,7 @@ function startGiveawayLoop(client, config) {
                 );
             }
         } catch (err) {
-            console.error('[WW LOG] Giveaway scheduler failed:', err);
+            console.error('[CC LOG] Giveaway scheduler failed:', err);
             delayMs = GIVEAWAY_MIN_RETRY_MS;
         } finally {
             running = false;

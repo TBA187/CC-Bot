@@ -47,9 +47,9 @@ function buildMemberJoinPayload(member, context, { newAccountWarningHours = 48 }
     const rejoined = context.rejoined;
     const unbanned = context.kind === 'unbanned';
     const extraContext = [];
-    let actionText = `${rejoined ? 'rejoined' : 'joined'} White Walker's Discord Server!`;
+    let actionText = `${rejoined ? 'rejoined' : 'joined'} Crow Control's Discord Server!`;
     if (unbanned) {
-        actionText = `${rejoined ? 'rejoined' : 'joined'} White Walker's Discord Server after being unbanned!`;
+        actionText = `${rejoined ? 'rejoined' : 'joined'} Crow Control's Discord Server after being unbanned!`;
         if (context.unban.executor) extraContext.push(`- **Unbanned By:** ${auditActor(context.unban.executor)}`);
         extraContext.push(`- **Unbanned At:** ${formatDiscordTime(context.unban.at)}`);
     } else if (rejoined) {

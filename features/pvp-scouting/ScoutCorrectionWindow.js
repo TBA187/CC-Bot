@@ -44,7 +44,7 @@ class ScoutCorrectionWindow {
                 else await this.finish(window.message_id);
             }
         } catch (error) {
-            console.warn(`[WW LOG] Scout correction timer recovery will retry: ${error.message}`);
+            console.warn(`[CC LOG] Scout correction timer recovery will retry: ${error.message}`);
             if (this.restoreTimer !== null) clearTimeout(this.restoreTimer);
             if (!this.stopped()) {
                 this.restoreTimer = setTimeout(() => { this.restoreTimer = null; void this.restore(); }, RETRY_MS);
@@ -57,7 +57,7 @@ class ScoutCorrectionWindow {
         id = String(id);
         if (this.running.has(id)) return this.running.get(id);
         const work = this.expire(id).catch(error => {
-            console.warn(`[WW LOG] Scout correction deadline ${id} will retry: ${error.message}`);
+            console.warn(`[CC LOG] Scout correction deadline ${id} will retry: ${error.message}`);
             this.arm({ message_id: id }, RETRY_MS);
         }).finally(() => this.running.delete(id));
         this.running.set(id, work); return work;

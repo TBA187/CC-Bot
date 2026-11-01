@@ -72,8 +72,8 @@ class ScoutServerSettings {
                 throw new Error('Gold and Silver roles must be below the bot\'s highest role.');
             }
         }
-        return { guild, member, roleIds, auditReason: interaction.customId?.startsWith('ww:auto_roles:')
-            ? rolePanelReason(interaction, 'Select game-server roles') : 'White Walker game-server preference settings' };
+        return { guild, member, roleIds, auditReason: /^(?:cc|ww):auto_roles:/u.test(interaction.customId || '')
+            ? rolePanelReason(interaction, 'Select game-server roles') : 'Crow Control game-server preference settings' };
     }
 
     async applySelection(interaction, server, toggle) {
@@ -104,13 +104,13 @@ class ScoutServerSettings {
                     expectedRoles = this.rolesFor(saved);
                     preferenceKnown = true;
                 } catch (readError) {
-                    console.error(`[WW LOG] Could not verify server preference after a failed selection for ${userId}:`, readError);
+                    console.error(`[CC LOG] Could not verify server preference after a failed selection for ${userId}:`, readError);
                 }
                 try {
                     await this.syncRoles(prepared, expectedRoles);
-                    if (!preferenceKnown) console.error(`[WW LOG] Server roles were restored for ${userId}, but MySQL could not confirm the saved server preference.`);
+                    if (!preferenceKnown) console.error(`[CC LOG] Server roles were restored for ${userId}, but MySQL could not confirm the saved server preference.`);
                 } catch (roleError) {
-                    console.error(`[WW LOG] Could not reconcile server roles after a failed selection for ${userId}:`, roleError);
+                    console.error(`[CC LOG] Could not reconcile server roles after a failed selection for ${userId}:`, roleError);
                     error.rolesUnresolved = true;
                 }
             }

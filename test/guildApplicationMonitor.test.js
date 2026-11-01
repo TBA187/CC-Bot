@@ -44,7 +44,7 @@ test('stopping during application startup cannot rearm polling or start another 
 });
 
 function tempFile() {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-monitor-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-monitor-'));
     return path.join(directory, 'guild_applications.json');
 }
 

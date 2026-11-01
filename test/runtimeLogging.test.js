@@ -37,7 +37,7 @@ function stream({ backpressure = true } = {}) {
 
 function fileHandler() {
     return {
-        baseFilename: path.resolve('data/logs/ww-2026-10.log'),
+        baseFilename: path.resolve('data/logs/cc-2026-10.log'),
         lines: [],
         maintenanceCalls: 0,
         closeCalls: 0,
@@ -79,18 +79,18 @@ function fakeFs(overrides = {}) {
 }
 
 function temporaryDirectory(t) {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-runtime-log-test-'));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-runtime-log-test-'));
     t.after(() => {
         const resolved = path.resolve(directory);
         assert.equal(path.dirname(resolved), path.resolve(os.tmpdir()));
-        assert.match(path.basename(resolved), /^ww-runtime-log-test-/u);
+        assert.match(path.basename(resolved), /^cc-runtime-log-test-/u);
         fs.rmSync(resolved, { recursive: true, force: true });
     });
     return directory;
 }
 
-test('runtime log defaults use the configured storage limits and White Walker filename', () => {
-    assert.equal(DEFAULT_LOG_PATH, 'data/logs/ww.log');
+test('runtime log defaults use the configured storage limits and Crow Control filename', () => {
+    assert.equal(DEFAULT_LOG_PATH, 'data/logs/cc.log');
     assert.equal(DEFAULT_LOG_RETENTION_MONTHS, 12);
     assert.equal(DEFAULT_LOG_MAX_TOTAL_MIB, 100);
     assert.equal(DEFAULT_LOG_MIN_FREE_MIB, 100);
@@ -98,7 +98,7 @@ test('runtime log defaults use the configured storage limits and White Walker fi
     assert.equal(LOG_MAINTENANCE_CHECK_MS, 3_600_000);
     assert.equal(formatTimestamp(now()), timestamp);
     const handler = createFileLogHandler({ env: {}, now, fsImpl: fakeFs() });
-    assert.equal(handler.baseFilename, path.resolve('data/logs/ww-2026-10.log'));
+    assert.equal(handler.baseFilename, path.resolve('data/logs/cc-2026-10.log'));
     assert.equal(handler.retentionMonths, 12);
     assert.equal(handler.maxTotalBytes, 100 * 1024 * 1024);
     assert.equal(handler.minFreeBytes, 100 * 1024 * 1024);
@@ -109,7 +109,7 @@ test('runtime log defaults use the configured storage limits and White Walker fi
 test('numeric environment settings accept Python-style signs, whitespace and digit underscores', () => {
     const handler = createFileLogHandler({
         env: {
-            BOT_LOG_PATH: 'data/other/white-walker.txt',
+            BOT_LOG_PATH: 'data/other/crow-control.txt',
             BOT_LOG_RETENTION_MONTHS: ' +2 ',
             BOT_LOG_MAX_TOTAL_MIB: '1_00',
             BOT_LOG_MIN_FREE_MIB: '0',
@@ -117,7 +117,7 @@ test('numeric environment settings accept Python-style signs, whitespace and dig
         },
         now, fsImpl: fakeFs()
     });
-    assert.equal(handler.baseFilename, path.resolve('data/other/white-walker-2026-10.txt'));
+    assert.equal(handler.baseFilename, path.resolve('data/other/crow-control-2026-10.txt'));
     assert.equal(handler.retentionMonths, 2);
     assert.equal(handler.maxTotalBytes, 100 * 1024 * 1024);
     assert.equal(handler.minFreeBytes, 0);
@@ -264,10 +264,10 @@ test('UTF-8 buffer chunks split inside multibyte characters retain complete outp
     const output = stream();
     const handler = fileHandler();
     const consoleStream = new TimestampedConsole(output, { fileHandler: handler, now }).install();
-    const bytes = Buffer.from('❄️ White Walker – Pokémon\n');
+    const bytes = Buffer.from('❄️ Crow Control – Pokémon\n');
     for (let index = 0; index < bytes.length; index++) output.write(bytes.subarray(index, index + 1));
-    assert.equal(output.text, timestamp + ' ❄️ White Walker – Pokémon\n');
-    assert.deepEqual(handler.lines, [timestamp + ' ❄️ White Walker – Pokémon']);
+    assert.equal(output.text, timestamp + ' ❄️ Crow Control – Pokémon\n');
+    assert.deepEqual(handler.lines, [timestamp + ' ❄️ Crow Control – Pokémon']);
     consoleStream.restore();
 });
 
@@ -405,7 +405,7 @@ test('fatal exception monitor preserves pending output and full error stack with
 
 test('uncaught fatal exception exits unsuccessfully and writes its full traceback to the monthly file', t => {
     const directory = temporaryDirectory(t);
-    const basePath = path.join(directory, 'ww.log');
+    const basePath = path.join(directory, 'cc.log');
     const modulePath = path.resolve(__dirname, '../utils/runtimeLogging.js');
     const script = 'require(' + JSON.stringify(modulePath) + ').installRuntimeLogging();'
         + 'process.stdout.write("Before native fatal error");'
@@ -418,7 +418,7 @@ test('uncaught fatal exception exits unsuccessfully and writes its full tracebac
     assert.equal(result.error, undefined);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /controlled native fatal error/u);
-    const filename = fs.readdirSync(directory).find(name => /^ww-\d{4}-\d{2}\.log$/u.test(name));
+    const filename = fs.readdirSync(directory).find(name => /^cc-\d{4}-\d{2}\.log$/u.test(name));
     assert.ok(filename);
     const saved = fs.readFileSync(path.join(directory, filename), 'utf8');
     assert.match(saved, /Before native fatal error/u);
@@ -434,12 +434,12 @@ test('hourly maintenance timer does not keep a finished process alive', t => {
         + 'process.stdout.write("Clean exit");'
     ], {
         cwd: directory,
-        env: { ...process.env, BOT_LOG_PATH: path.join(directory, 'ww.log'), BOT_LOG_MIN_FREE_MIB: '0' },
+        env: { ...process.env, BOT_LOG_PATH: path.join(directory, 'cc.log'), BOT_LOG_MIN_FREE_MIB: '0' },
         encoding: 'utf8', timeout: 10_000
     });
     assert.equal(result.error, undefined);
     assert.equal(result.status, 0);
-    const filename = fs.readdirSync(directory).find(name => /^ww-\d{4}-\d{2}\.log$/u.test(name));
+    const filename = fs.readdirSync(directory).find(name => /^cc-\d{4}-\d{2}\.log$/u.test(name));
     const saved = fs.readFileSync(path.join(directory, filename), 'utf8');
     assert.match(saved, /Clean exit/u);
 });
@@ -449,9 +449,9 @@ test('timestamps use UTC across offsets and calendar boundaries', () => {
     assert.equal(formatTimestamp(new Date('2026-10-08T01:02:03-05:00')), '[2026-10-08 06:02:03]');
 });
 
-test('console and file logs remove WW tags and preserve useful component prefixes', () => {
+test('console and file logs remove CC tags and preserve useful component prefixes', () => {
     const instance = runtime();
-    instance.stdout.write('[WW LOG] Started.\n');
+    instance.stdout.write('[CC LOG] Started.\n');
     instance.stderr.write('[DB LOG] MySQL connection restored.\n[PRO NOTIFICATIONS] Poll complete.\n');
     assert.ok(instance.stdout.text.endsWith(timestamp + ' Started.\n'));
     assert.equal(instance.stderr.text, timestamp + ' [DB LOG] MySQL connection restored.\n'
@@ -459,32 +459,34 @@ test('console and file logs remove WW tags and preserve useful component prefixe
     assert.ok(instance.handler.lines.includes(timestamp + ' Started.'));
     assert.ok(instance.handler.lines.includes(timestamp + ' [DB LOG] MySQL connection restored.'));
     assert.ok(instance.handler.lines.includes(timestamp + ' [PRO NOTIFICATIONS] Poll complete.'));
-    assert.equal(instance.handler.lines.some(line => line.startsWith(timestamp + ' [WW LOG]')), false);
+    assert.equal(instance.handler.lines.some(line => line.startsWith(timestamp + ' [CC LOG]')), false);
     instance.logging.stop();
 });
 
 test('split bot prefixes are removed once while quoted tags and component labels remain intact', () => {
-    const output = stream();
-    const handler = fileHandler();
-    const wrapped = new TimestampedConsole(output, { fileHandler: handler, now }).install();
-    for (const chunk of ['[WW', ' LOG', ']', ' ', 'Message mentions [WW LOG] here.\n', '[D', 'B LOG] Query complete.\n']) {
-        output.write(chunk);
+    for (const prefix of ['CC', 'WW']) {
+        const output = stream();
+        const handler = fileHandler();
+        const wrapped = new TimestampedConsole(output, { fileHandler: handler, now }).install();
+        for (const chunk of ['[' + prefix, ' LOG', ']', ' ', 'Message mentions [CC LOG] here.\n', '[D', 'B LOG] Query complete.\n']) {
+            output.write(chunk);
+        }
+        assert.equal(output.text, timestamp + ' Message mentions [CC LOG] here.\n'
+            + timestamp + ' [DB LOG] Query complete.\n');
+        assert.deepEqual(handler.lines, [timestamp + ' Message mentions [CC LOG] here.',
+            timestamp + ' [DB LOG] Query complete.']);
+        wrapped.restore();
     }
-    assert.equal(output.text, timestamp + ' Message mentions [WW LOG] here.\n'
-        + timestamp + ' [DB LOG] Query complete.\n');
-    assert.deepEqual(handler.lines, [timestamp + ' Message mentions [WW LOG] here.',
-        timestamp + ' [DB LOG] Query complete.']);
-    wrapped.restore();
 });
 
 test('flush retains an unfinished possible tag instead of dropping output', () => {
     const output = stream();
     const handler = fileHandler();
     const wrapped = new TimestampedConsole(output, { fileHandler: handler, now }).install();
-    output.write('[WW');
+    output.write('[CC');
     wrapped.flush();
-    assert.equal(output.text, timestamp + ' [WW');
-    assert.deepEqual(handler.lines, [timestamp + ' [WW']);
+    assert.equal(output.text, timestamp + ' [CC');
+    assert.deepEqual(handler.lines, [timestamp + ' [CC']);
     wrapped.restore();
 });
 

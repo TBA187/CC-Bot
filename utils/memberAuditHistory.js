@@ -10,10 +10,10 @@ const { readJsonObject, writeJsonIfChanged } = require('./jsonFile.js');
 class MemberAuditHistory {
     constructor({ db, filePath, storageMode = process.env.STORAGE_MODE, shutdownSignal, retryMs = 30000,
         maxEntries = 5000, onError = (error, { localJson = false } = {}) => {
-            if (localJson) console.error('[WW LOG] Member audit local JSON storage failed:', error);
+            if (localJson) console.error('[CC LOG] Member audit local JSON storage failed:', error);
             else if (error instanceof SyntaxError || error.message === 'Invalid MySQL member audit record.') {
-                console.error('[WW LOG] Member audit data is corrupted; review is required:', error);
-            } else console.warn('[WW LOG] Member audit history unavailable; JSON recovery remains active:', error);
+                console.error('[CC LOG] Member audit data is corrupted; review is required:', error);
+            } else console.warn('[CC LOG] Member audit history unavailable; JSON recovery remains active:', error);
         } } = {}) {
         Object.assign(this, { db, shutdownSignal, retryMs });
         this.storageMode = String(storageMode || 'auto').toLowerCase();
@@ -137,7 +137,7 @@ class MemberAuditHistory {
             if (this.entries.get(key)?.updatedAt === version) this.dirty.delete(key);
             this.persist();
         }
-        if (this.outage) console.log('[WW LOG] Member audit MySQL storage restored; pending JSON history synchronized.');
+        if (this.outage) console.log('[CC LOG] Member audit MySQL storage restored; pending JSON history synchronized.');
         this.outage = false;
     }
 

@@ -11,46 +11,46 @@ const TRANSIENT_CONNECTION_CODES = /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AG
 
 // Pair known outage and recovery messages by subsystem. Other console logs stay local.
 const STATUS_EVENTS = [
-    { key: 'forum:pro-forum-shop', component: 'PRO Forum Shop', warning: /^\[WW LOG\] PRO Forum Shop monitor is unavailable\./u,
-        recovery: /^\[WW LOG\] PRO Forum Shop monitor connection restored\./u },
-    { key: 'forum:pro-dungeon-shop', component: 'PRO Dungeon Shop', warning: /^\[WW LOG\] PRO Dungeon Shop monitor is unavailable\./u,
-        recovery: /^\[WW LOG\] PRO Dungeon Shop monitor connection restored\./u },
-    { key: 'forum:applications', component: 'Guild Applications', warning: /^\[WW LOG\] PRO Forum application monitor is unavailable\./u,
-        recovery: /^\[WW LOG\] PRO Forum application monitor connection restored\./u },
-    { key: 'discord:interaction-warmup', component: 'Discord', warning: /^\[WW LOG\] Discord interaction connection warmup failed\b/u,
-        recovery: /^\[WW LOG\] Discord interaction connection warmup recovered\./u },
-    { key: 'discord:tag-verification', component: 'WW tag verification', warning: /^\[WW TAG\] Discord verification unavailable\b/u,
-        recovery: /^\[WW TAG\] Discord verification restored\./u },
-    { key: 'discord:gateway', component: 'Discord connection', warning: /^\[WW LOG\] Discord gateway shard \d+ disconnected\b/u,
-        recovery: /^\[WW LOG\] Discord gateway shard \d+ connection restored\./u },
-    { key: 'discord:command-registration', component: 'Command registration', warning: /^\[WW LOG\] ❌ ERROR: Command registration failed:/u,
-        recovery: /^\[WW LOG\] ✅ Guild slash commands registered to Discord/u },
+    { key: 'forum:pro-forum-shop', component: 'PRO Forum Shop', warning: /^\[CC LOG\] PRO Forum Shop monitor is unavailable\./u,
+        recovery: /^\[CC LOG\] PRO Forum Shop monitor connection restored\./u },
+    { key: 'forum:pro-dungeon-shop', component: 'PRO Dungeon Shop', warning: /^\[CC LOG\] PRO Dungeon Shop monitor is unavailable\./u,
+        recovery: /^\[CC LOG\] PRO Dungeon Shop monitor connection restored\./u },
+    { key: 'forum:applications', component: 'Guild Applications', warning: /^\[CC LOG\] PRO Forum application monitor is unavailable\./u,
+        recovery: /^\[CC LOG\] PRO Forum application monitor connection restored\./u },
+    { key: 'discord:interaction-warmup', component: 'Discord', warning: /^\[CC LOG\] Discord interaction connection warmup failed\b/u,
+        recovery: /^\[CC LOG\] Discord interaction connection warmup recovered\./u },
+    { key: 'discord:tag-verification', component: 'CC tag verification', warning: /^\[CC TAG\] Discord verification unavailable\b/u,
+        recovery: /^\[CC TAG\] Discord verification restored\./u },
+    { key: 'discord:gateway', component: 'Discord connection', warning: /^\[CC LOG\] Discord gateway shard \d+ disconnected\b/u,
+        recovery: /^\[CC LOG\] Discord gateway shard \d+ connection restored\./u },
+    { key: 'discord:command-registration', component: 'Command registration', warning: /^\[CC LOG\] ❌ ERROR: Command registration failed:/u,
+        recovery: /^\[CC LOG\] ✅ Guild slash commands registered to Discord/u },
     { key: 'runtime:memory-pressure', component: 'Bot runtime', warning: /^\[RUNTIME MEMORY\] (?:WARNING|CRITICAL):/u,
         recovery: /^\[RUNTIME MEMORY\] Recovered below 75%:/u },
     { key: 'runtime:memory-accounting', component: 'Bot runtime', warning: /^\[RUNTIME MEMORY\] Container accounting unavailable\./u,
         recovery: /^\[RUNTIME MEMORY\] Container accounting restored\./u },
     { key: 'database:mysql', component: 'MySQL', warning: /^\[DB LOG\] MySQL (?:connectivity issue detected|is still unavailable after )/u,
         recovery: /^\[DB LOG\] MySQL connection restored after /u },
-    { key: 'database:guild-settings', component: 'MySQL', warning: /^\[WW LOG\] Guild settings MySQL unavailable\b/u,
-        recovery: /^\[WW LOG\] Guild settings MySQL restored\b/u },
-    { key: 'database:tba-shop-checkpoints', component: 'MySQL', warning: /^\[WW LOG\] Shared TBA forum shop checkpoints unavailable\b/u,
-        recovery: /^\[WW LOG\] Shared TBA forum shop checkpoints restored\b/u },
-    { key: 'database:guild-applications', component: 'MySQL', warning: /^\[WW LOG\] MySQL Guild Application storage (?:unavailable|failed)\b/u,
-        recovery: /^\[WW LOG\] MySQL Guild Application storage restored\b/u },
+    { key: 'database:guild-settings', component: 'MySQL', warning: /^\[CC LOG\] Guild settings MySQL unavailable\b/u,
+        recovery: /^\[CC LOG\] Guild settings MySQL restored\b/u },
+    { key: 'database:tba-shop-checkpoints', component: 'MySQL', warning: /^\[CC LOG\] Shared TBA forum shop checkpoints unavailable\b/u,
+        recovery: /^\[CC LOG\] Shared TBA forum shop checkpoints restored\b/u },
+    { key: 'database:guild-applications', component: 'MySQL', warning: /^\[CC LOG\] MySQL Guild Application storage (?:unavailable|failed)\b/u,
+        recovery: /^\[CC LOG\] MySQL Guild Application storage restored\b/u },
     { key: 'database:pro-notifications', component: 'MySQL', warning: /^\[PRO NOTIFICATIONS\] MySQL storage unavailable\b/u,
         recovery: /^\[PRO NOTIFICATIONS\] MySQL storage restored\b/u },
-    { key: 'database:giveaways', component: 'MySQL', warning: /^\[WW LOG\] MySQL giveaway storage unavailable\b/u,
-        recovery: /^\[WW LOG\] MySQL giveaway storage restored\b/u },
+    { key: 'database:giveaways', component: 'MySQL', warning: /^\[CC LOG\] MySQL giveaway storage unavailable\b/u,
+        recovery: /^\[CC LOG\] MySQL giveaway storage restored\b/u },
     ...['Gold', 'Silver'].map(server => ({ key: `database:pvp-king:${server.toLowerCase()}`, component: 'MySQL',
-        warning: new RegExp(`^\\[WW LOG\\] MySQL PvP King ${server} storage unavailable\\b`, 'u'),
-        recovery: new RegExp(`^\\[WW LOG\\] MySQL PvP King ${server} storage restored\\b`, 'u') })),
-    { key: 'database:member-audit', component: 'MySQL', warning: /^\[WW LOG\] Member audit history unavailable\b/u,
-        recovery: /^\[WW LOG\] Member audit MySQL storage restored\b/u },
+        warning: new RegExp(`^\\[CC LOG\\] MySQL PvP King ${server} storage unavailable\\b`, 'u'),
+        recovery: new RegExp(`^\\[CC LOG\\] MySQL PvP King ${server} storage restored\\b`, 'u') })),
+    { key: 'database:member-audit', component: 'MySQL', warning: /^\[CC LOG\] Member audit history unavailable\b/u,
+        recovery: /^\[CC LOG\] Member audit MySQL storage restored\b/u },
     { key: 'database:xp-queue', component: 'MySQL', warning: /^\[XP QUEUE\] Recovery waiting\b/u,
         recovery: /^\[XP QUEUE\] MySQL recovered\b/u },
     { key: 'storage:guild-applications-json', component: 'Guild Applications',
-        warning: /^\[WW LOG\] Guild Application local JSON storage (?:cannot write|failed)\b/u,
-        recovery: /^\[WW LOG\] Guild Application local JSON storage restored\./u }
+        warning: /^\[CC LOG\] Guild Application local JSON storage (?:cannot write|failed)\b/u,
+        recovery: /^\[CC LOG\] Guild Application local JSON storage restored\./u }
 ].map(status => ({ ...status, delayMs: status.key.startsWith('forum:') ? 10 * 60_000
     : status.key === 'discord:gateway' ? 60_000
         : status.key === 'runtime:memory-pressure' || status.key.startsWith('storage:') ? 0 : 5 * 60_000 }));
@@ -75,11 +75,11 @@ function consoleOnlyDiagnostic(level, text, code) {
     // The host's older ts-node loader emits this deprecation; it is not a bot failure.
     if (level === 'warn' && code === 'DEP0180' && /^Node runtime warning:\nDeprecationWarning:/u.test(text)) return true;
     if (level !== 'warn') return false;
-    if (/^\[WW LOG\] (?:Scout autocomplete will refresh in the background \(AUTOCOMPLETE_PRELOAD_TIMEOUT\)|Player server preferences will refresh when used \(SERVER_PREFERENCE_PRELOAD_TIMEOUT\))\./u.test(text)) return true;
+    if (/^\[CC LOG\] (?:Scout autocomplete will refresh in the background \(AUTOCOMPLETE_PRELOAD_TIMEOUT\)|Player server preferences will refresh when used \(SERVER_PREFERENCE_PRELOAD_TIMEOUT\))\./u.test(text)) return true;
     // Preload deadlines have their own retry/fallback path. The shared database
     // health tracker's paired status messages handle persistent connectivity.
     if (TRANSIENT_CONNECTION_CODES.test(String(code || ''))
-        && /^\[WW LOG\] Could not preload (?:scout autocomplete; background refresh will retry|player server preferences; lookups will retry):/u.test(text)) return true;
+        && /^\[CC LOG\] Could not preload (?:scout autocomplete; background refresh will retry|player server preferences; lookups will retry):/u.test(text)) return true;
     return false;
 }
 
@@ -145,7 +145,7 @@ class DiscordDiagnosticLogger {
         const text = args.map(diagnosticText).join('\n');
         const clean = redactDiagnostic(text, this.secrets);
         // The log channel can fail too. Keep that failure in the console without a feedback loop.
-        if (/^\[WW LOG\] Could not send (?:bot (?:diagnostic|recovery) log|scout (?:publication|action|member edit) log)/u.test(text)) return;
+        if (/^\[CC LOG\] Could not send (?:bot (?:diagnostic|recovery) log|scout (?:publication|action|member edit) log)/u.test(text)) return;
         const context = this.context.getStore() || {};
         const error = args.find(value => value && typeof value === 'object' && (value.code || value.causeCode));
         const code = error?.causeCode || error?.code || /\b(?:E[A-Z_]{3,}|UND_ERR_[A-Z_]+|HTTP_\d{3}|PROTOCOL_[A-Z_]+|DATABASE_UNAVAILABLE|DEP\d+)\b/u.exec(clean)?.[0];
@@ -161,7 +161,7 @@ class DiscordDiagnosticLogger {
             return;
         }
         if (consoleOnlyDiagnostic(level, clean, code)) return;
-        const autocompleteStatus = level === 'warn' && /^\[WW LOG\] \/scout autocomplete missed its Discord response deadline /u.test(clean);
+        const autocompleteStatus = level === 'warn' && /^\[CC LOG\] \/scout autocomplete missed its Discord response deadline /u.test(clean);
         const runtimeWarning = /^Node runtime warning:/u.test(clean);
         const systemStatus = autocompleteStatus || runtimeWarning;
         const reportId = systemStatus ? undefined : context.reportId;
@@ -173,7 +173,7 @@ class DiscordDiagnosticLogger {
         if (previous && now - previous.at < repeatMs) { previous.repeats++; return; }
         const event = { level, message: escapeMarkdown(stripBotLogPrefix(clean)).slice(0, 3500), component: autocompleteStatus ? 'PvP scouting' : runtimeWarning ? 'Bot runtime' : context.component
                 || (/MySQL|\[DB LOG\]|Pool is closed/iu.test(clean) ? 'MySQL'
-                    : /^\[WW TAG\]/u.test(clean) ? 'WW tag verification'
+                    : /^\[CC TAG\]/u.test(clean) ? 'CC tag verification'
                         : /scout/iu.test(clean) ? 'PvP scouting' : /Discord|interaction/iu.test(clean) ? 'Discord' : 'Bot runtime'),
             reportId, messageId: systemStatus ? undefined : context.messageId,
             code, repeats: previous?.repeats || 0,
@@ -209,14 +209,14 @@ class DiscordDiagnosticLogger {
             disconnected.set(shardId, { at: previous?.at ?? this.now(), code });
             const reason = GatewayCloseCodes[code] || ({ 1000: 'NormalClosure', 1001: 'GoingAway', 1006: 'AbnormalClosure',
                 1011: 'InternalError', 1012: 'ServiceRestart', 1013: 'TryAgainLater' })[code] || 'Unknown';
-            this.console.warn(`[WW LOG] Discord gateway shard ${shardId} disconnected; automatic reconnects remain active.${code !== null ? ` Close code ${code} (${reason}).` : ' Close code unavailable.'}`);
+            this.console.warn(`[CC LOG] Discord gateway shard ${shardId} disconnected; automatic reconnects remain active.${code !== null ? ` Close code ${code} (${reason}).` : ' Close code unavailable.'}`);
         };
         const reconnecting = shardId => down(null, shardId);
         const up = (shardId, session) => {
             const outage = disconnected.get(shardId);
             if (!outage) return;
             disconnected.delete(shardId);
-            this.console.log(`[WW LOG] Discord gateway shard ${shardId} connection restored. Downtime ${((this.now() - outage.at) / 1000).toFixed(1)}s; ${session}.`);
+            this.console.log(`[CC LOG] Discord gateway shard ${shardId} connection restored. Downtime ${((this.now() - outage.at) / 1000).toFixed(1)}s; ${session}.`);
         };
         const resumed = shardId => up(shardId, 'previous session resumed');
         const ready = shardId => up(shardId, 'new session ready');

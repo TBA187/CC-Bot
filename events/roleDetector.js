@@ -45,16 +45,16 @@ function buildRoleAuditPayload(member, { addedRoles = [], removedRoles = [], ent
     });
 }
 
-function buildWwRolePayload(member, { role, added, entry, enforcement }) {
+function buildCcRolePayload(member, { role, added, entry, enforcement }) {
     if (typeof enforcement?.enabled === 'boolean' && enforcement.enabled !== added) {
         const corrected = enforcement.status === 'corrected';
         return buildMemberAuditPayload({ authorName: corrected
-            ? `WW Role ${added ? 'Addition Intercepted 🏷️➖' : 'Removal Intercepted 🏷️➕'}` : 'WW Role Correction Pending 🔄', member,
-            actionHeading: `${auditActor(entry?.executor)} tried to ${added ? 'give' : 'remove'} the White Walker role ${added ? 'to' : 'from'} <@${member.id}>.` +
-                (corrected ? ` WW-Bot intercepted the change and ${added ? 'removed the role again' : 'restored the role'}!` : ''),
+            ? `CC Role ${added ? 'Addition Intercepted 🏷️➖' : 'Removal Intercepted 🏷️➕'}` : 'CC Role Correction Pending 🔄', member,
+            actionHeading: `${auditActor(entry?.executor)} tried to ${added ? 'give' : 'remove'} the Crow Control role ${added ? 'to' : 'from'} <@${member.id}>.` +
+                (corrected ? ` the bot intercepted the change and ${added ? 'removed the role again' : 'restored the role'}!` : ''),
             color: corrected ? added ? 0xED4245 : 0x57F287 : 0x5865F2,
-            reason: enforcement.enabled ? 'This member is wearing the WW Server Tag and must keep the White Walker role.'
-                : 'This member is not wearing the WW Server Tag and cannot have the White Walker role.',
+            reason: enforcement.enabled ? 'This member is wearing the CC Server Tag and must keep the Crow Control role.'
+                : 'This member is not wearing the CC Server Tag and cannot have the Crow Control role.',
             showUserDetails: false,
             extraLines: corrected ? [...roleLines([role], !added), '- **Correction Status:** Confirmed by Discord.']
                 : [`- **Role:** <@&${role.id}> (\`${role.id}\`)`,
@@ -62,16 +62,16 @@ function buildWwRolePayload(member, { role, added, entry, enforcement }) {
     }
     const payload = buildRoleAuditPayload(member, { addedRoles: added ? [role] : [], removedRoles: added ? [] : [role], entry });
     if (!enforcement || enforcement.enabled === undefined) payload.embeds[0].setDescription(payload.embeds[0].data.description +
-        '\n- **WW Role Verification:** Pending — the current server tag could not be confirmed. WW-Bot will retry automatically.');
+        '\n- **CC Role Verification:** Pending — the current server tag could not be confirmed. The bot will retry automatically.');
     return payload;
 }
 
-function buildWwCorrectionPayload(member, { added, role, source, reason, success, error }, bot) {
-    const label = success ? added ? 'WW Role Assigned / Restored 🏷️➕' : 'WW Role Removed 🏷️➖' : 'WW Role Correction Failed 🔄';
+function buildCcCorrectionPayload(member, { added, role, source, reason, success, error }, bot) {
+    const label = success ? added ? 'CC Role Assigned / Restored 🏷️➕' : 'CC Role Removed 🏷️➖' : 'CC Role Correction Failed 🔄';
     const triggers = { tag_update: 'Server tag changed', role_update: 'Member roles changed', join: 'Member joined', startup: 'Bot startup', periodic: 'Scheduled verification' };
     return buildMemberAuditPayload({ authorName: label, member,
-        actionText: success ? `had the White Walker role ${added ? 'assigned or restored' : 'removed'} by ${auditActor(bot)}`
-            : 'needs a White Walker role correction that WW-Bot could not complete.',
+        actionText: success ? `had the Crow Control role ${added ? 'assigned or restored' : 'removed'} by ${auditActor(bot)}`
+            : 'needs a Crow Control role correction that the bot could not complete.',
         color: success ? added ? 0x57F287 : 0xED4245 : 0x5865F2,
         reason: reason?.replace(`${POLICY_REASON_PREFIX} `, ''), showUserDetails: false,
         extraLines: [...(success ? roleLines([role], added) : [`- **Role:** <@&${role.id}> (\`${role.id}\`)`,
@@ -81,21 +81,21 @@ function buildWwCorrectionPayload(member, { added, role, source, reason, success
                 : `- **Correction Status:** Failed — ${inlineCode(String(error).slice(0, 512))}`] });
 }
 
-function buildWwTagPayload(member, equipped) {
-    return buildMemberAuditPayload({ authorName: `WW Server Tag ${equipped ? 'Equipped 🏷️➕' : 'Removed 🏷️➖'}`,
-        member, actionText: `${equipped ? 'equipped' : 'removed'} the WW Server Tag!`,
+function buildCcTagPayload(member, equipped) {
+    return buildMemberAuditPayload({ authorName: `CC Server Tag ${equipped ? 'Equipped 🏷️➕' : 'Removed 🏷️➖'}`,
+        member, actionText: `${equipped ? 'equipped' : 'removed'} the CC Server Tag!`,
         color: equipped ? 0x57F287 : 0xED4245, showUserDetails: false,
         extraLines: [`- **Server Tag:** ${equipped ? 'Equipped' : 'Not equipped'}`] });
 }
 
-function buildWwRepresentativePayload(member, config) {
-    const embed = new EmbedBuilder().setTitle('New White Walker Representative 🎉').setColor(0x9B59B6)
-        .setDescription(`### Big shoutout to <@${member.id}> for equipping the WW Server Tag!\n` +
-            '- Your White Walker role, name color, and mascot icon are managed automatically.\n' +
+function buildCcRepresentativePayload(member, config) {
+    const embed = new EmbedBuilder().setTitle('New Crow Control Representative 🎉').setColor(0x9B59B6)
+        .setDescription(`### Big shoutout to <@${member.id}> for equipping the CC Server Tag!\n` +
+            '- Your Crow Control role, name color, and Murkrow icon are managed automatically.\n' +
             `-# If you would like to change your name color or icon, you can contact <@${config.ownerID}>`)
-        .setFooter({ text: `User ID: ${member.id}`, iconURL: 'attachment://ww_logo.png' }).setTimestamp();
+        .setFooter({ text: `User ID: ${member.id}`, iconURL: 'attachment://cc_logo.webp' }).setTimestamp();
     return { content: `<@${member.id}>`, embeds: [embed],
-        files: [new AttachmentBuilder(path.join(__dirname, '../images/ww_logo.png'), { name: 'ww_logo.png' })],
+        files: [new AttachmentBuilder(path.join(__dirname, '../images/cc_logo.webp'), { name: 'cc_logo.webp' })],
         allowedMentions: { parse: [], users: [member.id] } };
 }
 
@@ -119,9 +119,9 @@ async function handleRoleUpdate(oldMember, newMember, config) {
     const changes = [
         ...[...newMember.roles.cache.values()].filter(role => role.id !== newMember.guild.id && !oldMember.roles.cache.has(role.id)).map(role => ({ role, added: true })),
         ...[...oldMember.roles.cache.values()].filter(role => role.id !== newMember.guild.id && !newMember.roles.cache.has(role.id)).map(role => ({ role, added: false }))
-    ].filter(change => change.role.id !== config.wwRoleID || !policy?.consumeExpectedChange(newMember, change.added));
-    const wwChanged = changes.some(change => change.role.id === config.wwRoleID);
-    const check = policy?.request(newMember, { reportCorrection: !wwChanged });
+    ].filter(change => change.role.id !== config.ccRoleID || !policy?.consumeExpectedChange(newMember, change.added));
+    const ccChanged = changes.some(change => change.role.id === config.ccRoleID);
+    const check = policy?.request(newMember, { reportCorrection: !ccChanged });
     if (!changes.length) return check;
     try {
         const channel = await getChannel(newMember.guild, config.logChannelID);
@@ -137,9 +137,9 @@ async function handleRoleUpdate(oldMember, newMember, config) {
         }));
         const groups = new Map();
         for (const change of resolved) {
-            if (change.role.id === config.wwRoleID && !change.definitionDeleted) {
+            if (change.role.id === config.ccRoleID && !change.definitionDeleted) {
                 if (change.entry?.executor?.id === config.client.user?.id && change.entry.reason?.startsWith(POLICY_REASON_PREFIX)) continue;
-                await channel.send(buildWwRolePayload(newMember, { ...change, enforcement: await check }));
+                await channel.send(buildCcRolePayload(newMember, { ...change, enforcement: await check }));
                 continue;
             }
             const key = `${change.definitionDeleted}:${change.entry?.id || 'unknown'}`;
@@ -158,7 +158,7 @@ async function handleRoleUpdate(oldMember, newMember, config) {
     return check;
 }
 
-async function handleWwTagUpdate(oldUser, newUser, config) {
+async function handleCcTagUpdate(oldUser, newUser, config) {
     if (!config.guildId || !config.serverTagRoleManager) return;
     const before = oldUser.partial ? undefined : serverTagStatus(oldUser, config.guildId);
     const equipped = serverTagStatus(newUser, config.guildId);
@@ -169,30 +169,30 @@ async function handleWwTagUpdate(oldUser, newUser, config) {
         const member = guild.members.cache.get(newUser.id) || await guild.members.fetch(newUser.id).catch(() => null);
         if (member) await config.serverTagRoleManager.request(member, { user: newUser, previousTag: before,
             source: 'tag_update', trustEvent: true });
-    } catch (error) { console.error('WW server tag audit failed:', error); }
+    } catch (error) { console.error('CC server tag audit failed:', error); }
 }
 
 module.exports = {
     register(client, config) {
         if (config.serverTagRoleManager) return;
-        const manager = new ServerTagRoleManager({ client, guildId: config.guildId, roleId: config.wwRoleID, signal: config.shutdownSignal,
+        const manager = new ServerTagRoleManager({ client, guildId: config.guildId, roleId: config.ccRoleID, signal: config.shutdownSignal,
             onTagChange: async (member, equipped) => {
-                const jobs = [sendStaff(member, config, buildWwTagPayload(member, equipped))];
+                const jobs = [sendStaff(member, config, buildCcTagPayload(member, equipped))];
                 if (equipped) jobs.push((async () => {
                     const welcome = await getChannel(member.guild, config.welcomeChannelID);
-                    if (welcome) await welcome.send(buildWwRepresentativePayload(member, config));
+                    if (welcome) await welcome.send(buildCcRepresentativePayload(member, config));
                 })());
                 const results = await Promise.allSettled(jobs);
-                for (const result of results) if (result.status === 'rejected') console.error('WW tag notification failed:', result.reason);
+                for (const result of results) if (result.status === 'rejected') console.error('CC tag notification failed:', result.reason);
             },
-            onCorrection: (member, correction) => sendStaff(member, config, buildWwCorrectionPayload(member, correction, client.user)) });
+            onCorrection: (member, correction) => sendStaff(member, config, buildCcCorrectionPayload(member, correction, client.user)) });
         config.serverTagRoleManager = manager;
         client.on(Events.GuildMemberUpdate, (oldMember, newMember) => { void handleRoleUpdate(oldMember, newMember, config); });
-        client.on(Events.UserUpdate, (oldUser, newUser) => { void handleWwTagUpdate(oldUser, newUser, config); });
+        client.on(Events.UserUpdate, (oldUser, newUser) => { void handleCcTagUpdate(oldUser, newUser, config); });
         client.on(Events.GuildMemberAdd, member => { void manager.request(member, { source: 'join' }); });
         client.on(Events.GuildMemberRemove, member => manager.forget(member));
         manager.start();
     },
-    handleRoleUpdate, handleWwTagUpdate, buildRoleAuditPayload, buildWwRolePayload, buildWwTagPayload,
-    buildWwCorrectionPayload, buildWwRepresentativePayload
+    handleRoleUpdate, handleCcTagUpdate, buildRoleAuditPayload, buildCcRolePayload, buildCcTagPayload,
+    buildCcCorrectionPayload, buildCcRepresentativePayload
 };

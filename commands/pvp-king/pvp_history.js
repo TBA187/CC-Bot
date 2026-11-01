@@ -100,7 +100,7 @@ class PvpHistory {
 
             const messages = splitMessageParts([
                 `# 👑  PvP King History in ${this.pvpServerName} (Last ${historyRows.length} entries)  👑\n` +
-                `**<:pepe_king:1455434151262949535>  ${totalKings} individual PvP Kings have ruled White Walkers so far! View all PvP Kings with the \`/pvp_leaderboard\` command.**\n\n`,
+                `**<:pepe_king:1455434151262949535>  ${totalKings} individual PvP Kings have ruled Crow Control so far! View all PvP Kings with the \`/pvp_leaderboard\` command.**\n\n`,
                 ...entries.map((entry, index) => (index ? '\n' : '') + entry),
                 `\n\n### View all \`${totalKingEntries}\` PvP King entries in <#${this.historyThreadID}>`
             ], '');

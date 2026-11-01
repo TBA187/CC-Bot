@@ -82,7 +82,7 @@ function subscriptionsEmbed(states, selectedKeys, user) {
     const username = user?.username || user?.globalName || 'Member';
 
     const embed = new EmbedBuilder()
-        .setColor(0x02f3d7)
+        .setColor(0xe63b50)
         .setTitle(`Guild Notification Pings for ${username}`)
         .setDescription(
             `${description}\n\n` +
@@ -90,8 +90,8 @@ function subscriptionsEmbed(states, selectedKeys, user) {
             disabledNotice
         )
         .setFooter({
-            text: 'White Walker Notifications',
-            iconURL: 'attachment://ww_logo.png'
+            text: 'Crow Control Notifications',
+            iconURL: 'attachment://cc_logo.webp'
         })
         .setTimestamp();
 
@@ -128,8 +128,8 @@ function confirmButton(userId, panelId) {
     );
 }
 
-function wwLogoFile() {
-    return new AttachmentBuilder('./images/ww_logo.png', { name: 'ww_logo.png' });
+function ccLogoFile() {
+    return new AttachmentBuilder('./images/cc_logo.webp', { name: 'cc_logo.webp' });
 }
 
 function parsePanelId(customId, prefix) {
@@ -156,7 +156,7 @@ class Notifications {
             components: states.length
                 ? [subscriptionMenu(states, enabledKeys, user.id, panelId), confirmButton(user.id, panelId)]
                 : [],
-            files: [wwLogoFile()]
+            files: [ccLogoFile()]
         };
     }
 

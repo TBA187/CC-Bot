@@ -8,7 +8,7 @@ const path = require('path');
 const { TbaForumShopStore } = require('../features/tba-forum-shops/TbaForumShopStore.js');
 
 function tempFile() {
-    return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ww-tba-shops-')), 'tba_forum_shops.json');
+    return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cc-tba-shops-')), 'tba_forum_shops.json');
 }
 
 test('shop store creates one small file and preserves both topic checkpoints', async () => {

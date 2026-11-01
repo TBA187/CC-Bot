@@ -17,7 +17,7 @@ const commandNames = fs.readdirSync(path.join(__dirname, '../commands/pvp-king')
     .filter(file => file.endsWith('.js')).map(file => file.slice(0, -3));
 
 function fixture(t) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ww-pvp-servers-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-pvp-servers-'));
     const stores = Object.fromEntries(['gold', 'silver'].map(server => [server, new PvpKingStorage({
         server, storageMode: 'json', dataFile: path.join(dir, `${server}.json`)
     })]));
@@ -933,7 +933,7 @@ test('a restart finds the announcement beyond the newest 100 messages and ignore
     const spoofed=eventFixture(f,'silver',{ targetStreak:1 });
     await eventWins(f,'silver','silver-king',['2026-09-02 00:00:00']);
     spoofed.messages.push({id:'1800000000000000000',author:{id:'someone'},createdTimestamp:Date.now(),
-        embeds:[{footer:{text:'WW PvP Event • Silver • Event ID: winter-2026'}}]});
+        embeds:[{footer:{text:'CC PvP Event • Silver • Event ID: winter-2026'}}]});
     await announceEventWinner(spoofed.config(),spoofed.interaction(),null);
     assert.equal(spoofed.messages.length,2);
 });

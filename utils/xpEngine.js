@@ -98,7 +98,7 @@ async function finishXpAward(operation, currentData, guild, member, commandConfi
         if (settings.sendLevelUpMsg) {
             const xpLogChannel = guild.channels.cache.get(commandConfig.botChannelID);
             if (xpLogChannel) {
-                const logoFile = new AttachmentBuilder(xpSettings.logoPath, { name: 'ww_logo.png' });
+                const logoFile = new AttachmentBuilder(xpSettings.logoPath, { name: 'cc_logo.webp' });
 
                 // --- Calculate XP needed for next level ---
                 // Check if the user is at Max Level
@@ -190,7 +190,7 @@ async function finishXpAward(operation, currentData, guild, member, commandConfi
                         { name: 'XP for next Level', value: xpForNextLevel, inline: true }
                     )
                     .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-                    .setFooter({ text: 'White Walkers', iconURL: 'attachment://ww_logo.png' })
+                    .setFooter({ text: 'Crow Control', iconURL: 'attachment://cc_logo.webp' })
                     .setTimestamp();
 
                 // Prepare the message payload

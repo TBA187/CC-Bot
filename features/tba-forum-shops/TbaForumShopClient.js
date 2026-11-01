@@ -66,7 +66,7 @@ class TbaForumShopClient {
                 signal: controller.signal,
                 headers: {
                     accept,
-                    'user-agent': 'WhiteWalkerDiscordBot/1.0 (+TBA forum shop monitor)'
+                    'user-agent': 'CrowControlDiscordBot/1.0 (+TBA forum shop monitor)'
                 },
                 redirect: 'follow'
             });

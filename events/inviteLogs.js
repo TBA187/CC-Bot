@@ -5,8 +5,8 @@ const { findModerationAuditEntry } = require('./memberExit.js');
 const { auditActor, inlineCode } = require('../utils/memberAuditEmbeds.js');
 const { sleep } = require('../utils/logHelpers.js');
 
-const LOGO_PATH = path.join(__dirname, '../images/ww_logo.png');
-const LOGO_FILENAME = 'ww_logo.png';
+const LOGO_PATH = path.join(__dirname, '../images/cc_logo.webp');
+const LOGO_FILENAME = 'cc_logo.webp';
 const INVITE_BLUE = 0x5865F2;
 
 function discordTime(timestamp) {
@@ -36,7 +36,7 @@ function buildInviteCreatedPayload(invite) {
     const expiry = invite.expiresAt == null && invite.maxAge === 0 ? 'Never' : discordTime(invite.expiresAt);
     const inviteId = invite.code || invite.id;
     const description = [
-        `**${inviterLabel} created an invite link for White Walker's Discord Server.**`,
+        `**${inviterLabel} created an invite link for Crow Control's Discord Server.**`,
         `- **Invite Channel:** ${channel}`,
         `- **Invite Link:** ${url}`,
         `- **Invite Expires:** ${expiry}`,
@@ -52,9 +52,9 @@ function buildInviteCreatedPayload(invite) {
         .setTimestamp();
 
     if (inviteId) {
-        embed.setFooter({ text: `Invite Link ID: ${inviteId}`, iconURL: 'attachment://ww_logo.png' });
+        embed.setFooter({ text: `Invite Link ID: ${inviteId}`, iconURL: 'attachment://cc_logo.webp' });
     } else {
-        embed.setFooter({ text: 'Invite Link ID: unavailable', iconURL: 'attachment://ww_logo.png' });
+        embed.setFooter({ text: 'Invite Link ID: unavailable', iconURL: 'attachment://cc_logo.webp' });
     }
 
     return {
@@ -85,8 +85,8 @@ function buildInviteDeletedPayload(invite, auditEntry) {
     const channelId = invite.channel?.id ?? invite.channelId;
     const actor = auditEntry?.executor;
     const lines = [
-        actor ? `**${auditActor(actor)} deleted an invite link for White Walker's Discord Server.**`
-            : `**An invite link for White Walker's Discord Server was deleted.**`,
+        actor ? `**${auditActor(actor)} deleted an invite link for Crow Control's Discord Server.**`
+            : `**An invite link for Crow Control's Discord Server was deleted.**`,
         `- **Invite Channel:** ${channelId ? `<#${channelId}>` : '*Unknown Channel*'}`,
         `- **Invite Code:** ${inlineCode(code ?? 'Unavailable')}`,
         `- **Deleted Invite Link:** ${code ? `https://discord.gg/${code}` : '*Unavailable*'}`
@@ -94,7 +94,7 @@ function buildInviteDeletedPayload(invite, auditEntry) {
     if (!actor) lines.push('- **Deleted By:** *Unavailable — no matching moderator audit details.*');
     if (auditEntry?.reason) lines.push(`- **Reason:** ${escapeMarkdown(auditEntry.reason)}`);
     const embed = new EmbedBuilder().setTitle('Server Invite Deleted 🗑️').setColor(0xE67E22)
-        .setDescription(lines.join('\n')).setFooter({ text: `Invite Link ID: ${code ?? 'unavailable'}`, iconURL: 'attachment://ww_logo.png' })
+        .setDescription(lines.join('\n')).setFooter({ text: `Invite Link ID: ${code ?? 'unavailable'}`, iconURL: 'attachment://cc_logo.webp' })
         .setTimestamp();
     return { embeds: [embed], files: [new AttachmentBuilder(LOGO_PATH, { name: LOGO_FILENAME })], allowedMentions: { parse: [] } };
 }

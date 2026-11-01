@@ -51,7 +51,7 @@ class PvpStats {
             const firstCrowned = stats.first_crowned ? `<t:${Math.floor(new Date(stats.first_crowned).getTime() / 1000)}:F>` : '*Never*';
             const lastCrowned = stats.crowned_at ? `<t:${Math.floor(new Date(stats.crowned_at).getTime() / 1000)}:F>` : '*Never*';
             const embed = new EmbedBuilder()
-                .setTitle(`White Walker PvP King Stats — ${this.pvpServerName} ${this.pvpServerEmoji}`)
+                .setTitle(`Crow Control PvP King Stats — ${this.pvpServerName} ${this.pvpServerEmoji}`)
                 .setDescription(`### 📈\u2002PvP Stats for <@${user.id}>`)
                 .addFields(
                     { name: `🔥\u2002Current Win Streak:\u2002${stats.current_streak ?? 0}`, value: '', inline: false },

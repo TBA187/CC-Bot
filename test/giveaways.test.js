@@ -324,6 +324,16 @@ test('rerolls reject giveaways that ended more than 48 hours ago', () => {
     }), new Date('2026-08-18T01:00:00.000Z')), true);
 });
 
+test('reroll access remains compatible with legacy timestamps and hides pending initial announcements', () => {
+    const now = new Date('2026-11-01T12:00:00Z');
+    const ended = giveaway({ status: GIVEAWAY_ENDED, ended_at: '2026-10-31T12:00:00Z' });
+    assert.equal(giveawayEndedWithinRerollWindow(ended, now), true);
+    assert.equal(giveawayEndedWithinRerollWindow({ ...ended, ended_at: null, ends_at: ended.ended_at }, now), true);
+    assert.equal(giveawayEndedWithinRerollWindow({ ...ended, end_announced_at: 'invalid' }, now), true);
+    assert.equal(giveawayEndedWithinRerollWindow({ ...ended, end_announcement_pending: true }, now), false);
+    assert.equal(giveawayEndedWithinRerollWindow({ ...ended, status: GIVEAWAY_ACTIVE }, now), false);
+});
+
 test('expired giveaway clicks stop before changing entries and log briefly', async () => {
     let reads = 0;
     const originalInfo = console.info;

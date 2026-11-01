@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {
     createGiveawayStore, endGiveaway, giveawayEntryCutoff, giveawayHasEnded, makeDrawId,
-    startGiveawayLoop
+    startGiveawayLoop, giveawayEndedWithinRerollWindow, giveawayAutocomplete, handleGiveawayButton
 } = require('../events/giveaways');
 const Giveaways = require('../commands/giveaways');
 const { MessageFlags } = require('discord.js');
@@ -216,6 +216,292 @@ function fixture(t, changes = {}, { jsonOnly = false, db = null } = {}) {
     };
     return { store, db, g, file, makeStore, client, channel, sends, messages, finish, entry };
 }
+
+test('a healthy active giveaway announces at its deadline with all 70 original participants eligible', async t => {
+    const f = fixture(t, { ends_at: iso(120) });
+    for (let index = 0; index < 70; index++) f.entry(`eligible-${index}`);
+    f.entry('too-late', { joined_at: iso(60000) });
+    f.entry('withdrawn', { left_at: f.g.starts_at });
+    let complete;
+    const announcement = new Promise(resolve => { complete = resolve; });
+    const update = f.store.updateGiveaway.bind(f.store);
+    f.store.updateGiveaway = async (...args) => {
+        const saved = await update(...args);
+        if (saved.end_announcement_pending === false) complete(saved);
+        return saved;
+    };
+    t.after(() => f.client.giveawayLoop?.stop());
+    startGiveawayLoop(f.client, { giveawayStore: f.store });
+    let timer;
+    const ended = await Promise.race([announcement, new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('healthy deadline missed')), 2000);
+    })]).finally(() => clearTimeout(timer));
+    assert.ok(Date.now() >= Date.parse(f.g.ends_at));
+    assert.ok(Date.now() - Date.parse(f.g.ends_at) < 1500);
+    assert.equal(ended.end_announcement_pending, false);
+    assert.equal(f.db.draws.get('g1:end').eligible_count, 70);
+    assert.match(ended.winner_user_ids[0], /^eligible-/);
+    assert.equal(f.messages.size, 1);
+    assert.equal(f.db.entries.size, 72, 'finalization must not delete or rewrite entries');
+});
+
+test('a controlled restart preserves an active giveaway and its participants without ending it early', async t => {
+    for (const jsonOnly of [false, true]) {
+        const f = fixture(t, { ends_at: iso(3600000) }, { jsonOnly });
+        for (let index = 0; index < 18; index++) f.entry(`participant-${index}`);
+        const restarted = f.makeStore(); await restarted.restore();
+        let complete, timer;
+        const firstSweep = new Promise(resolve => { complete = resolve; });
+        const nextDueAt = restarted.nextDueAt.bind(restarted);
+        restarted.nextDueAt = async () => {
+            const deadline = await nextDueAt();
+            f.client.giveawayLoop?.stop();
+            complete(deadline);
+            return deadline;
+        };
+        t.after(() => f.client.giveawayLoop?.stop());
+        startGiveawayLoop(f.client, { giveawayStore: restarted });
+        const deadline = await Promise.race([firstSweep, new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('restart sweep did not complete')), 2000);
+        })]).finally(() => clearTimeout(timer));
+        assert.equal(deadline.toISOString(), f.g.ends_at);
+        assert.equal((await restarted.getGiveaway('g1')).status, 'active');
+        assert.equal((await restarted.listEntries('g1')).length, 18);
+        assert.deepEqual(await restarted.listDraws('g1'), []);
+        assert.equal(f.db.claims.size, 0);
+        assert.equal(f.sends.length, 0);
+    }
+});
+
+test('startup recovers three-day-overdue 70-participant giveaways and replaces the stale Enter button', async t => {
+    for (const jsonOnly of [false, true]) {
+        for (const state of ['active', 'saved-draw', 'pending-announcement']) {
+            const f = fixture(t, { starts_at: iso(-96 * 3600000), ends_at: iso(-72 * 3600000),
+                message_id: `overdue-${jsonOnly}-${state}`,
+                ...(state === 'pending-announcement' ? { status: 'ended', ended_at: iso(-71 * 3600000),
+                    winner_user_ids: ['eligible-0'], end_draw_id: 'g1:end', end_announcement_pending: true } : {})
+            }, { jsonOnly });
+            for (let index = 0; index < 70; index++) f.entry(`eligible-${index}`);
+            const saved = draw({ drawn_at: iso(-71 * 3600000), eligible_count: 70, winner_user_ids: ['eligible-0'] });
+            if (state !== 'active') {
+                if (jsonOnly) f.store.localSaveDraw(saved.draw_id, saved, false);
+                else f.db.draws.set(saved.draw_id, saved);
+            }
+            let publicPayload;
+            const message = { id: f.g.message_id, channelId: 'channel', reply: payload => f.channel.send(payload),
+                async edit(payload) { publicPayload = payload; } };
+            f.channel.messages.fetch = async () => message;
+            const restarted = f.makeStore(); await restarted.restore();
+            assert.equal((await restarted.listEntries('g1')).length, 70);
+            assert.equal((await restarted.listDueGiveaways()).length, 1);
+            let complete, timer;
+            const completed = new Promise(resolve => { complete = resolve; });
+            const release = restarted.releaseEndClaim.bind(restarted);
+            restarted.releaseEndClaim = async (...args) => {
+                await release(...args);
+                const current = await restarted.getGiveaway('g1');
+                if (current.end_announcement_pending === false) {
+                    f.client.giveawayLoop?.stop();
+                    complete(current);
+                }
+            };
+            t.after(() => f.client.giveawayLoop?.stop());
+            startGiveawayLoop(f.client, { giveawayStore: restarted });
+            const ended = await Promise.race([completed, new Promise((_, reject) => {
+                timer = setTimeout(() => reject(new Error(`overdue recovery failed: ${jsonOnly}/${state}`)), 4000);
+            })]).finally(() => clearTimeout(timer));
+            assert.equal(ended.status, 'ended');
+            assert.equal(ended.end_announcement_pending, false);
+            const draws = await restarted.listDraws('g1');
+            assert.equal(draws.length, 1);
+            assert.equal(draws[0].eligible_count, 70);
+            if (state !== 'active') assert.deepEqual(draws[0], saved);
+            assert.equal((await restarted.listEntries('g1')).length, 70);
+            assert.equal(f.messages.size, 1);
+            const controls = publicPayload.components.flatMap(row => row.toJSON().components);
+            assert.ok(controls.every(control => control.custom_id !== 'ww_giveaway:join_leave'));
+            assert.equal(publicPayload.content, '**🎉  Giveaway Ended!**');
+        }
+    }
+});
+
+test('clicking Enter on a three-day-overdue 70-participant giveaway finishes it without adding an entry', async t => {
+    const f = fixture(t, { starts_at: iso(-96 * 3600000), ends_at: iso(-72 * 3600000), message_id: 'overdue-click' });
+    for (let index = 0; index < 70; index++) f.entry(`eligible-${index}`);
+    let publicPayload;
+    const message = { id: f.g.message_id, channelId: 'channel', reply: payload => f.channel.send(payload),
+        async edit(payload) { publicPayload = payload; } };
+    f.channel.messages.fetch = async () => message;
+    const restarted = f.makeStore(); await restarted.restore();
+    const replies = [], deferrals = [];
+    await handleGiveawayButton({ customId: 'ww_giveaway:join_leave', client: f.client,
+        user: { id: 'late-clicker', bot: false }, message,
+        member: { id: 'late-clicker', roles: { cache: { some: () => false } } },
+        async deferReply(options) { deferrals.push(options); }, async editReply(payload) { replies.push(payload); }
+    }, { giveawayStore: restarted });
+    assert.equal(deferrals[0].flags, MessageFlags.Ephemeral);
+    assert.deepEqual(replies, ['This giveaway has ended.']);
+    assert.equal(f.db.entries.size, 70);
+    assert.equal(f.db.draws.get('g1:end').eligible_count, 70);
+    assert.equal(f.db.giveaways.get('g1').end_announcement_pending, false);
+    assert.equal(f.messages.size, 1);
+    assert.ok(publicPayload.components.flatMap(row => row.toJSON().components)
+        .every(control => control.custom_id !== 'ww_giveaway:join_leave'));
+});
+
+test('stopping during scheduler reads cannot start a late draw or announcement', async t => {
+    for (const phase of ['listDueGiveaways', 'getGiveaway']) {
+        const f = fixture(t);
+        f.entry('winner');
+        let completeRead;
+        f.store[phase] = () => new Promise(resolve => { completeRead = resolve; });
+        startGiveawayLoop(f.client, { giveawayStore: f.store });
+        while (!completeRead) await new Promise(resolve => setImmediate(resolve));
+        f.client.giveawayLoop.stop();
+        completeRead(phase === 'listDueGiveaways' ? [f.g] : f.g);
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(f.db.draws.size, 0, phase);
+        assert.equal(f.db.claims.size, 0, phase);
+        assert.equal(f.messages.size, 0, phase);
+        assert.equal(f.client.giveawayLoop, null, phase);
+    }
+});
+
+test('a saved 70-participant draw survives a failed status update and recovery never chooses again', async t => {
+    const f = fixture(t);
+    for (let index = 0; index < 70; index++) f.entry(`eligible-${index}`);
+    let failStatus = true;
+    f.db.before = text => { if (failStatus && text.startsWith('INSERT INTO giveaways')) throw outage(); };
+    await assert.rejects(f.finish(), { code: 'ECONNRESET' });
+    const saved = copy(f.db.draws.get('g1:end'));
+    assert.equal(saved.eligible_count, 70);
+    assert.equal(f.db.giveaways.get('g1').status, 'active');
+    assert.equal(f.sends.length, 0);
+    assert.equal(f.db.claims.size, 1);
+    failStatus = false;
+    f.db.claims.get('g1').expires = Date.now() - 1;
+    const restarted = f.makeStore(); await restarted.restore();
+    const [ended, winners] = await f.finish(restarted);
+    assert.deepEqual(winners, saved.winner_user_ids);
+    assert.deepEqual(f.db.draws.get('g1:end'), saved);
+    assert.equal(f.db.draws.size, 1);
+    assert.equal(f.db.entries.size, 70);
+    assert.equal(ended.end_announcement_pending, false);
+    assert.equal(f.messages.size, 1);
+});
+
+test('the announcement and receipt are confirmed before a blocked cosmetic refresh', async t => {
+    const f = fixture(t, { message_id: 'original-message' });
+    f.entry('winner');
+    let unblock, editing;
+    const held = new Promise(resolve => { unblock = resolve; });
+    const editStarted = new Promise(resolve => { editing = resolve; });
+    const message = { id: 'original-message', channelId: 'channel',
+        reply: payload => f.channel.send(payload), async edit() { editing(); await held; } };
+    f.channel.messages.fetch = async () => message;
+    const finishing = f.finish();
+    try {
+        await editStarted;
+        assert.equal(f.messages.size, 1);
+        assert.equal(f.db.giveaways.get('g1').end_announcement_pending, false);
+        assert.ok(f.db.giveaways.get('g1').end_announced_at);
+    } finally { unblock(); await finishing; }
+});
+
+test('delayed initial delivery starts a full reroll window and retains recovery entries and draws', async t => {
+    const f = fixture(t, { status: 'ended', ends_at: iso(-5 * 86400000), ended_at: iso(-4 * 86400000),
+        end_draw_id: 'g1:end', end_announcement_pending: true, winner_user_ids: ['original'] });
+    f.db.draws.set('g1:end', draw({ drawn_at: f.g.ended_at }));
+    f.entry('original'); f.entry('another', { joined_at: iso(-6 * 86400000) });
+    assert.equal(giveawayEndedWithinRerollWindow(f.g), false);
+    const deliveredAt = iso(-1000);
+    f.channel.send = async () => ({ id: 'delayed-announcement', createdTimestamp: Date.parse(deliveredAt) });
+    const [ended] = await f.finish();
+    assert.equal(ended.end_announced_at, deliveredAt);
+    assert.equal(ended.ended_at, f.g.ended_at);
+    assert.equal(giveawayEndedWithinRerollWindow(ended), true);
+    assert.equal(giveawayEndedWithinRerollWindow(ended, new Date(Date.parse(deliveredAt) + 48 * 3600000)), true);
+    assert.equal(giveawayEndedWithinRerollWindow(ended, new Date(Date.parse(deliveredAt) + 48 * 3600000 + 1)), false);
+    const restarted = f.makeStore(); await restarted.restore();
+    assert.equal((await restarted.listEntries('g1')).length, 2);
+    assert.equal((await restarted.listDraws('g1')).length, 1);
+    const choices = await giveawayAutocomplete({ options: { getFocused: () => '' } }, { giveawayStore: restarted },
+        { status: 'ended', recentEndedOnly: true });
+    assert.deepEqual(choices.map(choice => choice.value), ['g1']);
+    await f.finish(restarted, { drawType: 'reroll' });
+    assert.equal(f.db.giveaways.get('g1').end_announced_at, deliveredAt, 'rerolls must not extend the window');
+});
+
+test('rerolls preserve original cutoff eligibility and reject expired or pending access at the service boundary', async t => {
+    const f = fixture(t, { status: 'ended', ended_at: iso(-1000), end_announcement_pending: false, winner_user_ids: ['old'] });
+    f.db.draws.set('g1:end', draw({ winner_user_ids: ['old'] }));
+    f.entry('old');
+    f.entry('eligible-at-cutoff', { left_at: iso(-1000) });
+    f.entry('late-entry', { joined_at: iso(-1000) });
+    const [, winners] = await f.finish(f.store, { drawType: 'reroll' });
+    assert.deepEqual(winners, ['eligible-at-cutoff']);
+    const count = f.db.draws.size;
+    f.db.giveaways.get('g1').end_announced_at = iso(-49 * 3600000);
+    await assert.rejects(f.finish(f.store, { drawType: 'reroll' }), /48-hour reroll window/);
+    f.db.giveaways.get('g1').end_announcement_pending = true;
+    await assert.rejects(f.finish(f.store, { drawType: 'reroll' }), /announcement is still pending/);
+    assert.equal(f.db.draws.size, count);
+});
+
+test('a lost announcement receipt preserves the original delivery time without logging false finalization', async t => {
+    const f = fixture(t);
+    f.entry('winner');
+    const logs = [];
+    t.mock.method(console, 'log', text => logs.push(text));
+    const deliveredAt = iso(-2 * 3600000);
+    const send = f.channel.send;
+    f.channel.send = async payload => ({ ...await send(payload), createdTimestamp: Date.parse(deliveredAt) });
+    let failReceipt = true;
+    f.db.before = (text, params) => {
+        if (failReceipt && text.startsWith('INSERT INTO giveaways') && JSON.parse(params[20]).end_announcement_pending === false) throw outage();
+    };
+    await assert.rejects(f.finish(), { code: 'ECONNRESET' });
+    assert.equal(logs.some(text => text.includes('finalized; initial announcement confirmed')), false);
+    assert.equal(f.db.giveaways.get('g1').end_announcement_pending, true);
+    assert.equal(f.messages.size, 1);
+    failReceipt = false;
+    f.db.claims.get('g1').expires = Date.now() - 1;
+    const [ended] = await f.finish(f.makeStore());
+    assert.equal(ended.end_announced_at, deliveredAt);
+    assert.equal(f.messages.size, 1, 'recovery retains the original Discord nonce');
+    assert.equal(logs.filter(text => text.includes('finalized; initial announcement confirmed')).length, 1);
+});
+
+test('the reroll command allows delayed confirmed announcements and rejects pending or expired records', async t => {
+    const f = fixture(t, { status: 'ended', ends_at: iso(-80 * 3600000), ended_at: iso(-72 * 3600000),
+        end_announced_at: iso(-3600000), end_announcement_pending: false, winner_user_ids: ['old'] });
+    f.db.draws.set('g1:end', draw({ drawn_at: f.g.ended_at, winner_user_ids: ['old'] }));
+    f.entry('new', { joined_at: iso(-90 * 3600000) });
+    const config = { giveawayStore: f.store, officerRoleID: 'officer', giveawayChannelID: 'channel' };
+    const command = new Giveaways(config);
+    const messages = [];
+    const interaction = () => ({ client: f.client, channelId: 'channel', user: { id: 'staff' },
+        member: { roles: { cache: { some: predicate => predicate({ id: 'officer' }) } } },
+        options: { getString: () => 'g1', getInteger: () => null },
+        async deferReply() { this.deferred = true; },
+        async editReply(payload) { this.replied = true; messages.push(payload); return { id: 'reroll-reply' }; },
+        async followUp(payload) { messages.push(payload); } });
+    await command.reroll(interaction());
+    assert.equal(f.db.draws.size, 2);
+    assert.ok(messages.some(payload => payload.content?.includes('Giveaway rerolled!')));
+    const announcedAt = f.db.giveaways.get('g1').end_announced_at;
+    assert.equal(announcedAt, f.g.end_announced_at);
+    for (const [changes, expected] of [
+        [{ end_announcement_pending: true }, /announcement is still pending/],
+        [{ end_announcement_pending: false, end_announced_at: iso(-49 * 3600000) }, /48-hour reroll window/]
+    ]) {
+        Object.assign(f.db.giveaways.get('g1'), changes);
+        messages.length = 0;
+        await command.reroll(interaction());
+        assert.match(messages[0], expected);
+        assert.equal(f.db.draws.size, 2);
+    }
+});
 
 test('manual outage requests survive restart and finish before the original deadline with the requesting staff identity', async t => {
     const f = fixture(t, { ends_at: iso(3600000) });

@@ -510,8 +510,11 @@ class Giveaways {
         if (!record || record.status !== GIVEAWAY_ENDED) {
             return interaction.editReply('That ended giveaway could not be found.');
         }
+        if (record.end_announcement_pending) {
+            return interaction.editReply('The initial giveaway announcement is still pending. Please wait for it to finish.');
+        }
         if (!giveawayEndedWithinRerollWindow(record)) {
-            return interaction.editReply('That giveaway ended more than 48 hours ago and cannot be rerolled.');
+            return interaction.editReply('The 48-hour reroll window for that giveaway has expired.');
         }
 
         let winnerCount;

@@ -138,7 +138,7 @@ Console and monthly logs record failures immediately; Discord waits for persiste
 | Discord Gateway disconnection | After 1 minute |
 | Memory pressure | Immediately |
 
-Memory monitoring continues silently during normal operation. Console and file logs report warning pressure at 80%, critical pressure at 90%, recovery below 75%, and loss/restoration of Linux container accounting. Sustained pressure is logged at most once every 10 minutes unless severity increases. Healthy startup and periodic memory snapshots are not printed.
+Memory monitoring logs only pressure, recovery, or changes in container accounting. Warning and critical thresholds are 80% and 90%; recovery is below 75%. Sustained pressure is logged at most every 10 minutes unless severity increases.
 
 Alerts contain fixed summaries rather than raw exceptions, credentials, SQL or payment details. Alert delivery is separate from commands and uses bounded in-memory incident tracking with retry delays. Incident tracking resets when the process restarts; a stopped process cannot send an alert.
 Routine reconnects, successful operations and normal cleanup remain in console/file logs.

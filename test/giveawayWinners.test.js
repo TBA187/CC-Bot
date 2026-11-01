@@ -85,7 +85,7 @@ test('Host and Prize appear in the description above plain-valued active giveawa
     const f = fixture({ count: 20 });
     const embed = giveaways.buildGiveawayEmbed({ ...f.initial, description: 'Additional giveaway details.' }, { participantCount: 50 }).toJSON();
     assert.equal(embed.description, `<:man_of_culture:1186287184106496112>\u2002**Host:** @${f.initial.host_text}\n`
-        + `🎁\u2002**Prize:** ${f.initial.prize}\n\nAdditional giveaway details.`);
+        + `🎁\u2002**Prize:** ${f.initial.prize}\n**Description:**\nAdditional giveaway details.`);
     assert.deepEqual(embed.fields.map(field => [field.name, field.inline]), [
         ['🏆 Winners', true], ['👥 Participants', true], ['⏳ Ends', true]
     ]);

@@ -404,7 +404,7 @@ function giveawayNeedsRecoveryCache(giveaway, now = new Date()) {
     if (giveaway?.status === GIVEAWAY_ACTIVE) return true;
     if (giveaway?.status !== GIVEAWAY_ENDED) return false;
 
-    const endedAt = parseDate(giveaway.ended_at || giveaway.ends_at);
+    const endedAt = giveawayRerollStart(giveaway);
     return Boolean(endedAt && endedAt.getTime() >= now.getTime() - GIVEAWAY_RECOVERY_WINDOW_MS);
 }
 
@@ -435,6 +435,13 @@ function mergeGiveawaySyncState(localGiveaway, mysqlGiveaway) {
 function giveawayEntryCutoff(giveaway) {
     const times = [giveaway.ends_at, giveaway.end_requested_at].map(parseDate).filter(Boolean);
     return times.length ? new Date(Math.min(...times.map(date => date.getTime()))) : null;
+}
+
+function eligibleGiveawayEntries(giveaway, entries) {
+    const dates = [giveawayEntryCutoff(giveaway), giveaway.status === GIVEAWAY_ENDED ? parseDate(giveaway.ended_at) : null].filter(Boolean);
+    const cutoff = dates.length ? new Date(Math.min(...dates.map(date => date.getTime()))) : new Date();
+    return entries.filter(entry => (parseDate(entry.joined_at) || cutoff) <= cutoff
+        && (!entry.left_at || parseDate(entry.left_at) > cutoff)).map(entry => ({ ...entry, left_at: null }));
 }
 
 function endAnnouncementPending(giveaway) {
@@ -1453,7 +1460,7 @@ function giveawayDescription(giveaway) {
     const details = `<:man_of_culture:1186287184106496112>\u2002**Host:** ${hostText}\n`
         + `🎁\u2002**Prize:** ${giveaway.prize || 'Unknown'}`;
     const description = normalizeGiveawayDescription(giveaway.description);
-    return description ? `${details}\n\n${description}` : details;
+    return description ? `${details}\n**Description:**\n${description}` : details;
 }
 
 function buildGiveawayEmbed(giveaway, { participantCount = 0 } = {}) {
@@ -1743,19 +1750,31 @@ async function renewGiveawayClaim(store, giveawayId, claim, onWriteStart) {
 
 async function publishGiveawayEnd(client, config, giveaway, winnerIds, { announceInteraction, requireMysql, endClaim, onWriteStart,
     drawId = giveaway.end_draw_id }) {
-    await refreshGiveawayMessage(client, config, giveaway, { disabled: true });
     await renewGiveawayClaim(config.giveawayStore, giveaway.giveaway_id, endClaim, onWriteStart);
     const delivery = await announceGiveawayDraw(client, giveaway, winnerIds, { drawType: 'end', interaction: announceInteraction, drawId });
-    if (!delivery) return giveaway;
+    if (!delivery) {
+        await refreshGiveawayMessage(client, config, giveaway, { disabled: true });
+        return giveaway;
+    }
     await renewGiveawayClaim(config.giveawayStore, giveaway.giveaway_id, endClaim, onWriteStart);
     onWriteStart?.();
     const confirmed = await config.giveawayStore.updateGiveaway(giveaway.giveaway_id, {
-        end_announcement_pending: false, end_announcement_message_id: delivery.id || null
+        end_announcement_pending: false, end_announcement_message_id: delivery.id || null,
+        end_announced_at: parseDate(giveaway.end_announced_at)?.toISOString()
+            || parseDate(delivery.createdAt)?.toISOString()
+            || (Number.isFinite(delivery.createdTimestamp) && parseDate(new Date(delivery.createdTimestamp))?.toISOString())
+            || utcNowIso()
     }, { requireMysql, claim: endClaim });
-    if (requireMysql && confirmed?.end_announcement_pending !== false) {
+    if (confirmed?.end_announcement_pending !== false) {
         throw new GiveawayFinalizationDeferred('The giveaway announcement receipt could not be confirmed.');
     }
-    return confirmed || { ...giveaway, end_announcement_pending: false };
+    const finalized = confirmed;
+    console.log(`[WW LOG] Giveaway ${giveaway.giveaway_id} finalized; initial announcement confirmed.`);
+    // Cosmetic edit pacing must not delay the initial announcement or its durable receipt.
+    await refreshGiveawayMessage(client, config, finalized, { disabled: true }).catch(error => {
+        console.warn(`[WW LOG] Giveaway ${giveaway.giveaway_id} ended-message refresh failed: ${error.code || 'UNKNOWN'}`);
+    });
+    return finalized;
 }
 
 async function endGiveawayLocked(client, config, giveaway, { actor = null, drawType, winnerCount = null, announceInteraction = null,
@@ -1805,13 +1824,12 @@ async function endGiveawayLocked(client, config, giveaway, { actor = null, drawT
     if (drawType === 'reroll' && endAnnouncementPending(current)) {
         throw new GiveawayFinalizationDeferred('The initial giveaway announcement is still pending.');
     }
-
-    let entries = await config.giveawayStore.listEntries(giveawayId, { activeOnly: drawType !== 'end', requireMysql });
-    if (drawType === 'end') {
-        const cutoff = giveawayEntryCutoff(current) || new Date();
-        entries = entries.filter(entry => (parseDate(entry.joined_at) || cutoff) <= cutoff
-            && (!entry.left_at || parseDate(entry.left_at) > cutoff)).map(entry => ({ ...entry, left_at: null }));
+    if (drawType === 'reroll' && !giveawayEndedWithinRerollWindow(current)) {
+        throw new GiveawayFinalizationDeferred('The 48-hour reroll window for that giveaway has expired.');
     }
+
+    const entries = eligibleGiveawayEntries(current,
+        await config.giveawayStore.listEntries(giveawayId, { activeOnly: false, requireMysql }));
     const count = winnerCount || Number(current.winners_total || 1);
     const excluded = new Set();
     if (drawType === 'reroll') {
@@ -2386,8 +2404,13 @@ async function getChannel(client, channelId) {
     return client.channels.cache.get(String(channelId)) || client.channels.fetch(String(channelId)).catch(() => null);
 }
 
+function giveawayRerollStart(giveaway) {
+    return parseDate(giveaway.end_announced_at) || parseDate(giveaway.ended_at) || parseDate(giveaway.ends_at);
+}
+
 function giveawayEndedWithinRerollWindow(giveaway, now = new Date()) {
-    const endedAt = parseDate(giveaway.ended_at || giveaway.ends_at);
+    if (giveaway.status !== GIVEAWAY_ENDED || endAnnouncementPending(giveaway)) return false;
+    const endedAt = giveawayRerollStart(giveaway);
     if (!endedAt) return false;
     const diff = now.getTime() - endedAt.getTime();
     return diff >= 0 && diff <= REROLL_AUTOCOMPLETE_WINDOW_MS;
@@ -2527,10 +2550,13 @@ function startGiveawayLoop(client, config) {
         let delayMs = GIVEAWAY_RECOVERY_SWEEP_MS;
         try {
             await config.giveawayStore.syncPending?.();
+            if (stopped) return;
             const dueGiveaways = await config.giveawayStore.listDueGiveaways(new Date());
             for (const [index, giveaway] of dueGiveaways.entries()) {
+                if (stopped) break;
                 try {
                     const current = await config.giveawayStore.getGiveaway(giveaway.giveaway_id);
+                    if (stopped) break;
                     if (current?.status === GIVEAWAY_ACTIVE || endAnnouncementPending(current)) {
                         await endGiveaway(client, config, current, { actor: null, drawType: 'end' });
                     }
@@ -2541,6 +2567,7 @@ function startGiveawayLoop(client, config) {
                 }
                 if (index + 1 < dueGiveaways.length) await wait(GIVEAWAY_END_PACING_MS);
             }
+            if (stopped) return;
             const nextDueAt = await config.giveawayStore.nextDueAt();
             if (nextDueAt) {
                 const untilDueMs = parseDate(nextDueAt).getTime() - Date.now();

@@ -51,7 +51,7 @@ The bot registers its application commands in the configured guild at startup. K
 | Guild preferences | `/cc-settings` saves a preferred game server. `/notifications` manages notification subscriptions. |
 | XP and rewards | `/rank`, `/level` and `/leaderboard` show progress, with configurable activity tracking and role rewards. |
 | Recruitment and events | Dungeon commands create team panels and reminders; `/giveaway` manages draws and participation. |
-| Server administration | Auto-role panels, welcome messages and configurable audit logging support server management. |
+| Server administration | Auto-role panels, welcome messages and configurable audit logging support server management. `/inspect` shows a member's Discord profile, roles and server status. |
 
 Guild application monitoring posts Officer alerts and Court House polls. Forum shop monitoring delivers new-reply notifications to the configured owner. See [operations and configuration](docs/operations.md) for monitor settings, storage, backups and PvP event configuration.
 

@@ -20,7 +20,7 @@ function roleSource(entry, member, botId, channelId = selfRoleChannelID) {
     if (entry.executor.id === botId) {
         if (/^XP level reward:/u.test(reason)) return { kind: 'automatic', detail: reason };
         if (/^Command /u.test(reason)) return { kind: 'command', detail: reason };
-        if (/^(?:Crow Control|White Walker) game-server preference/u.test(reason)) return { kind: 'settings', detail: 'Game-server preference settings' };
+        if (/(?:^| )game-server preference(?: settings)?$/u.test(reason)) return { kind: 'settings', detail: 'Game-server preference settings' };
         if (/color role/i.test(reason)) return { kind: 'automatic', detail: reason };
     }
     return { kind: 'bot', detail: 'The bot did not provide a command, panel, or event source.' };

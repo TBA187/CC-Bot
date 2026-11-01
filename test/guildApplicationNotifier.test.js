@@ -207,7 +207,7 @@ test('recovers already-sent application and poll messages after a crash without 
     const officerMessage = fakeMessage('existing-officer', officer);
     officerMessage.author = { id: 'bot-id' };
     officerMessage.url = 'https://discord.com/existing-officer';
-    officerMessage.content = `a new application to join White Walkers ${postUrl}`;
+    officerMessage.content = `a new application to join Crow Control ${postUrl}`;
     const pollMessage = fakeMessage('existing-poll', court);
     pollMessage.author = { id: 'bot-id' };
     pollMessage.url = 'https://discord.com/existing-poll';

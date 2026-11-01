@@ -17,7 +17,7 @@ A Discord bot for the Crow Control guild, built with Node.js and discord.js. It 
    npm ci
    ```
 
-2. Create a `.env` file with the application credentials and database connection:
+2. Copy [.env.example](.env.example) to `.env`, then fill in the application credentials and database connection:
 
    ```dotenv
    TOKEN=your_discord_bot_token

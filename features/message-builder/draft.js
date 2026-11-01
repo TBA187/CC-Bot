@@ -29,8 +29,9 @@ const LOGO_PATH = path.join(__dirname, '..', '..', 'images', LOGO_FILENAME);
 const LOGO_ATTACHMENT_URL = 'attachment://' + LOGO_FILENAME;
 const LOGO_URL = LOGO_ATTACHMENT_URL;
 function isBrandedFooter(text, icon) {
-    if (text === FOOTER_TEXT) return icon.replace(/\/+$/, '') === LOGO_URL || icon.includes('/emojis/1565243892255694908');
-    return text === 'White Walker Guild' && (icon.replace(/\/+$/, '') === 'attachment://ww_logo.png' || icon.includes('/emojis/1472065995089645609'));
+    const currentIcon = icon.replace(/\/+$/, '') === LOGO_URL || icon.includes('/emojis/1565243892255694908');
+    const legacyIcon = icon.replace(/\/+$/, '') === 'attachment://ww_logo.png' || icon.includes('/emojis/1472065995089645609');
+    return text === FOOTER_TEXT && currentIcon || text.endsWith(' Guild') && legacyIcon;
 }
 class DraftValidationError extends Error {
     constructor(message, options) { super(message, options); this.name = 'DraftValidationError'; }

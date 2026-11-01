@@ -184,11 +184,37 @@ test('JSON exports round-trip binary files, all draft properties and extra embed
     assert.deepEqual(await restored.draft.image.attachment.read(), Buffer.from('attachment'));
     assert.equal(restored.additionalEmbeds[0].toJSON().title, 'Second embed');
     assert.deepEqual((await buildMessageAttachmentFiles(restored.draft)).map(item => item.name), ['guide.txt', 'embed-image.png']);
-    payload.format = 'crowcontrol-custom-message';
-    assert.equal(importMessageJson(JSON.stringify(payload)).draft.title, draft.title);
-    for (const format of ['white-walker-custom-message', 'whitewalker-custom-message']) {
+    for (const format of [MESSAGE_JSON_FORMAT, 'crowcontrol-custom-message']) {
         payload.format = format;
         assert.equal(importMessageJson(JSON.stringify(payload)).draft.title, draft.title);
+    }
+});
+
+test('current footer text recognizes older logo assets and rejects unrelated icons', () => {
+    for (const icon_url of ['attachment://ww_logo.png', 'https://cdn.discordapp.com/emojis/1472065995089645609.png']) {
+        const original = message('', [new EmbedBuilder({ title: 'Saved message', footer: { text: FOOTER_TEXT, icon_url } })], []);
+        assert.equal(draftFromMessage(original).crowControlBranding, true);
+    }
+    const unrelated = message('', [new EmbedBuilder({ title: 'Saved message', footer: { text: FOOTER_TEXT,
+        icon_url: 'https://example.com/unrelated.png' } })], []);
+    assert.equal(draftFromMessage(unrelated).crowControlBranding, false);
+});
+
+test('current branding and historical emoji branding survive message and Discord JSON reconstruction', () => {
+    for (const footer of [
+        { text: FOOTER_TEXT, icon_url: LOGO_URL },
+        { text: FOOTER_TEXT, icon_url: 'https://cdn.discordapp.com/emojis/1565243892255694908.webp' },
+        { text: FOOTER_TEXT, icon_url: 'https://cdn.discordapp.com/emojis/1472065995089645609.png' }
+    ]) {
+        const original = message('', [new EmbedBuilder({ title: 'Saved message', footer })], []);
+        const restored = draftFromMessage(original);
+        assert.equal(restored.crowControlBranding, true);
+        assert.deepEqual(restored.toEmbedDict().footer, footer);
+        if (footer.icon_url.startsWith('https://')) {
+            const imported = importMessageJson(JSON.stringify({ embeds: [{ title: 'Saved message', footer }] })).draft;
+            assert.equal(imported.crowControlBranding, true);
+            assert.deepEqual(imported.toEmbedDict().footer, footer);
+        }
     }
 });
 

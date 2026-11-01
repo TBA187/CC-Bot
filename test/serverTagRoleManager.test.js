@@ -357,8 +357,13 @@ test('self-panel provenance requires the correct channel, actor, target, and Cro
     assert.equal(roleSource({ executor: f.client.user, reason: 'XP level reward: reached level 10' }, f.member, BOT).kind, 'automatic');
     assert.equal(roleSource({ executor: f.client.user, reason: 'Command /level: XP track' }, f.member, BOT).kind, 'command');
     assert.equal(roleSource({ ...entry, reason: entry.reason.replace('[CC role panel', '[WW role panel') }, f.member, BOT).kind, 'self_panel');
-    assert.equal(roleSource({ ...entry, reason: 'White Walker game-server preference' }, f.member, BOT).kind, 'settings');
     assert.equal(roleSource({ ...entry, reason: 'Crow Control game-server preference' }, f.member, BOT).kind, 'settings');
+    assert.equal(roleSource({ ...entry, reason: 'Crow Control game-server preference settings' }, f.member, BOT).kind, 'settings');
+    assert.equal(roleSource({ ...entry, executor: { ...f.client.user, id: 'other-bot' },
+        reason: 'Crow Control game-server preference settings' }, f.member, BOT).kind, 'bot');
+    assert.equal(roleSource({ ...entry, executor: { ...f.client.user, bot: false },
+        reason: 'Crow Control game-server preference settings' }, f.member, BOT), null);
+    assert.equal(roleSource({ ...entry, reason: 'Unrelated game-server preference question' }, f.member, BOT).kind, 'bot');
 });
 
 test('role formatting keeps IDs beside mentions, uses nested lists for batches, and marks both directions', () => {

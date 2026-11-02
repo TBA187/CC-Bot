@@ -333,7 +333,7 @@ const GUILD_ROLES_PANEL = autoRolePanelConfig({
     title: 'Crow Control Guild Roles',
     titleUrl: botConfig.brandingImageURL,
     description:
-        '**Choose your Guild Roles by clicking the buttons below.**\nYou can select multiple roles.\n' +
+        '**Choose your Guild Roles by clicking the buttons below.**\nYou can select multiple roles. ' +
         'To remove a role, simply click the button corresponding to the role you want to remove.\n' +
         '-# - Select **PvP ⚔️** if you are interested in PvP-related content.\n' +
         '-# - Select **Dungeon 🧙‍♂️** to be pinged for Dungeon runs.\n' +

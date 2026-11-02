@@ -77,8 +77,13 @@ class InteractionDiagnostics {
                     this.active.delete(interaction.id);
                     if (!this.active.size) this.rest?.off('response', this.onResponse);
                     if (state.acknowledged && acknowledgement.endAge >= this.slowAgeMs) {
-                        // A successful but slow response needs investigation before it starts expiring.
-                        try { this.console.warn(this.describe(interaction, 'acknowledgement was slow')); }
+                        const lateArrivalOnly = state.receivedAge >= this.slowAgeMs / 2
+                            && acknowledgement.localDelayMs < 100 && acknowledgement.durationMs < 1000
+                            && acknowledgement.endAge < 2500 && !acknowledgement.retries && !acknowledgement.rateLimits;
+                        try {
+                            if (lateArrivalOnly) this.console.info?.(this.describe(interaction, 'arrived late; acknowledgement succeeded'));
+                            else this.console.warn(this.describe(interaction, 'acknowledgement was slow'));
+                        }
                         catch { /* Diagnostics must not turn a successful acknowledgement into a failure. */ }
                     }
                 }
@@ -133,7 +138,7 @@ class InteractionDiagnostics {
             ...(context.phase ? [`phase ${context.phase}`] : [])
         ];
         let outcome = '';
-        if (reason !== 'acknowledgement was slow') {
+        if (!['acknowledgement was slow', 'arrived late; acknowledgement succeeded'].includes(reason)) {
             if (context.crownSaved === false) outcome = ' No crown or defense was recorded by this request.'
                 + (reason === 'expired before acknowledgement' ? ' Retry the command if the battle result still needs recording.' : ' Check /pvp_history before retrying.');
             else if (context.crownSaved === true) outcome = ' The crown or defense is saved. Do not repeat /pvp_crown for this battle.';

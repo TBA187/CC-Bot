@@ -2,6 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { handleGiveawayButton, refreshGiveawayMessage } = require('../events/giveaways');
 
 const copy = value => JSON.parse(JSON.stringify(value));
@@ -191,37 +192,42 @@ test('a removed stored giveaway is not recreated by an old refresh snapshot', as
     assert.equal(f.edits.length, 0);
 });
 
-test('a reroll completed during draw lookup supplies the latest winner list and original-message button', async t => {
+test('a reroll completed during participant lookup updates the winner button and count', async t => {
     const f = fixture(t);
     f.end('123456789012345678');
     const firstTime = '2026-10-17T00:01:00.000Z', latestTime = '2026-10-17T00:02:00.000Z';
-    const firstWinners = Array.from({ length: 21 }, (_, index) => String(123456789012345678n + BigInt(index)));
-    const latestWinners = Array.from({ length: 21 }, (_, index) => String(223456789012345678n + BigInt(index)));
+    const firstWinners = Array.from({ length: 26 }, (_, index) => String(123456789012345678n + BigInt(index)));
+    const latestWinners = Array.from({ length: 26 }, (_, index) => String(223456789012345678n + BigInt(index)));
     f.update({ end_draw_id: 'saved-end', last_rerolled_at: firstTime, winner_user_ids: firstWinners });
     const lookup = deferred();
-    f.store.listDraws = () => lookup.promise;
+    f.store.listEntries = () => lookup.promise;
     const waiting = f.refresh();
     await turn();
     await f.advance(0);
     f.end('223456789012345678');
     f.update({ last_rerolled_at: latestTime, winner_user_ids: latestWinners });
-    lookup.resolve([
+    f.store.listDraws = async () => [
         { draw_id: 'first-reroll', draw_type: 'reroll', drawn_at: firstTime, winner_user_ids: firstWinners },
         { draw_id: 'latest-reroll', draw_type: 'reroll', drawn_at: latestTime, winner_user_ids: latestWinners }
-    ]);
+    ];
+    lookup.resolve([{ user_id: '123456789012345678' }]);
     await waiting;
     assert.equal(f.edits.length, 1);
     const payload = f.edits[0].payload;
     assert.match(payload.content, /Giveaway Ended/);
-    assert.equal(payload.embeds[0].toJSON().fields.find(field => field.name === '🏆 Winners (21)').value,
-        '**21 winners.**\nPress the **View Winners** button for the full winner list.');
+    assert.equal(payload.embeds[0].toJSON().fields.find(field => field.name === '🏆 Winners (26)').value,
+        '**26 winners!**');
     const buttons = payload.components.flatMap(row => row.toJSON().components);
+    assert.equal(buttons.length, 2);
     assert.equal(buttons[1].label, 'View Winners');
+    const latestKey = crypto.createHash('sha256').update('latest-reroll').digest('hex').slice(0, 16);
+    assert.equal(buttons[1].custom_id, `cc_giveaway:winners:${f.active.giveaway_id}:${latestKey}`);
+    const drawKey = crypto.createHash('sha256').update('first-reroll').digest('hex').slice(0, 16);
     let winnerPage;
     await handleGiveawayButton({
-        customId: buttons[1].custom_id, guildId: 'guild', user: { id: 'viewer' },
+        customId: `cc_giveaway:winners:${f.active.giveaway_id}:${drawKey}`, guildId: 'guild', user: { id: 'viewer' }, message: { id: f.message.id },
         async deferReply() {}, async editReply(result) { winnerPage = result; }
     }, { giveawayStore: f.store });
-    assert.equal(winnerPage.embeds[0].toJSON().title, 'Rerolled Winners (21)');
+    assert.equal(winnerPage.embeds[0].toJSON().title, 'Rerolled Winners (26) — Page 1/1');
     assert.match(winnerPage.embeds[0].toJSON().description, /<@223456789012345678>/);
 });

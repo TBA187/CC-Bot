@@ -6,10 +6,10 @@ const { EventEmitter } = require('node:events');
 const { InteractionDiagnostics, setInteractionContext } = require('../utils/interactionDiagnostics.js');
 
 function fixture(options = {}) {
-    const rest = new EventEmitter(), warnings = [];
+    const rest = new EventEmitter(), warnings = [], info = [];
     let elapsed = 0;
     const tracker = new InteractionDiagnostics({ rest, now: () => 1000, clock: () => elapsed,
-        consoleObject: { warn: value => warnings.push(value) },
+        consoleObject: { warn: value => warnings.push(value), info: value => info.push(value) },
         eventLoopUtilization: (...args) => ({ active: args.length ? 120 : 0 }), ...options });
     const interaction = { id: '123', channelId: 'channel', user: { id: 'officer' },
         commandName: 'pvp_crown', createdTimestamp: 807 };
@@ -17,7 +17,7 @@ function fixture(options = {}) {
     const response = (id, status, retries = 0, retryAfter = null) => rest.emit('response',
         { path: `/interactions/${id}/private-interaction-token/callback`, retries, data: { token: 'private-body' } },
         { status, headers: { get: () => retryAfter } });
-    return { rest, warnings, tracker, interaction, advance, response };
+    return { rest, warnings, info, tracker, interaction, advance, response };
 }
 
 test('expired acknowledgements distinguish local delay, API wait, retries and rate limits without retaining tokens', async () => {
@@ -56,6 +56,47 @@ test('slow successful acknowledgements never invite a retry while the command is
     assert.match(f.warnings[0], /acknowledgement was slow/u);
     assert.doesNotMatch(f.warnings[0], /Retry|No crown|Do not repeat/u);
     assert.equal(f.rest.listenerCount('response'), 0);
+});
+
+test('a late-arriving interaction acknowledged promptly stays informational with complete timings', async () => {
+    const f = fixture({ now: () => 10000 });
+    f.interaction.createdTimestamp = 8190;
+    f.interaction.commandName = 'giveaway';
+    f.interaction.respond = async () => { f.advance(261); f.response('123', 204); return 'accepted'; };
+    f.tracker.track(f.interaction);
+    setInteractionContext(f.interaction, { crownSaved: false });
+    assert.equal(await f.interaction.respond(), 'accepted');
+    assert.deepEqual(f.warnings, []);
+    assert.equal(f.info.length, 1);
+    for (const text of ['arrived late; acknowledgement succeeded', '1810 ms old on arrival',
+        '0 ms before respond', '261 ms awaiting acknowledgement', '2071 ms old after acknowledgement', 'HTTP 204']) {
+        assert.ok(f.info[0].includes(text), text);
+    }
+    assert.doesNotMatch(f.info[0], /Retry|No crown|Do not repeat/u);
+    assert.equal(f.tracker.active.size, 0);
+    assert.equal(f.rest.listenerCount('response'), 0);
+});
+
+test('near-deadline acknowledgements, handler delays, API delays and retries still warn', async () => {
+    for (const { arrivalAge, localDelay, duration, retries = 0, status = 204 } of [
+        { arrivalAge: 2240, localDelay: 0, duration: 261 },
+        { arrivalAge: 1810, localDelay: 100, duration: 261 },
+        { arrivalAge: 1100, localDelay: 0, duration: 1100 },
+        { arrivalAge: 1810, localDelay: 0, duration: 261, retries: 1 },
+        { arrivalAge: 1810, localDelay: 0, duration: 261, status: 429 }
+    ]) {
+        const f = fixture({ now: () => 10000 });
+        f.interaction.createdTimestamp = 10000 - arrivalAge;
+        f.interaction.respond = async () => {
+            f.advance(duration); f.response('123', status, retries);
+        };
+        f.tracker.track(f.interaction);
+        f.advance(localDelay);
+        await f.interaction.respond();
+        assert.equal(f.warnings.length, 1);
+        assert.match(f.warnings[0], /acknowledgement was slow/u);
+        assert.deepEqual(f.info, []);
+    }
 });
 
 test('fast responses remain quiet and later replies do not replace initial timings or saved state', async () => {

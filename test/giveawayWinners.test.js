@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { ButtonStyle, MessageFlags } = require('discord.js');
+const crypto = require('node:crypto');
+const { ButtonStyle, EmbedBuilder, MessageFlags } = require('discord.js');
 const giveaways = require('../events/giveaways');
 const Giveaways = require('../commands/giveaways');
 
@@ -13,6 +14,7 @@ const copy = value => structuredClone(value);
 const winnerIds = count => Array.from({ length: count }, (_, index) => String(10000000000000000000n + BigInt(index)));
 const controls = payload => (payload.components || []).flatMap(row => row.toJSON().components);
 const mentions = payload => [...payload.embeds[0].toJSON().description.matchAll(/<@(\d+)>/g)].map(match => match[1]);
+const legacyButton = draw => `cc_giveaway:winners:${draw.giveaway_id}:${crypto.createHash('sha256').update(draw.draw_id).digest('hex').slice(0, 16)}`;
 
 function fixture({ count = 100, entries = count } = {}) {
     const initial = {
@@ -71,6 +73,26 @@ function assertPayloadLimits(payload) {
     for (const control of controls(payload)) assert.ok(control.custom_id.length <= 100);
 }
 
+test('create, edit, and reroll allow up to 500 winners and reject more', () => {
+    const command = new Giveaways({ giveawayStore: {} });
+    for (const name of ['create', 'edit', 'reroll']) {
+        const subcommand = command.data.toJSON().options.find(option => option.name === name);
+        const winners = subcommand.options.find(option => option.name === 'winners');
+        assert.equal(winners.max_value, 500);
+        assert.match(winners.description, /500/);
+    }
+    assert.equal(giveaways.validateWinnerCount(500), 500);
+    assert.throws(() => giveaways.validateWinnerCount(501), /500/);
+});
+
+test('other giveaway pagination keeps its existing button appearance', async () => {
+    let response;
+    await giveaways.sendEmbedFollowUp({ user: { id: 'viewer' }, async editReply(payload) { response = payload; } },
+        [new EmbedBuilder().setTitle('First'), new EmbedBuilder().setTitle('Second')]);
+    assert.equal(controls(response)[0].emoji, undefined);
+    assert.equal(controls(response)[1].emoji, undefined);
+});
+
 async function originalMessage(store, giveawayId, api = giveaways) {
     const record = await store.getGiveaway(giveawayId);
     let payload;
@@ -99,7 +121,7 @@ test('Host and Prize appear in the description above plain-valued active giveawa
 });
 
 test('ended giveaway fields remove the inline count and keep a full-width counted winner list with selective summary bolding', () => {
-    for (const count of [1, 20, 100]) {
+    for (const count of [1, 20, 25, 26, 100]) {
         const f = fixture({ count });
         const embed = giveaways.buildGiveawayEmbed({ ...f.initial, status: 'ended', ended_at: f.initial.ends_at,
             winner_user_ids: winnerIds(count), required_role_id: '300000000000000000' }, { participantCount: count }).toJSON();
@@ -111,9 +133,8 @@ test('ended giveaway fields remove the inline count and keep a full-width counte
         assert.ok(!embed.fields[1].value.includes('**'));
         assert.ok(!embed.fields.at(-1).value.includes('**'));
         const winners = embed.fields[2];
-        if (count > 20) {
-            assert.equal(winners.value, '**100 winners.**\nPress the **View Winners** button for the full winner list.');
-            assert.deepEqual([...winners.value.matchAll(/\*\*([^*]+)\*\*/g)].map(match => match[1]), ['100 winners.', 'View Winners']);
+        if (count > 25) {
+            assert.equal(winners.value, `**${count} winners!**`);
         } else {
             assert.equal(winners.value, winnerIds(count).map(id => `<@${id}>`).join(', '));
         }
@@ -121,14 +142,16 @@ test('ended giveaway fields remove the inline count and keep a full-width counte
     }
 });
 
-test('end and reroll announcements put the prize or large-list instruction on its own final line', async () => {
+test('end and reroll announcements include the prize and identify every notified winner', async () => {
     for (const count of [1, 20, 100]) {
         const f = fixture({ count, entries: count * 2 });
         await f.end();
         await f.end({ drawType: 'reroll' });
         for (const announcement of f.sent) {
             if (count > 20) {
-                assert.ok(announcement.content.endsWith(`- **100 winners** won **${f.initial.prize}**!\nSelect **View Winners** to see the full list.`));
+                assert.ok(announcement.allowedMentions.users.length > 0);
+                assert.doesNotMatch(announcement.content, /\*\*Winners \d+|\(continued\)/);
+                assert.deepEqual(controls(announcement), []);
             } else {
                 assert.match(announcement.content, /- \*\*Congratulations\*\* [^\n]+!\nYou won \*\*/);
                 assert.ok(announcement.content.endsWith(`You won **${f.initial.prize}  <:man_of_culture:1186287184106496112>**`));
@@ -137,50 +160,46 @@ test('end and reroll announcements put the prize or large-list instruction on it
     }
 });
 
-test('original ended giveaways have a blue Participants button and show View Winners only above 20 actual winners', async () => {
-    for (const count of [0, 1, 20, 21, 100]) {
+test('original ended giveaways show View Winners only above 25 winners', async () => {
+    for (const count of [0, 1, 20, 25, 26, 100]) {
         const f = fixture({ count });
-        const [, selected] = await f.end();
+        await f.end();
         await f.store.updateGiveaway(f.initial.giveaway_id, { message_id: '400000000000000000' });
         const payload = await originalMessage(f.store, f.initial.giveaway_id);
         const buttons = controls(payload);
         assert.equal(buttons[0].custom_id, 'cc_giveaway:participants');
         assert.equal(buttons[0].style, ButtonStyle.Primary);
-        if (count <= 20) {
-            assert.equal(buttons.length, 1);
-            continue;
+        assert.equal(buttons.length, count > 25 ? 2 : 1);
+        if (count > 25) {
+            assert.equal(buttons[1].label, 'View Winners');
+            assert.equal(buttons[1].emoji.name, '🏆');
+            assert.equal(buttons[1].style, ButtonStyle.Success);
+            assert.equal(buttons[1].custom_id, legacyButton(f.draws[0]));
+            const viewer = click(buttons[1].custom_id);
+            await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: f.store });
+            assert.deepEqual(mentions(viewer.edits[0]), f.draws[0].winner_user_ids.slice(0, 50));
         }
-        assert.equal(buttons[1].label, 'View Winners');
-        assert.equal(buttons[1].style, ButtonStyle.Success);
-        assert.equal(buttons[1].emoji.name, '🏆');
-        const viewer = click(buttons[1].custom_id);
-        await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: f.store });
-        assert.deepEqual(mentions(viewer.edits[0]), selected.slice(0, 20));
-        const embed = viewer.edits[0].embeds[0].toJSON();
-        assert.equal(embed.title, `Giveaway Winners (${count})`);
-        assert.deepEqual(embed.fields.map(field => [field.name, field.inline]), [['Prize', false], ['Drawn', false], ['Giveaway', false]]);
-        assert.equal(buttons[1].custom_id, controls(f.sent[0])[0].custom_id);
     }
 });
 
 test('the original giveaway follows the latest reroll while its older announcement keeps the original saved result', async () => {
-    const f = fixture({ count: 21, entries: 42 });
+    const f = fixture({ count: 26, entries: 52 });
     await f.end();
-    const firstId = controls(f.sent[0])[0].custom_id;
+    const firstId = legacyButton(f.draws[0]);
     await f.end({ drawType: 'reroll' });
     await f.store.updateGiveaway(f.initial.giveaway_id, { message_id: '400000000000000000' });
+    const currentId = legacyButton(f.draws[1]);
     const payload = await originalMessage(f.store, f.initial.giveaway_id);
-    const currentId = controls(payload)[1].custom_id;
-    assert.equal(currentId, controls(f.sent[1])[0].custom_id);
+    assert.equal(controls(payload)[1].custom_id, currentId);
     assert.notEqual(currentId, firstId);
     for (const [customId, draw] of [[firstId, f.draws[0]], [currentId, f.draws[1]]]) {
         const viewer = click(customId, { message: { id: customId === currentId ? '400000000000000000' : '500000000000000000' } });
         await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: f.store });
-        assert.deepEqual(mentions(viewer.edits[0]), draw.winner_user_ids.slice(0, 20));
+        assert.deepEqual(mentions(viewer.edits[0]), draw.winner_user_ids.slice(0, 50));
     }
     const oldOriginal = click(firstId, { message: { id: '400000000000000000' } });
     await giveaways.handleGiveawayButton(oldOriginal.interaction, { giveawayStore: f.store });
-    assert.deepEqual(mentions(oldOriginal.edits[0]), f.draws[1].winner_user_ids.slice(0, 20));
+    assert.deepEqual(mentions(oldOriginal.edits[0]), f.draws[1].winner_user_ids.slice(0, 50));
 });
 
 for (const originalMessage of [true, false]) {
@@ -188,7 +207,7 @@ for (const originalMessage of [true, false]) {
         const f = fixture({ count: 21, entries: 63 });
         await f.end();
         await f.store.updateGiveaway(f.initial.giveaway_id, { message_id: '400000000000000000' });
-        const viewer = click(controls(f.sent[0])[0].custom_id, {
+        const viewer = click(legacyButton(f.draws[0]), {
             message: { id: originalMessage ? '400000000000000000' : '500000000000000000' }
         });
         const loading = Promise.withResolvers(), release = Promise.withResolvers();
@@ -213,7 +232,7 @@ for (const originalMessage of [true, false]) {
         release.resolve();
         await pending;
         const expected = f.draws[originalMessage ? 1 : 0];
-        assert.deepEqual(mentions(viewer.edits[0]), expected.winner_user_ids.slice(0, 20));
+        assert.deepEqual(mentions(viewer.edits[0]), expected.winner_user_ids.slice(0, 50));
         assert.equal(reads, originalMessage ? 2 : 1);
         assert.deepEqual(viewer.edits[0].allowedMentions, { parse: [] });
         assertPayloadLimits(viewer.edits[0]);
@@ -234,7 +253,7 @@ test('an original-message lookup stops after bounded retries when each read race
         },
         async saveDraw() { assert.fail('A lookup must not draw new winners'); }
     };
-    const viewer = click(controls(f.sent[0])[0].custom_id, { message: { id: '400000000000000000' } });
+    const viewer = click(legacyButton(f.draws[0]), { message: { id: '400000000000000000' } });
     await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: store });
     assert.equal(reads, 3);
     assert.match(viewer.edits[0], /winner list couldn’t be loaded.*try again/);
@@ -247,7 +266,7 @@ test('an original-message button never substitutes an older saved draw when the 
     await f.end({ drawType: 'reroll' });
     await f.store.updateGiveaway(f.initial.giveaway_id, { message_id: '400000000000000000' });
     const store = { ...f.store, async listDraws() { return [copy(f.draws[0])]; } };
-    const viewer = click(controls(f.sent[0])[0].custom_id, { message: { id: '400000000000000000' } });
+    const viewer = click(legacyButton(f.draws[0]), { message: { id: '400000000000000000' } });
     await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: store });
     assert.deepEqual(viewer.edits, ['The winner list couldn’t be loaded. Please try again.']);
 });
@@ -345,21 +364,24 @@ test('zero-participant endings show plain zero totals, no winner field and no wi
     assert.equal(viewer.edits[0].embeds[0].toJSON().description, 'No active participants found.');
 });
 
-test('100 winners use one compact announcement, bounded ended embed and five complete private pages', async () => {
+test('100 winners are all pinged in bounded announcements and shown in two complete private pages', async () => {
     const f = fixture();
     const [ended, selected] = await f.end();
-    assert.equal(f.sent.length, 1);
+    assert.equal(f.sent.length, 2);
     assert.equal(ended.end_announcement_pending, false);
     assert.equal(f.draws.length, 1);
     const publicPayload = f.sent[0];
     assertPayloadLimits(publicPayload);
     assert.match(publicPayload.content, /100 winners/);
-    assert.doesNotMatch(publicPayload.content, /<@\d+>/);
-    assert.deepEqual(publicPayload.allowedMentions, { parse: [], users: [], roles: [], repliedUser: false });
-    assert.equal(controls(publicPayload)[0].label, 'View Winners');
-    assert.equal(controls(publicPayload)[0].style, ButtonStyle.Success);
-    assert.equal(controls(publicPayload)[0].emoji.name, '🏆');
-    assert.equal(controls(publicPayload)[0].disabled, undefined);
+    assert.deepEqual(f.sent.flatMap(payload => payload.allowedMentions.users), selected);
+    assert.ok(f.sent.every(payload => payload.content.length <= 2000 && payload.allowedMentions.parse.length === 0));
+    assert.deepEqual(controls(publicPayload), []);
+    const firstCount = publicPayload.allowedMentions.users.length;
+    assert.ok(firstCount > 50);
+    assert.ok(publicPayload.content.endsWith(`<@${selected[firstCount - 1]}>,`));
+    assert.ok(f.sent[1].content.startsWith(`<@${selected[firstCount]}>`));
+    assert.ok(f.sent[1].content.endsWith(`<@${selected[99]}>`));
+    assert.doesNotMatch(f.sent[1].content, /\(continued\)|Winners 51/);
 
     assertPayloadLimits({ embeds: [giveaways.buildGiveawayEmbed(ended)] });
     for (const action of ['Ended', 'Rerolled']) {
@@ -369,7 +391,7 @@ test('100 winners use one compact announcement, bounded ended embed and five com
         assert.doesNotMatch(summary, /<@\d+>/);
     }
 
-    const viewer = click(controls(publicPayload)[0].custom_id);
+    const viewer = click(legacyButton(f.draws[0]));
     const orderedStore = { ...f.store,
         async getGiveaway(id) { assert.deepEqual(viewer.order, ['defer']); return f.store.getGiveaway(id); }
     };
@@ -377,16 +399,17 @@ test('100 winners use one compact announcement, bounded ended embed and five com
     assert.deepEqual(viewer.replies, [{ flags: MessageFlags.Ephemeral }]);
     let page = viewer.edits[0];
     const shown = [];
-    for (let index = 0; index < 5; index++) {
+    for (let index = 0; index < 2; index++) {
         assertPayloadLimits(page);
         assert.deepEqual(page.allowedMentions, { parse: [] });
-        assert.equal(mentions(page).length, 20);
-        assert.ok(page.embeds[0].toJSON().description.startsWith(`**${index * 20 + 1}.** <@`));
-        assert.equal(page.embeds[0].toJSON().footer.text, `Page ${index + 1}/5 • 100 winners`);
+        assert.equal(mentions(page).length, 50);
+        assert.ok(page.embeds[0].toJSON().description.startsWith(`**${index * 50 + 1}.** <@`));
+        assert.equal(page.embeds[0].toJSON().title, `Giveaway Winners (100) — Page ${index + 1}/2`);
+        assert.equal(page.embeds[0].toJSON().footer.text, `Page ${index + 1}/2 • 100 winners`);
         assert.equal(controls(page)[0].disabled, index === 0);
-        assert.equal(controls(page)[1].disabled, index === 4);
+        assert.equal(controls(page)[1].disabled, index === 1);
         shown.push(...mentions(page));
-        if (index < 4) {
+        if (index < 1) {
             const next = click(controls(page)[1].custom_id);
             await giveaways.handleGiveawayButton(next.interaction, {});
             page = next.updates[0];
@@ -396,29 +419,117 @@ test('100 winners use one compact announcement, bounded ended embed and five com
     assert.equal(new Set(shown).size, 100);
     const previous = click(controls(page)[0].custom_id);
     await giveaways.handleGiveawayButton(previous.interaction, {});
-    assert.deepEqual(mentions(previous.updates[0]), selected.slice(60, 80));
+    assert.deepEqual(mentions(previous.updates[0]), selected.slice(0, 50));
 });
 
-test('20 winners keep their existing public congratulations and pings; 21 use the winner list', async () => {
-    for (const count of [20, 21]) {
+test('25 winners keep the inline congratulations; 26 winners are all pinged', async () => {
+    for (const count of [25, 26]) {
         const f = fixture({ count });
         const [ended, selected] = await f.end();
         const payload = f.sent[0];
         assertPayloadLimits(payload);
         assertPayloadLimits({ embeds: [giveaways.buildGiveawayEmbed(ended)] });
-        if (count === 20) {
+        if (count === 25) {
             assert.equal(payload.content, `### 🎉  Giveaway ended!\n- **Congratulations** ${selected.map(id => `<@${id}>`).join(', ')}!\nYou won **${f.initial.prize}  <:man_of_culture:1186287184106496112>**`);
-            assert.deepEqual(payload.allowedMentions, { users: selected });
+            assert.deepEqual(payload.allowedMentions, { parse: [], users: selected, roles: [], repliedUser: false });
             assert.deepEqual(controls(payload), []);
             assert.match(giveaways.drawSummary('Ended', ended, selected), new RegExp(`<@${selected[0]}>`));
         } else {
-            const viewer = click(controls(payload)[0].custom_id);
-            await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: f.store });
-            const next = click(controls(viewer.edits[0])[1].custom_id);
-            await giveaways.handleGiveawayButton(next.interaction, {});
-            assert.deepEqual(mentions(next.updates[0]), selected.slice(20));
-            assert.equal(controls(next.updates[0])[1].disabled, true);
+            assert.deepEqual(controls(payload), []);
+            assert.deepEqual(payload.allowedMentions.users, selected);
+            assert.doesNotMatch(payload.content, /View Winners/);
         }
+    }
+});
+
+test('large winner announcements continue as one comma-separated list within Discord limits', () => {
+    for (const count of [26, 50, 51, 100, 250, 500]) {
+        const f = fixture({ count });
+        for (const drawType of ['end', 'reroll']) {
+            const ids = winnerIds(count);
+            const parts = giveaways.winnerAnnouncementParts(f.initial, ids, { drawType });
+            assert.deepEqual(parts.flatMap(part => part.allowedMentions.users), ids);
+            for (const [index, part] of parts.entries()) {
+                assertPayloadLimits(part);
+                assert.deepEqual(controls(part), []);
+                assert.equal(part.content.endsWith(','), index + 1 < parts.length);
+                assert.doesNotMatch(part.content, /\*\*Winners \d+|\(continued\)/);
+                if (index > 0) assert.ok(part.content.startsWith(`<@${part.allowedMentions.users[0]}>`));
+            }
+        }
+    }
+});
+
+test('250 winners use one private five-page view with complete mentions and a dynamic giveaway link', async () => {
+    const f = fixture({ count: 250, entries: 1256 });
+    const [ended, selected] = await f.end();
+    await f.store.updateGiveaway(f.initial.giveaway_id, { message_id: '400000000000000000' });
+    const original = await originalMessage(f.store, f.initial.giveaway_id);
+    const viewer = click(controls(original)[1].custom_id, { message: { id: '400000000000000000' } });
+    await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: f.store });
+    assert.deepEqual(viewer.replies, [{ flags: MessageFlags.Ephemeral }]);
+    const shown = [];
+    let page = viewer.edits[0];
+    for (let index = 0; index < 5; index++) {
+        assertPayloadLimits(page);
+        const embed = page.embeds[0].toJSON();
+        assert.equal(embed.title, `Giveaway Winners (250) — Page ${index + 1}/5`);
+        assert.deepEqual(embed.fields.slice(0, 2).map(field => [field.name, field.inline]), [['Prize', true], ['Giveaway', true]]);
+        assert.equal(embed.fields[1].value, '[Jump to Giveaway](https://discord.com/channels/100000000000000000/200000000000000000/400000000000000000)');
+        assert.equal(controls(page)[0].emoji.name, '◀️');
+        assert.equal(controls(page)[1].emoji.name, '▶️');
+        assert.equal(mentions(page).length, 50);
+        shown.push(...mentions(page));
+        if (index < 4) {
+            const next = click(controls(page)[1].custom_id);
+            await giveaways.handleGiveawayButton(next.interaction, {});
+            page = next.updates[0];
+        }
+    }
+    assert.deepEqual(shown, selected);
+    assert.equal(ended.winner_user_ids.length, 250);
+});
+
+test('long mention tokens move intact to the next page or announcement instead of being cut', async () => {
+    const ids = Array.from({ length: 60 }, (_, index) => String(index + 1).padStart(3, '0') + '8'.repeat(180));
+    const giveaway = { giveaway_id: 'long-mentions', guild_id: '100000000000000000', status: 'ended', prize: 'Prize', winner_user_ids: ids };
+    const draw = { giveaway_id: giveaway.giveaway_id, draw_id: 'long-mentions:end', draw_type: 'end', winner_user_ids: ids };
+    const store = { async getGiveaway() { return giveaway; }, async listDraws() { return [draw]; } };
+    const viewer = click(legacyButton(draw));
+    await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: store });
+    let page = viewer.edits[0];
+    const shown = [];
+    for (;;) {
+        assertPayloadLimits(page);
+        shown.push(...mentions(page));
+        if (controls(page)[1].disabled) break;
+        const next = click(controls(page)[1].custom_id);
+        await giveaways.handleGiveawayButton(next.interaction, {});
+        page = next.updates[0];
+    }
+    assert.deepEqual(shown, ids);
+    const parts = giveaways.winnerAnnouncementParts(giveaway, ids, { drawType: 'end' });
+    assert.ok(parts.length > 1);
+    assert.deepEqual(parts.flatMap(part => [...part.content.matchAll(/<@(\d+)>/g)].map(match => match[1])), ids);
+    assert.ok(parts.every(part => part.content.length <= 2000 && part.allowedMentions.users.length <= 100));
+});
+
+test('the first winner announcement replies to the giveaway and subsequent batches do not', async () => {
+    for (const count of [25, 250, 500]) {
+        const f = fixture({ count });
+        const calls = [];
+        const source = { id: '400000000000000000', channelId: f.initial.channel_id,
+            async reply(payload) { calls.push({ kind: 'reply', payload }); return { id: 'reply-1' }; }, async edit() {} };
+        f.channel.messages.fetch = async target => typeof target === 'object' ? [] : source;
+        f.channel.send = async payload => { calls.push({ kind: 'send', payload }); return { id: `send-${calls.length}` }; };
+        await f.store.updateGiveaway(f.initial.giveaway_id, { message_id: source.id });
+        const [, selected] = await f.end();
+        assert.equal(calls[0].kind, 'reply');
+        assert.ok(calls.slice(1).every(call => call.kind === 'send'));
+        assert.equal(calls[0].payload.allowedMentions.repliedUser, false);
+        assert.deepEqual(calls.flatMap(call => call.payload.allowedMentions.users), selected);
+        assert.equal(new Set(selected).size, count);
+        assert.ok(calls.every(call => call.payload.content.length <= 2000 && call.payload.allowedMentions.users.length <= 100));
     }
 });
 
@@ -428,15 +539,15 @@ test('the actual winner count determines pagination and empty draws keep their e
         const [, selected] = await f.end();
         assert.equal(selected.length, count);
         assert.deepEqual(controls(f.sent[0]), []);
-        assert.deepEqual(f.sent[0].allowedMentions, { users: selected });
+        assert.deepEqual(f.sent[0].allowedMentions, { parse: [], users: selected, roles: [], repliedUser: false });
         if (!count) assert.match(f.sent[0].content, /Nobody joined this giveaway/);
     }
 });
 
 test('only the viewer who opened a private winner list can change its page', async () => {
-    const f = fixture({ count: 21 });
+    const f = fixture({ count: 51 });
     await f.end();
-    const viewer = click(controls(f.sent[0])[0].custom_id);
+    const viewer = click(legacyButton(f.draws[0]));
     await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: f.store });
     const nextId = controls(viewer.edits[0])[1].custom_id;
     const stranger = click(nextId, { user: { id: 'someone-else' } });
@@ -446,15 +557,15 @@ test('only the viewer who opened a private winner list can change its page', asy
     assert.match(stranger.replies[0].content, /Only the command user/);
     const next = click(nextId);
     await giveaways.handleGiveawayButton(next.interaction, {});
-    assert.deepEqual(mentions(next.updates[0]), f.draws[0].winner_user_ids.slice(20));
+    assert.deepEqual(mentions(next.updates[0]), f.draws[0].winner_user_ids.slice(50));
 });
 
 test('expired private winner pages can be reopened from the unchanged public button', async t => {
-    const f = fixture({ count: 21 });
+    const f = fixture({ count: 51 });
     await f.end();
     let now = Date.now();
     t.mock.method(Date, 'now', () => now);
-    const publicId = controls(f.sent[0])[0].custom_id;
+    const publicId = legacyButton(f.draws[0]);
     const viewer = click(publicId);
     await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: f.store });
     const privateId = controls(viewer.edits[0])[1].custom_id;
@@ -465,19 +576,19 @@ test('expired private winner pages can be reopened from the unchanged public but
     assert.deepEqual(expired.updates, []);
     const reopened = click(publicId);
     await giveaways.handleGiveawayButton(reopened.interaction, { giveawayStore: f.store });
-    assert.deepEqual(mentions(reopened.edits[0]), f.draws[0].winner_user_ids.slice(0, 20));
+    assert.deepEqual(mentions(reopened.edits[0]), f.draws[0].winner_user_ids.slice(0, 50));
     assert.notEqual(controls(reopened.edits[0])[1].custom_id, privateId);
 });
 
 test('end and historical reroll buttons resolve their saved draws after a store and process-state restart', async t => {
-    const f = fixture({ count: 21, entries: 63 });
+    const f = fixture({ count: 51, entries: 153 });
     await f.end();
     await f.end({ drawType: 'reroll' });
     await f.end({ drawType: 'reroll' });
     assert.equal(f.sent.length, 3);
     assert.equal(f.draws.length, 3);
-    assert.equal(new Set(f.sent.map(payload => controls(payload)[0].custom_id)).size, 3);
-    assert.equal(new Set(f.draws.flatMap(draw => draw.winner_user_ids)).size, 63);
+    assert.equal(new Set(f.draws.map(legacyButton)).size, 3);
+    assert.equal(new Set(f.draws.flatMap(draw => draw.winner_user_ids)).size, 153);
 
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-winner-history-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
@@ -487,7 +598,7 @@ test('end and historical reroll buttons resolve their saved draws after a store 
     await f.store.updateGiveaway(f.initial.giveaway_id, { message_id: '400000000000000000' });
     persisted.localSaveGiveaway(f.initial.giveaway_id, await f.store.getGiveaway(f.initial.giveaway_id), false);
     for (const draw of f.draws) persisted.localSaveDraw(draw.draw_id, draw, false);
-    const viewer = click(controls(f.sent[0])[0].custom_id);
+    const viewer = click(legacyButton(f.draws[0]));
     await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: persisted });
 
     const modulePath = require.resolve('../events/giveaways');
@@ -498,24 +609,24 @@ test('end and historical reroll buttons resolve their saved draws after a store 
     const oldPrivatePage = click(controls(viewer.edits[0])[1].custom_id);
     await restarted.handleGiveawayButton(oldPrivatePage.interaction, {});
     assert.match(oldPrivatePage.replies[0].content, /expired/);
-    for (const [index, announcement] of f.sent.entries()) {
-        const reopened = click(controls(announcement)[0].custom_id, { message: { id: `announcement-${index + 1}` } });
+    for (const [index] of f.sent.entries()) {
+        const reopened = click(legacyButton(f.draws[index]), { message: { id: `announcement-${index + 1}` } });
         await restarted.handleGiveawayButton(reopened.interaction, { giveawayStore: restored });
-        assert.deepEqual(mentions(reopened.edits[0]), f.draws[index].winner_user_ids.slice(0, 20));
+        assert.deepEqual(mentions(reopened.edits[0]), f.draws[index].winner_user_ids.slice(0, 50));
         const last = click(controls(reopened.edits[0])[1].custom_id);
         await restarted.handleGiveawayButton(last.interaction, {});
-        assert.deepEqual(mentions(last.updates[0]), f.draws[index].winner_user_ids.slice(20));
-        assert.equal(reopened.edits[0].embeds[0].toJSON().title, `${index ? 'Rerolled Winners' : 'Giveaway Winners'} (21)`);
+        assert.deepEqual(mentions(last.updates[0]), f.draws[index].winner_user_ids.slice(50));
+        assert.equal(reopened.edits[0].embeds[0].toJSON().title, `${index ? 'Rerolled Winners' : 'Giveaway Winners'} (51) — Page 1/2`);
     }
-    const original = click(controls(f.sent[0])[0].custom_id, { message: { id: '400000000000000000' } });
+    const original = click(legacyButton(f.draws[0]), { message: { id: '400000000000000000' } });
     await restarted.handleGiveawayButton(original.interaction, { giveawayStore: restored });
-    assert.deepEqual(mentions(original.edits[0]), f.draws.at(-1).winner_user_ids.slice(0, 20));
+    assert.deepEqual(mentions(original.edits[0]), f.draws.at(-1).winner_user_ids.slice(0, 50));
 });
 
 test('missing draws and cross-guild winner buttons never substitute the latest winners', async () => {
     const f = fixture({ count: 21 });
     await f.end();
-    const publicId = controls(f.sent[0])[0].custom_id;
+    const publicId = legacyButton(f.draws[0]);
     let drawReads = 0;
     const store = { ...f.store, async listDraws() { drawReads++; return []; } };
     const outside = click(publicId, { guildId: 'another-guild' });
@@ -531,7 +642,7 @@ test('missing draws and cross-guild winner buttons never substitute the latest w
 test('failed acknowledgement of a winner click stops before accessing storage', async () => {
     const f = fixture({ count: 21 });
     await f.end();
-    const viewer = click(controls(f.sent[0])[0].custom_id, {
+    const viewer = click(legacyButton(f.draws[0]), {
         async deferReply() { throw new Error('Interaction expired'); }
     });
     await assert.rejects(giveaways.handleGiveawayButton(viewer.interaction, {
@@ -539,7 +650,7 @@ test('failed acknowledgement of a winner click stops before accessing storage', 
     }), /Interaction expired/);
 });
 
-test('manual end and reroll commands retain the public winner button and send compact private summaries', async () => {
+test('manual end and reroll deliver all winner pings without a winner button', async () => {
     const f = fixture({ entries: 200 });
     const config = { giveawayStore: f.store, officerRoleID: 'officer' };
     const command = new Giveaways(config);
@@ -555,56 +666,60 @@ test('manual end and reroll commands retain the public winner button and send co
         };
         await command[action](interaction);
         assert.equal(publicReplies.length, 1);
-        assert.equal(controls(publicReplies[0])[0].label, 'View Winners');
-        assertPayloadLimits(publicReplies[0]);
-        assert.deepEqual(publicReplies[0].allowedMentions.users, []);
-        assert.equal(privateReplies.length, 1);
-        assert.equal(privateReplies[0].flags, MessageFlags.Ephemeral);
-        assertPayloadLimits(privateReplies[0]);
-        assert.match(privateReplies[0].content, /100 selected/);
-        assert.doesNotMatch(privateReplies[0].content, /<@\d+>/);
+        assert.match(typeof publicReplies[0] === 'string' ? publicReplies[0] : publicReplies[0].content, /100 selected/);
+        assert.equal(privateReplies.length, 0);
     }
-    assert.equal(f.sent.length, 0, 'Manual draws must not duplicate delivery in the channel');
+    assert.equal(f.sent.length, 4);
+    for (const offset of [0, 2]) {
+        assert.deepEqual(controls(f.sent[offset]), []);
+        assert.equal(f.sent.slice(offset, offset + 2).flatMap(payload => payload.allowedMentions.users).length, 100);
+    }
 });
 
-test('the existing reroll summary fallback retains its saved winner button after a transient announcement failure', async () => {
-    for (const count of [20, 21]) {
-        const f = fixture({ count, entries: count * 2 });
-        await f.end();
-        const command = new Giveaways({ giveawayStore: f.store, officerRoleID: 'officer' });
-        const attempts = [];
-        const interaction = {
-            client: f.client, user: { id: 'staff', username: 'Officer' },
+test('manual draw confirmations stay private and do not ping winners again', async () => {
+    const f = fixture({ count: 25, entries: 50 });
+    const command = new Giveaways({ giveawayStore: f.store, officerRoleID: 'officer' });
+    for (const action of ['end', 'reroll']) {
+        let deferral, summary;
+        const interaction = { client: f.client, user: { id: 'staff', username: 'Officer' },
             member: { roles: { cache: { some: predicate => predicate({ id: 'officer' }) } } },
-            options: { getString: () => f.initial.giveaway_id, getInteger: () => count },
-            async deferReply() { this.deferred = true; },
-            async editReply(payload) {
-                attempts.push(payload);
-                if (attempts.length === 1) throw new Error('Temporary response failure');
-                this.replied = true;
-                return { id: 'recovered-reroll-reply' };
-            },
-            async followUp() { assert.fail('Failed public response must use its existing summary fallback'); }
-        };
-        await command.reroll(interaction);
-        assert.equal(attempts.length, 2);
-        assert.equal(f.draws.length, 2);
-        assert.equal(f.sent.length, 1, 'Reroll must not fall back to another channel announcement');
-        const summary = attempts[1];
-        assertPayloadLimits(summary);
-        assert.match(summary.content, /Rerolled Giveaway/);
-        if (count > 20) {
-            assert.deepEqual(summary.allowedMentions, { parse: [] });
-            assert.equal(controls(summary)[0].custom_id, controls(attempts[0])[0].custom_id);
-            const viewer = click(controls(summary)[0].custom_id);
-            await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: f.store });
-            assert.deepEqual(mentions(viewer.edits[0]), f.draws[1].winner_user_ids.slice(0, 20));
-        } else {
-            assert.deepEqual(controls(summary), []);
-            assert.equal(summary.allowedMentions, undefined);
-            assert.match(summary.content, new RegExp(`<@${f.draws[1].winner_user_ids[0]}>`));
-        }
+            options: { getString: () => f.initial.giveaway_id, getInteger: () => 25 },
+            async deferReply(options) { deferral = options; this.deferred = true; },
+            async editReply(payload) { summary = payload; return { id: 'private-summary' }; } };
+        await command[action](interaction);
+        assert.equal(deferral.flags, MessageFlags.Ephemeral);
+        assert.deepEqual(summary.allowedMentions, { parse: [] });
+        assert.match(summary.content, /<@\d+>/);
     }
+    assert.equal(f.sent.length, 2);
+    assert.equal(f.sent[0].allowedMentions.users.length, 25);
+    assert.equal(f.sent[1].allowedMentions.users.length, 25);
+});
+
+test('a failed reroll announcement leaves its saved draw pending for recovery', async () => {
+    const f = fixture({ count: 20, entries: 40 });
+    await f.end();
+    f.channel.send = async () => { throw new Error('Discord unavailable'); };
+    const command = new Giveaways({ giveawayStore: f.store, officerRoleID: 'officer' });
+    const attempts = [];
+    const interaction = {
+        client: f.client, user: { id: 'staff', username: 'Officer' },
+        member: { roles: { cache: { some: predicate => predicate({ id: 'officer' }) } } },
+        options: { getString: () => f.initial.giveaway_id, getInteger: () => 20 },
+        async deferReply() { this.deferred = true; },
+        async editReply(payload) {
+            attempts.push(payload);
+            this.replied = true;
+            return { id: 'recovered-reroll-reply' };
+        },
+        async followUp() { assert.fail('Pending delivery must finish the existing private response'); }
+    };
+    await command.reroll(interaction);
+    assert.equal(attempts.length, 1);
+    assert.equal(f.draws.length, 2);
+    assert.equal(f.sent.length, 1);
+    assert.match(attempts[0], /Winner notifications are pending/);
+    assert.equal((await f.store.getGiveaway(f.initial.giveaway_id)).reroll_announcement.draw_id, f.draws[1].draw_id);
 });
 
 test('a large recovered legacy end uses its saved draw ID even if pending metadata lacks end_draw_id', async () => {
@@ -617,7 +732,7 @@ test('a large recovered legacy end uses its saved draw ID even if pending metada
     const [ended] = await f.end();
     assert.equal(ended.end_announcement_pending, false);
     assert.equal(f.draws.length, 1);
-    const viewer = click(controls(f.sent[0])[0].custom_id);
+    const viewer = click(legacyButton(saved));
     await giveaways.handleGiveawayButton(viewer.interaction, { giveawayStore: f.store });
-    assert.deepEqual(mentions(viewer.edits[0]), saved.winner_user_ids.slice(0, 20));
+    assert.deepEqual(mentions(viewer.edits[0]), saved.winner_user_ids.slice(0, 50));
 });

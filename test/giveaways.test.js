@@ -115,6 +115,22 @@ test('an unfinished end draw is resumed instead of selecting a second winner', a
     assert.deepEqual(winnerIds, ['user-2']);
 });
 
+test('a saved new-version end draw keeps its notification plan after recovery', async () => {
+    const initial = giveaway({ message_id: null });
+    const ids = Array.from({ length: 25 }, (_, index) => String(100000000000000000n + BigInt(index)));
+    const saved = { giveaway_id: initial.giveaway_id, draw_id: `${initial.giveaway_id}:end`, draw_type: 'end',
+        drawn_at: initial.ends_at, winner_user_ids: ids, notification_version: 2 };
+    const store = lifecycleStore(initial, { draws: [saved] });
+    let delivered;
+    const channel = { messages: { async fetch() { return null; } }, async send(payload) { delivered = payload; return { id: 'announcement' }; } };
+    const client = { channels: { cache: { get: () => channel }, async fetch() { return channel; } } };
+    const [ended, winners] = await endGiveaway(client, { giveawayStore: store }, initial, { drawType: 'end' });
+    assert.equal(ended.end_notification_version, 2);
+    assert.deepEqual(winners, ids);
+    assert.deepEqual(delivered.allowedMentions.users, ids);
+    assert.deepEqual(delivered.allowedMentions.parse, []);
+});
+
 test('a stale Join button cannot add an entry after the giveaway has ended', async () => {
     const ended = giveaway({
         status: GIVEAWAY_ENDED,
@@ -200,7 +216,7 @@ test('a terminal fallback update can still close an active MySQL giveaway', () =
     assert.deepEqual(mergeGiveawaySyncState(local, remote), local);
 });
 
-test('a failed slash-command response never falls back to replying to the giveaway message', async () => {
+test('a manual end sends the winner announcement independently of an expired slash response', async () => {
     const initial = giveaway({ message_id: null });
     const store = lifecycleStore(initial, {
         entries: [{ giveaway_id: initial.giveaway_id, user_id: 'user-1', joined_at: initial.starts_at, left_at: null }]
@@ -210,7 +226,7 @@ test('a failed slash-command response never falls back to replying to the giveaw
         channels: {
             cache: {
                 get: () => ({
-                    send: async () => { sentToChannel += 1; }
+                    send: async () => { sentToChannel += 1; return { id: 'announcement' }; }
                 })
             },
             fetch: async () => null
@@ -229,7 +245,7 @@ test('a failed slash-command response never falls back to replying to the giveaw
         announceInteraction: interaction
     });
 
-    assert.equal(sentToChannel, 0);
+    assert.equal(sentToChannel, 1);
 });
 
 class MirrorDb {

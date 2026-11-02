@@ -10,6 +10,7 @@ const path = require('node:path');
 const { Events } = require('discord.js');
 const { DiscordDiagnosticLogger, redactDiagnostic } = require('../utils/discordDiagnostics.js');
 const { CommandRegistration } = require('../utils/commandRegistration.js');
+const { InteractionDiagnostics } = require('../utils/interactionDiagnostics.js');
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
@@ -54,6 +55,35 @@ test('actionable warnings before Discord login stay in memory, then post once wi
     assert.equal(f.sent[0].code, 'ECONNREFUSED');
     assert.equal(f.sent[0].component, 'MySQL');
     assert.equal(f.sent[0].timestamp, '2026-10-03T09:25:00.000Z');
+    f.logger.stop();
+});
+
+test('late-arrival timing information stays local while near-expiry acknowledgements still alert', async () => {
+    const f = fixture();
+    f.consoleObject.info = (...args) => f.printed.push(['info', ...args]);
+    f.logger.start();
+    let elapsed = 0;
+    const rest = new EventEmitter();
+    const tracker = new InteractionDiagnostics({ rest, consoleObject: f.consoleObject, now: () => 10000,
+        clock: () => elapsed, eventLoopUtilization: () => ({ active: 0 }) });
+    for (const [id, createdTimestamp] of [['123', 8190], ['456', 7750]]) {
+        elapsed = 0;
+        const interaction = { id, commandName: 'giveaway', createdTimestamp,
+            async respond() {
+                elapsed += 261;
+                rest.emit('response', { path: `/interactions/${id}/private-token/callback` }, { status: 204 });
+            } };
+        tracker.track(interaction);
+        await interaction.respond();
+        if (id === '123') {
+            assert.equal(f.sent.length, 0);
+            assert.equal(f.printed[0][0], 'info');
+            assert.match(f.printed[0][1], /arrived late; acknowledgement succeeded/u);
+        }
+    }
+    assert.equal(f.sent.length, 1);
+    assert.match(f.sent[0].message, /acknowledgement was slow/u);
+    tracker.stop();
     f.logger.stop();
 });
 

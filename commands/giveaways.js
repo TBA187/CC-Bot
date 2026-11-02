@@ -9,12 +9,12 @@ const {
     GIVEAWAY_ACTIVE,
     GIVEAWAY_DELETED,
     GIVEAWAY_ENDED,
+    MAX_WINNERS,
     GiveawayFinalizationDeferred,
     buildGiveawayListEmbeds,
     canManageGiveaways,
     deleteGiveawayMessage,
     drawSummary,
-    drawWinnerComponents,
     endGiveaway,
     giveawayAutocomplete,
     giveawayChannelOnlyError,
@@ -26,7 +26,8 @@ const {
     parseColor,
     parseGiveawayEndTime,
     refreshGiveawayMessage,
-    resolveRoleIds,
+    resolveRequiredRoleIds,
+    resolveGiveawayPings,
     sendEmbedFollowUp,
     replyWithGiveawayMessage,
     sendParticipantEmbeds,
@@ -36,6 +37,7 @@ const {
     wakeGiveawayLoop,
     withGiveawayLock
 } = require('../events/giveaways');
+const { setInteractionContext } = require('../utils/interactionDiagnostics');
 
 class Giveaways {
     constructor(config) {
@@ -51,15 +53,15 @@ class Giveaways {
                     .setDescription('Create a giveaway.')
                     .addStringOption(o =>
                         o.setName('duration')
-                            .setDescription("End time. Use '1d 5h 30m' or UTC datetime like '2026-07-01 18:30'.")
+                            .setDescription("Enter a relative time ('24h' or '1d 5h 30m') or a UTC datetime (2026-07-01 18:30).")
                             .setRequired(true)
                     )
                     .addIntegerOption(o =>
                         o.setName('winners')
-                            .setDescription('Winners to draw (max 100). Only 20 winners are pinged. For more, a View Winners button is included.')
+                            .setDescription('Winners to draw (max 500 winners).')
                             .setRequired(true)
                             .setMinValue(1)
-                            .setMaxValue(100)
+                            .setMaxValue(MAX_WINNERS)
                     )
                     .addStringOption(o =>
                         o.setName('prize')
@@ -68,8 +70,8 @@ class Giveaways {
                             .setMaxLength(512)
                     )
                     .addStringOption(o =>
-                        o.setName('name')
-                            .setDescription('Optional giveaway title. Leave empty to use Crow Control Giveaway  🎉.')
+                        o.setName('title')
+                            .setDescription('Giveaway title. Leave empty to use the default title: Crow Control Giveaway 🎉')
                             .setRequired(false)
                             .setMaxLength(256)
                     )
@@ -81,24 +83,24 @@ class Giveaways {
                     )
                     .addStringOption(o =>
                         o.setName('host')
-                            .setDescription('Giveaway host. Leave empty to use the Giveaway hosts @username.')
+                            .setDescription('Enter a different giveaway host. Leave empty to use your name.')
                             .setRequired(false)
                             .setMaxLength(256)
                     )
                     .addStringOption(o =>
                         o.setName('color')
-                            .setDescription('Embed color. Hex or names like neon green, dark red, navy blue. Default #39FF14.')
+                            .setDescription('Enter a hex code (#RRGGBB) or a color name (red, dark blue). Default color: #39FF14')
                             .setRequired(false)
                             .setMaxLength(64)
                     )
                     .addAttachmentOption(o =>
                         o.setName('thumbnail')
-                            .setDescription('Image for Giveaway (appears at the top right of the embed). Leave empty for Crow Control logo.')
+                            .setDescription('Image for Giveaway (appears at the top right of the embed). Leave empty to use Crow Control logo.')
                             .setRequired(false)
                     )
                     .addStringOption(o =>
                         o.setName('pin_giveaway')
-                            .setDescription('Pin the giveaway to the channel')
+                            .setDescription('Pin the giveaway in the channel (Default: No).')
                             .setRequired(false)
                             .addChoices(
                                 { name: 'Yes', value: 'yes' },
@@ -107,13 +109,13 @@ class Giveaways {
                     )
                     .addStringOption(o =>
                         o.setName('ping_roles')
-                            .setDescription('Roles to ping for the giveaway. Mention roles or enter role names. Empty = no pings.')
+                            .setDescription('Select roles or members to ping (type @ to search). Leave empty for no pings.')
                             .setRequired(false)
                             .setMaxLength(1000)
                     )
                     .addStringOption(o =>
                         o.setName('required_role')
-                            .setDescription('Officer-only: required role(s) to enter. Only one matching role is needed.')
+                            .setDescription('Select roles required to enter the giveaway. Only one matching role is needed (Officer-only).')
                             .setRequired(false)
                             .setMaxLength(1000)
                     )
@@ -129,15 +131,15 @@ class Giveaways {
                     )
                     .addStringOption(o =>
                         o.setName('duration')
-                            .setDescription("New end time. Use '1d 5h 30m' or UTC datetime like '2026-07-01 18:30'.")
+                            .setDescription("New duration: Enter a relative time ('24h' or '1d 5h 30m') or a UTC datetime (2026-07-01 18:30).")
                             .setRequired(false)
                     )
                     .addIntegerOption(o =>
                         o.setName('winners')
-                            .setDescription('New number of winners.')
+                            .setDescription('New amount of winners to draw (max 500).')
                             .setRequired(false)
                             .setMinValue(1)
-                            .setMaxValue(100)
+                            .setMaxValue(MAX_WINNERS)
                     )
                     .addStringOption(o =>
                         o.setName('prize')
@@ -146,20 +148,20 @@ class Giveaways {
                             .setMaxLength(512)
                     )
                     .addStringOption(o =>
-                        o.setName('name')
+                        o.setName('title')
                             .setDescription('New giveaway title.')
                             .setRequired(false)
                             .setMaxLength(256)
                     )
                     .addStringOption(o =>
                         o.setName('host')
-                            .setDescription('New host text.')
+                            .setDescription('New giveaway host.')
                             .setRequired(false)
                             .setMaxLength(256)
                     )
                     .addStringOption(o =>
                         o.setName('color')
-                            .setDescription('New embed color. Accepts hex code or names like dark red, light green, navy blue.')
+                            .setDescription('New embed color: Enter hex code (#RRGGBB) or color name (red, dark blue). Default: #39FF14')
                             .setRequired(false)
                             .setMaxLength(64)
                     )
@@ -170,19 +172,19 @@ class Giveaways {
                     )
                     .addStringOption(o =>
                         o.setName('ping_roles')
-                            .setDescription('Role(s) to ping in the giveaway message. Leave empty to keep current pings.')
+                            .setDescription('Select roles or members to ping (type @ to search). Leave empty to keep current pings.')
                             .setRequired(false)
                             .setMaxLength(1000)
                     )
                     .addStringOption(o =>
                         o.setName('required_role')
-                            .setDescription('Officer-only: required role(s) to enter. Only one matching role is needed.')
+                            .setDescription('Select roles required to enter the giveaway. Only one matching role is needed (Officer-only).')
                             .setRequired(false)
                             .setMaxLength(1000)
                     )
                     .addBooleanOption(o =>
                         o.setName('remove_ping_roles')
-                            .setDescription('Remove the current ping roles.')
+                            .setDescription('Remove the current role and member pings.')
                             .setRequired(false)
                     )
                     .addBooleanOption(o =>
@@ -222,10 +224,10 @@ class Giveaways {
                     )
                     .addIntegerOption(o =>
                         o.setName('winners')
-                            .setDescription("Number of new winners. Defaults to the giveaway's winner count.")
+                            .setDescription("New winners to draw (max 500). Leave empty to use the giveaway's default winner count.")
                             .setRequired(false)
                             .setMinValue(1)
-                            .setMaxValue(100)
+                            .setMaxValue(MAX_WINNERS)
                     )
             )
             .addSubcommand(sub =>
@@ -284,14 +286,14 @@ class Giveaways {
         let winners;
         let endsAt;
         let colorHex;
-        let pingRoleIds;
+        let pings;
         let requiredRoleIds;
         try {
             winners = validateWinnerCount(interaction.options.getInteger('winners', true));
             endsAt = parseGiveawayEndTime(interaction.options.getString('duration', true));
             colorHex = parseColor(interaction.options.getString('color'));
-            pingRoleIds = resolveRoleIds(interaction.guild, interaction.options.getString('ping_roles'));
-            requiredRoleIds = resolveRoleIds(interaction.guild, requiredRoleText);
+            pings = resolveGiveawayPings(interaction.guild, interaction.options.getString('ping_roles'));
+            requiredRoleIds = resolveRequiredRoleIds(interaction.guild, requiredRoleText);
         } catch (err) {
             return interaction.reply({ content: err.message, flags: MessageFlags.Ephemeral });
         }
@@ -303,7 +305,7 @@ class Giveaways {
         await interaction.deferReply();
 
         const giveawayId = makeGiveawayId();
-        const name = interaction.options.getString('name');
+        const title = interaction.options.getString('title');
         const host = interaction.options.getString('host');
         const thumbnail = interaction.options.getAttachment('thumbnail');
         const pinGiveaway = (interaction.options.getString('pin_giveaway') || 'no') === 'yes';
@@ -313,7 +315,7 @@ class Giveaways {
             guild_id: interaction.guildId,
             channel_id: interaction.channelId,
             message_id: null,
-            name: name?.trim() || null,
+            name: title?.trim() || null,
             description: normalizeGiveawayDescription(interaction.options.getString('description')),
             prize: interaction.options.getString('prize', true).trim(),
             host_text: host?.trim() || interaction.user.toString(),
@@ -322,7 +324,8 @@ class Giveaways {
             created_by_id: interaction.user.id,
             created_by_name: this.userDisplayName(interaction.member || interaction.user),
             winners_total: winners,
-            ping_role_ids: pingRoleIds,
+            ping_role_ids: pings.roleIds,
+            ping_user_ids: pings.userIds,
             required_role_ids: requiredRoleIds,
             required_role_id: requiredRoleIds[0] || null,
             status: GIVEAWAY_ACTIVE,
@@ -384,9 +387,13 @@ class Giveaways {
             if (duration) updates.ends_at = parseGiveawayEndTime(duration).toISOString();
             if (winners !== null) updates.winners_total = validateWinnerCount(winners);
             if (color) updates.color_hex = parseColor(color);
-            if (pingRoles) updates.ping_role_ids = resolveRoleIds(interaction.guild, pingRoles);
+            if (pingRoles) {
+                const pings = resolveGiveawayPings(interaction.guild, pingRoles);
+                updates.ping_role_ids = pings.roleIds;
+                updates.ping_user_ids = pings.userIds;
+            }
             if (requiredRole) {
-                const requiredRoleIds = resolveRoleIds(interaction.guild, requiredRole);
+                const requiredRoleIds = resolveRequiredRoleIds(interaction.guild, requiredRole);
                 updates.required_role_ids = requiredRoleIds;
                 updates.required_role_id = requiredRoleIds[0] || null;
             }
@@ -395,18 +402,21 @@ class Giveaways {
         }
 
         const prize = interaction.options.getString('prize');
-        const name = interaction.options.getString('name');
+        const title = interaction.options.getString('title');
         const host = interaction.options.getString('host');
         const thumbnail = interaction.options.getAttachment('thumbnail');
         if (prize) updates.prize = prize.trim();
-        if (name) updates.name = name.trim();
+        if (title) updates.name = title.trim();
         if (host) {
             updates.host_text = host.trim();
             updates.host_display_name = null;
             updates.host_user_id = null;
         }
         if (thumbnail) updates.thumbnail_url = thumbnail.url;
-        if (interaction.options.getBoolean('remove_ping_roles') === true) updates.ping_role_ids = [];
+        if (interaction.options.getBoolean('remove_ping_roles') === true) {
+            updates.ping_role_ids = [];
+            updates.ping_user_ids = [];
+        }
         if (interaction.options.getBoolean('remove_required_role') === true) {
             updates.required_role_ids = [];
             updates.required_role_id = null;
@@ -432,7 +442,7 @@ class Giveaways {
             return interaction.reply({ content: "You don't have permission.", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply();
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         const giveawayId = interaction.options.getString('giveaway', true);
         const record = await this.giveawayStore.getGiveaway(giveawayId);
         if (!record || record.status !== GIVEAWAY_ACTIVE && !record.end_announcement_pending) {
@@ -465,11 +475,11 @@ class Giveaways {
 
         const summary = drawSummary('Ended', ended, winnerIds, interaction.guild);
         if (interaction.replied) {
-            await interaction.followUp({ content: summary, flags: MessageFlags.Ephemeral });
+            await interaction.followUp({ content: summary, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
         } else if (interaction.deferred) {
-            await interaction.editReply({ content: summary });
+            await interaction.editReply({ content: summary, allowedMentions: { parse: [] } });
         } else {
-            await interaction.reply({ content: summary, flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: summary, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
         }
     }
 
@@ -503,7 +513,7 @@ class Giveaways {
             return interaction.reply({ content: "You don't have permission.", flags: MessageFlags.Ephemeral });
         }
 
-        await interaction.deferReply();
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         const giveawayId = interaction.options.getString('giveaway', true);
         const record = await this.giveawayStore.getGiveaway(giveawayId);
@@ -512,6 +522,9 @@ class Giveaways {
         }
         if (record.end_announcement_pending) {
             return interaction.editReply('The initial giveaway announcement is still pending. Please wait for it to finish.');
+        }
+        if (record.reroll_announcement?.draw_id) {
+            return interaction.editReply('The previous reroll announcement is still pending. Please wait for it to finish.');
         }
         if (!giveawayEndedWithinRerollWindow(record)) {
             return interaction.editReply('The 48-hour reroll window for that giveaway has expired.');
@@ -524,32 +537,37 @@ class Giveaways {
             return interaction.editReply(err.message);
         }
 
-        let rerolled, winnerIds, draw;
+        let rerolled, winnerIds;
         try {
-            [rerolled, winnerIds, draw] = await endGiveaway(interaction.client, this.config, record, {
+            [rerolled, winnerIds] = await endGiveaway(interaction.client, this.config, record, {
                 actor: interaction.user,
                 drawType: 'reroll',
                 winnerCount,
                 announceInteraction: interaction
             });
         } catch (err) {
-            if (!(err instanceof GiveawayFinalizationDeferred)) throw err;
-            return interaction.editReply(err.message);
+            if (!(err instanceof GiveawayFinalizationDeferred) && !this.giveawayStore.db?.isDatabaseUnavailableError?.(err)) throw err;
+            const saved = await this.giveawayStore.getGiveaway(giveawayId).catch(() => null);
+            if (saved?.reroll_announcement?.draw_id) {
+                return interaction.editReply('The reroll was saved. Winner notifications are pending and will retry automatically.');
+            }
+            return interaction.editReply(err instanceof GiveawayFinalizationDeferred ? err.message : 'Giveaway storage is temporarily unavailable. Please try again shortly.');
         }
 
         if (rerolled.status !== GIVEAWAY_ENDED) {
             return interaction.editReply('That ended giveaway could not be found.');
         }
+        if (rerolled.reroll_announcement?.draw_id) {
+            return interaction.editReply('The reroll was saved. Winner notifications are pending and will retry automatically.');
+        }
 
         const summary = drawSummary('Rerolled', rerolled, winnerIds, interaction.guild);
         if (interaction.replied) {
-            await interaction.followUp({ content: summary, flags: MessageFlags.Ephemeral });
+            await interaction.followUp({ content: summary, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
         } else if (interaction.deferred) {
-            const components = drawWinnerComponents(rerolled, winnerIds, draw?.draw_id);
-            await interaction.editReply({ content: summary,
-                ...(components.length ? { components, allowedMentions: { parse: [] } } : {}) });
+            await interaction.editReply({ content: summary, allowedMentions: { parse: [] } });
         } else {
-            await interaction.reply({ content: summary, flags: MessageFlags.Ephemeral });
+            await interaction.reply({ content: summary, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
         }
     }
 
@@ -584,6 +602,9 @@ class Giveaways {
     async handleAutocomplete(interaction) {
         if (interaction.commandName !== 'giveaway') return;
         const subcommand = interaction.options.getSubcommand();
+        const focused = interaction.options.getFocused(true);
+        setInteractionContext(interaction, { phase: `autocomplete ${subcommand}/${focused.name}` });
+        if (focused.name !== 'giveaway') return interaction.respond([]);
         if (subcommand === 'edit' || subcommand === 'end') {
             return interaction.respond(await giveawayAutocomplete(interaction, this.config, { status: GIVEAWAY_ACTIVE }));
         }

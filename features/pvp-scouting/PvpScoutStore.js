@@ -13,6 +13,10 @@ const { buildReviewLearning } = require('./ScoutReviewLearning.js');
 const { reportContextSpecies, splitScoutText } = require('./PokemonTeamParser.js');
 
 const MISSING_TEAM_REASON = 'The scout report names an opponent but contains no Pokémon team information or screenshot.';
+const REOPEN_RESOLVED_CORRECTION_WINDOW = `ON DUPLICATE KEY UPDATE
+    started_at_ms = IF(status = 'resolved', NULL, started_at_ms),
+    due_at_ms = IF(status = 'resolved', NULL, due_at_ms),
+    status = IF(status = 'resolved', 'waiting', status)`;
 
 function publicLookupWhere(ignNormalized) {
     return `root.channel_id = ? ${ignNormalized === null ? "AND COALESCE(root.ign_normalized, '') <> ''" : 'AND root.ign_normalized = ?'}
@@ -305,7 +309,8 @@ class PvpScoutStore {
         // rows and protected officer edits retain their existing review behavior.
         if (record.deferReview && record.reviewStatus === 'pending'
             && !previous?.reviewed_by_id && !previous?.staffOverrides?.locked && !previous?.staffOverrides?.hidden) {
-            await this.reserveCorrectionWindow(record.messageId);
+            await this.reserveCorrectionWindow(record.messageId, this.channelId,
+                { reopenResolved: Boolean(previous && previous.review_status !== 'pending') });
         }
         const hash = contentHash(record);
         const params = [
@@ -733,11 +738,12 @@ class PvpScoutStore {
         return updated;
     }
 
-    async reserveCorrectionWindow(messageId, channelId = this.channelId) {
+    async reserveCorrectionWindow(messageId, channelId = this.channelId, { reopenResolved = false } = {}) {
         await this.ensureSchema();
         await this.db.query(`INSERT IGNORE INTO pvp_scout_correction_windows (message_id, channel_id, status)
             SELECT ?, ?, IF(EXISTS (SELECT 1 FROM pvp_scout_review_alerts
-                WHERE message_id = ? AND channel_id = ?), 'escalated', 'waiting')`,
+                WHERE message_id = ? AND channel_id = ?), 'escalated', 'waiting')
+            ${reopenResolved ? REOPEN_RESOLVED_CORRECTION_WINDOW : ''}`,
         [String(messageId), String(channelId), String(messageId), String(channelId)]);
     }
 
@@ -843,7 +849,8 @@ class PvpScoutStore {
                 WHERE message_id = ? AND channel_id = ? AND review_status = 'not_required'
                   AND classification = 'scout' AND opponent_ign IS NOT NULL AND is_deleted = 0
                   AND reviewed_by_id IS NULL
-                  AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(staff_overrides_json, '$.locked')), 'false') <> 'true'`,
+                  AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(staff_overrides_json, '$.locked')), 'false') <> 'true'
+                ${REOPEN_RESOLVED_CORRECTION_WINDOW}`,
             [String(rootId), String(channelId)]);
         }
         const [result] = await this.db.query(hasInformation ? `

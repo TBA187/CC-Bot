@@ -66,14 +66,57 @@ test('the reporting member cannot become their own opponent even on a labelled O
     assert.equal(parsed.reviewStatus, 'pending');
 });
 
-test('historical mistakes in broad first-line patterns do not demote a clear team heading', () => {
-    const sourceStats = new Map([[reviewPatternKey('first_line', false, 'none'),
-        { confirmed: 4, changedIgn: 3, rejected: 0 }]]);
-    const parsed = extractScoutData({ content: 'Miltos7\nHeatran: Taunt\nClefable: Moonblast', attachments: [] }, {
-        reviewLearning: { sourceStats }
+test('roster membership does not change validation for clear typed or screenshot opponents', () => {
+    for (const ign of ['Twinsoul', 'Charank358']) {
+        const fixtures = [
+            { message: { content: `${ign}\nHeatran: Taunt\nClefable: Moonblast`, attachments: [] } },
+            { message: { content: `Opponent IGN: ${ign}\nHeatran: Taunt`, attachments: [] } },
+            { message: { content: '', attachments: [image] }, ocrResults: [{ attachmentId: image.id,
+                text: `Inspect: ${ign}\nName: ${ign}\nPvP\nRating: 383\nWins: 317\nLosses: 169` }] },
+            { message: { content: ign, attachments: [image] }, ocrResults: [{ attachmentId: image.id,
+                text: `Opponent IGN: ${ign}\nZapdos, Keldeo, Ditto` }] }
+        ];
+        for (const { message, ocrResults = [] } of fixtures) {
+            const baseline = extractScoutData(message, { ocrResults });
+            const parsed = extractScoutData(message, { ocrResults,
+                memberContext: { authorNames: ['Reporter'], memberNames: ['Reporter', ign] } });
+            assert.equal(parsed.ign, ign);
+            assert.equal(parsed.reviewStatus, 'not_required');
+            assert.deepEqual(parsed, baseline);
+        }
+    }
+});
+
+test('guild-member opponents still need review when names conflict or evidence is weak', () => {
+    const memberContext = { authorNames: ['Reporter'], memberNames: ['Reporter', 'Twinsoul'] };
+    const conflict = extractScoutData({ content: 'Opponent IGN: Twinsoul', attachments: [image] }, {
+        memberContext, ocrResults: [{ attachmentId: image.id, text: 'Opponent IGN: Miltos7' }]
     });
-    assert.equal(parsed.ign, 'Miltos7');
-    assert.equal(parsed.reviewStatus, 'not_required');
+    assert.equal(conflict.reviewStatus, 'pending');
+    assert.match(conflict.reviewReason, /different opponents/u);
+    const weak = extractScoutData({ content: 'Twinsoul', attachments: [image] }, { memberContext });
+    assert.equal(weak.reviewStatus, 'pending');
+    assert.match(weak.reviewReason, /unlabeled line/u);
+});
+
+for (const [source, content] of [
+    ['named_report', 'Miltos7 -> Heatran: Taunt\nClefable: Moonblast'],
+    ['leading_ign_team', 'Miltos7\nHeatran: Taunt\nClefable: Moonblast'],
+    ['first_line', '> Miltos7\nHeatran: Taunt\nClefable: Moonblast'],
+    ['numbered_team_heading', '> Miltos7\n1. Heatran: Taunt\n2. Clefable: Moonblast\n3. Keldeo: Scald\n4. Zapdos: Roost']
+]) test(`populated ${source} review history accepts clear opponents with or without a roster match`, () => {
+    for (const hasImage of [false, true]) for (const isMember of [false, true]) {
+        const message = { content, attachments: hasImage ? [image] : [] };
+        const baseline = extractScoutData(message);
+        assert.equal(baseline.ignSource, source);
+        const sourceStats = new Map([[reviewPatternKey(source, hasImage, 'none'),
+            { confirmed: 4, changedIgn: 3, rejected: 0 }]]);
+        const parsed = extractScoutData(message, { reviewLearning: { sourceStats },
+            memberContext: { authorNames: ['Reporter'], memberNames: isMember ? ['Reporter', 'Miltos7'] : ['Reporter'] } });
+        assert.equal(parsed.ign, 'Miltos7');
+        assert.equal(parsed.reviewStatus, 'not_required');
+        assert.deepEqual(parsed, baseline);
+    }
 });
 
 test('off-topic generic names remain ignored', () => {

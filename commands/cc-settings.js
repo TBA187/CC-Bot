@@ -33,9 +33,9 @@ function settingsPayload(interaction, selected) {
     const row = new ActionRowBuilder().addComponents(
         ...Object.entries(SERVERS).map(([key, server]) => new ButtonBuilder()
             .setCustomId(`${PREFIX}${key}:${interaction.user.id}`).setLabel(server.label)
-            .setEmoji(server.emoji).setStyle(ButtonStyle.Secondary)),
+            .setEmoji(server.emoji).setStyle(key === selected ? ButtonStyle.Success : ButtonStyle.Secondary)),
         new ButtonBuilder().setCustomId(`${PREFIX}notifications:${interaction.user.id}`)
-            .setLabel('Notifications').setEmoji('🔔').setStyle(ButtonStyle.Primary));
+            .setLabel('Notifications').setEmoji('🔔').setStyle(ButtonStyle.Secondary));
     return { embeds: [embed], components: [row], attachments: [],
         files: [new AttachmentBuilder(path.join(__dirname, '../images/cc_logo.webp'), { name: 'cc_logo.webp' })],
         allowedMentions: { parse: [] } };

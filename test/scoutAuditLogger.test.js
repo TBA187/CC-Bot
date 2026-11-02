@@ -4,6 +4,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ScoutAuditLogger, auditPayload, diagnosticPayload, recoveryPayload, publishedPayload } = require('../features/pvp-scouting/ScoutAuditLogger.js');
+const { PvpScoutIngestor } = require('../features/pvp-scouting/PvpScoutIngestor.js');
 
 function event(action = 'edited') {
     return { action, actorId: '291142291073269761', messageId: '1350059044102078494', reportId: '1350059044102078494',
@@ -73,9 +74,52 @@ test('automatic publication logs use the report ID, logo, timestamp and correct 
     assert.equal(embed.footer.icon_url, 'attachment://cc_logo.webp');
     assert.equal(embed.timestamp, '2026-10-03T09:30:00.000Z');
     assert.equal(embed.fields.find(field => field.name === 'PvP Rating').value, '318');
+    assert.equal(embed.fields.some(field => field.name === 'Member Notice'), false);
     assert.deepEqual(payload.allowedMentions, { parse: [] });
     assert.equal(payload.nonce, 'sp:1500728954083086407');
     assert.equal(payload.enforceNonce, true);
+});
+
+test('Gold and Silver publication logs show an inline notice only for current or former opponents', async t => {
+    for (const server of ['gold', 'silver']) {
+        const sent = [], guild = { id: 'guild' };
+        const client = { guilds: { cache: new Map([['guild', guild]]) },
+            channels: { cache: new Map([['log', { guildId: 'guild', async send(payload) { sent.push(payload); } }]]) } };
+        const logger = new ScoutAuditLogger({ client, guildId: 'guild', channelId: 'log' });
+        let identity = null;
+        const ingestor = new PvpScoutIngestor({ server, client, guildId: 'guild', channelId: `${server}-channel`,
+            store: { auditLogger: logger }, ocr: {}, rosterStore: { async noticeForIgn(guildId, ign, actualGuild) {
+                assert.equal(guildId, 'guild'); assert.equal(ign, 'Twin_soul'); assert.equal(actualGuild, guild);
+                return identity;
+            } } });
+        t.after(() => ingestor.stop());
+        for (identity of [null, { type: 'friend' }, { type: 'member', status: 'current' }, { type: 'member', status: 'former' }]) {
+            await ingestor.feedback.onPublished({ ign: 'Twin_soul', reportId: '123', messageId: '124', sources: [] });
+            await logger.flush();
+            const payload = sent.at(-1), fields = payload.embeds[0].toJSON().fields;
+            if (identity?.type === 'member') {
+                const sourceIndex = fields.findIndex(field => field.name === 'Source messages');
+                assert.equal(fields[sourceIndex].inline, true);
+                assert.deepEqual(fields[sourceIndex + 1], { name: 'Member Notice',
+                    value: '**Twin\\_soul** is a current/former guild member.', inline: true });
+            } else assert.equal(fields.some(field => field.name === 'Member Notice'), false);
+            assert.deepEqual(payload.allowedMentions, { parse: [] });
+        }
+        assert.equal(sent.length, 4);
+    }
+});
+
+test('a failed membership lookup still publishes the success log without a member notice', async t => {
+    const warnings = [], publications = [];
+    t.mock.method(console, 'warn', text => warnings.push(text));
+    const ingestor = new PvpScoutIngestor({ guildId: 'guild', channelId: 'gold-channel', ocr: {},
+        store: { auditLogger: { published(event) { publications.push(event); } } },
+        rosterStore: { async noticeForIgn() { throw new Error('Controlled roster failure'); } } });
+    t.after(() => ingestor.stop());
+    await ingestor.feedback.onPublished({ ign: 'Twinsoul', messageId: '123' });
+    assert.equal(publications.length, 1);
+    assert.equal(publications[0].isGuildMember, false);
+    assert.equal(warnings.length, 1);
 });
 
 test('error and warning messages ping only the owner above the branded embed', () => {

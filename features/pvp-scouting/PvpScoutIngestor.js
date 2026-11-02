@@ -10,7 +10,7 @@ const { ScoutMessageFeedback, feedbackOutcome } = require('./ScoutMessageFeedbac
 const { contentHash, scoutVersion } = require('./PvpScoutStore.js');
 const { runtimeActivity } = require('../../utils/runtimeActivity.js');
 
-const { isSafeScoutTypo } = require('./ScoutEditPolicy.js');
+const { canAutoApplyScoutEdit } = require('./ScoutEditPolicy.js');
 
 const EDIT_REVIEW_WINDOW_MS = 24 * 60 * 60 * 1000;
 const HISTORY_PAGE_SIZE = 100;
@@ -235,7 +235,17 @@ class PvpScoutIngestor {
             diagnostics: this.diagnostics,
             onReview: async messageId => this.notifyNewReview({ message_id: messageId }),
             recheck: async messageId => this.recheckCorrection(messageId),
-            onPublished: async event => { this.store.auditLogger?.published(event); } });
+            onPublished: async event => {
+                if (!this.store.auditLogger?.published) return;
+                let identity = null;
+                try {
+                    identity = await this.rosterStore?.noticeForIgn(this.guildId, event.ign,
+                        this.client?.guilds?.cache?.get(this.guildId));
+                } catch (error) {
+                    console.warn(`${this.logPrefix} Could not check guild membership for the scout publication log: ${error.message}`);
+                }
+                this.store.auditLogger.published({ ...event, isGuildMember: identity?.type === 'member' });
+            } });
     }
 
     get logPrefix() {
@@ -637,6 +647,7 @@ class PvpScoutIngestor {
     }
 
     async handleUpdate(message) {
+        const receivedAt = Date.now();
         message = this.editSnapshot(message);
         const result = await this.enqueueMessage(message, async () => {
             let current = message;
@@ -645,33 +656,25 @@ class PvpScoutIngestor {
             const previous = await this.store.getMessage(current.id);
             const previousEdit = previous ? await this.store.getEditReview(current.id) : null;
             const logBefore = previousEdit?.status === 'pending' ? previousEdit.after : previous;
-            const protectedScout = previous && !previous.is_deleted
-                && ['scout', 'review'].includes(previous.classification)
-                && previous.review_status !== 'not_scout';
+            const protectedScout = previous && !previous.is_deleted;
             if (protectedScout) {
                 const proposal = await this.buildRecord(current);
                 if (this.stopped) return null;
-                // Parser retries and verified spelling corrections may publish automatically.
-                // All other edits stay protected, including historical reports.
                 const latest = await this.store.getMessage(current.id);
                 const existingEdit = await this.store.getEditReview(current.id);
                 const root = latest?.root_message_id && String(latest.root_message_id) !== String(current.id)
                     ? await this.store.getMessage(latest.root_message_id) : null;
                 const rootEdit = root?.review_status === 'pending' ? await this.store.getEditReview(root.message_id) : null;
-                const protectedGroup = root && (root.is_deleted || root.reviewed_by_id || root.staffOverrides?.locked
-                    || root.staffOverrides?.hidden || rootEdit?.status === 'pending'
-                    || root.opponent_ign && root.review_status !== 'pending');
-                const retry = latest?.review_status === 'pending' && !latest.reviewed_by_id
-                    && !latest.staffOverrides?.locked && !latest.staffOverrides?.hidden
-                    && existingEdit?.status !== 'pending' && !protectedGroup;
-                const burst = await this.store.isHistoricalEditBurst?.(latest || previous, proposal) || false;
-                const autoApproved = !burst && !protectedGroup && existingEdit?.status !== 'pending'
-                    && isSafeScoutTypo(latest || previous, proposal);
-                if ((retry && !burst) || autoApproved) {
-                    const saved = await this.store.saveMessage({ ...proposal, deferReview: true });
+                const editable = canAutoApplyScoutEdit(latest || previous, proposal,
+                    { root, pendingEdit: existingEdit, rootEdit, now: receivedAt });
+                if (editable) {
+                    const saved = await this.store.saveMessage({ ...proposal,
+                        createdAt: scoutVersion(latest || previous).createdAt, deferReview: true });
                     await this.rebuildGroups();
-                    return this.logMemberEdit({ saved, message: current, stagedEdit: false, autoApproved, logBefore, logAfter: proposal });
+                    return this.logMemberEdit({ saved, message: current, stagedEdit: false, autoApproved: true,
+                        logBefore, logAfter: proposal });
                 }
+                const burst = await this.store.isHistoricalEditBurst?.(latest || previous, proposal) || false;
                 const edit = await this.store.stageEditReview(latest || previous, proposal);
                 return this.logMemberEdit({ saved: latest || previous, message: current, edit, stagedEdit: Boolean(edit),
                     safetyReason: burst ? 'Bulk edit safeguard: this member edited at least three reports older than one week within ten minutes.' : null,

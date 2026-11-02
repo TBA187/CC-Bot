@@ -469,7 +469,7 @@ function candidateFromOcr(ocrText, ocrLines = [], imageInfo = {}) {
     const banner = opponentFromBattleBanner(source, imageInfo.memberContext);
     if (banner.ign && (banner.sideResolved || !imageInfo.battlePairAmbiguous)) {
         return { ign: cleanIgn(banner.ign), confidence: banner.sideResolved ? 0.96 : 0.9,
-            source: 'battle_header_ocr', opponentSideResolved: banner.sideResolved };
+            source: 'battle_header_ocr' };
     }
     if (imageInfo.battlePairAmbiguous) return null;
     const profileTitle = source.match(new RegExp(`\\binspect\\s*:\\s*(${IGN_PATTERN})`, 'iu'));
@@ -487,8 +487,7 @@ function candidateFromOcr(ocrText, ocrLines = [], imageInfo = {}) {
 
     const explicit = candidateFromText(source);
     if (explicit?.source === 'labelled_text') {
-        return { ...explicit, confidence: Math.min(explicit.confidence, 0.88), source: 'labelled_ocr',
-            opponentSideResolved: /ranked\s+opponent\s+found\s*:|team\s*preview\s+vs\.?|opponent(?:'s)?(?:\s+ign)?\s*[:=]/iu.test(source) };
+        return { ...explicit, confidence: Math.min(explicit.confidence, 0.88), source: 'labelled_ocr' };
     }
 
     const resultCard = candidateFromResultCard(source, ocrLines, imageInfo);
@@ -646,7 +645,6 @@ function extractScoutData(message = {}, options = {}) {
     const results = Array.isArray(options.ocrResults) ? options.ocrResults : [];
     const reviewLearning = options.reviewLearning || null;
     const authorIgnNames = new Set((options.memberContext?.authorNames || []).map(normalizeIgn).filter(Boolean));
-    const guildIgnNames = new Set((options.memberContext?.memberNames || []).map(normalizeIgn).filter(Boolean));
     const ocrText = results.map(result => result?.text || '').filter(Boolean).join('\n');
     const ocrCandidates = results
         .map(result => {
@@ -664,25 +662,11 @@ function extractScoutData(message = {}, options = {}) {
                 memberContext: options.memberContext
             });
             if (!read) return read;
-            const resolvedBanner = opponentFromBattleBanner(result?.text, options.memberContext);
-            const framedFocusedName = Boolean(result?.cardRect)
-                && normalizeIgn(result?.focusedIgn) === normalizeIgn(read.ign)
-                && Number(result?.focusedConfidence || 0) >= 0.85;
-            const anchoredName = anchoredResultCardName(result, read);
-            if (anchoredName || framedFocusedName
-                || read.source === 'battle_header_ocr' && resolvedBanner.sideResolved
-                    && normalizeIgn(resolvedBanner.ign) === normalizeIgn(read.ign)) {
-                read = { ...read, opponentSideResolved: true };
-            }
             const normalizedReadIgn = normalizeIgn(read.ign);
             // OCR occasionally turns a UI word into a short "IGN" (for
             // example, "he" or "for"). Also never treat the reporting
-            // member's own name as the opponent. Other roster matches remain
-            // visible, but require an officer to verify which side is shown.
+            // member's own name as the opponent.
             if (genericInferredIgn(read.ign) || authorIgnNames.has(normalizedReadIgn)) return null;
-            if (guildIgnNames.has(normalizedReadIgn) && !read.opponentSideResolved) {
-                read = { ...read, confidence: Math.min(read.confidence, 0.79), rosterMemberMatch: true };
-            }
             if (['result_card_ocr', 'bottom_ocr_line'].includes(read.source)
                 && result?.focusedIgn && Number(result?.focusedConfidence || 0) >= 0.85
                 && Array.isArray(options.knownIgnEvidence)) {
@@ -882,21 +866,15 @@ function extractScoutData(message = {}, options = {}) {
     }
 
     let candidateMatchesAuthor = false;
-    let candidateMatchesGuildMember = false;
     if (candidate) {
         const normalizedCandidate = normalizeIgn(candidate.ign);
         candidateMatchesAuthor = authorIgnNames.has(normalizedCandidate);
-        candidateMatchesGuildMember = guildIgnNames.has(normalizedCandidate);
         if (candidateMatchesAuthor && screenshotCandidate
             && !authorIgnNames.has(normalizeIgn(screenshotCandidate.ign))) {
             candidate = screenshotCandidate;
             resolvedImageDifference = true;
             candidateMatchesAuthor = false;
-            candidateMatchesGuildMember = guildIgnNames.has(normalizeIgn(candidate.ign));
         } else if (candidateMatchesAuthor) candidate = null;
-        else if (candidateMatchesGuildMember && !candidate.opponentSideResolved) {
-            candidate = { ...candidate, confidence: Math.min(candidate.confidence, 0.79), rosterMemberMatch: true };
-        }
     }
 
     // A name heading followed by scout details is common in this channel.
@@ -930,7 +908,7 @@ function extractScoutData(message = {}, options = {}) {
                     || Boolean(result.cardRect) && Number(result.focusedConfidence || 0) >= 0.85)
             || anchoredResultCardName(result, candidate))
             || ['named_report', 'numbered_team_heading', 'leading_ign_team', 'first_line'].includes(candidate.source)
-                && candidate.confidence >= 0.86 && !candidateMatchesGuildMember
+                && candidate.confidence >= 0.86
                 && (structuredText.teamText?.split('\n').filter(Boolean).length || 0) >= 2
                 && !conflictingOcr && (!screenshotCandidate
                     || normalizeIgn(screenshotCandidate.ign) === normalizeIgn(candidate.ign));
@@ -988,8 +966,6 @@ function extractScoutData(message = {}, options = {}) {
         // Only ask staff to check an uncertain opponent. The full image stays visible in /scout.
         if (candidateMatchesAuthor) {
             reviewReasons.push('The detected IGN matches the scout author’s server name; verify the opponent from the screenshot.');
-        } else if (candidateMatchesGuildMember && !candidate?.opponentSideResolved) {
-            reviewReasons.push('The detected IGN matches a current or former guild member; verify that the screenshot names the opponent.');
         }
         if (candidate && candidate.confidence < 0.8) {
             reviewReasons.push(historicalSuggestion

@@ -77,6 +77,8 @@ function publishedPayload(event, logoPath = path.join(__dirname, '../../images/c
         .setTimestamp(event.timestamp ? new Date(event.timestamp) : new Date());
     if (event.rating != null) embed.addFields({ name: 'PvP Rating', value: String(event.rating), inline: true });
     embed.addFields({ name: 'Source messages', value: String(event.sources?.length || 1), inline: true });
+    if (event.isGuildMember) embed.addFields({ name: 'Member Notice',
+        value: `**${escapeMarkdown(event.ign)}** is a current/former guild member.`, inline: true });
     return { embeds: [embed], files: [new AttachmentBuilder(logoPath, { name: 'cc_logo.webp' })],
         allowedMentions: { parse: [] }, nonce: `sp:${event.messageId}`, enforceNonce: true };
 }

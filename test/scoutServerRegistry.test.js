@@ -5,8 +5,45 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { ScoutServerRegistry } = require('../features/pvp-scouting/ScoutServerRegistry.js');
 const { PvpScoutStore } = require('../features/pvp-scouting/PvpScoutStore.js');
+const { extractScoutData } = require('../features/pvp-scouting/PvpScoutParser.js');
+const { buildReviewLearning } = require('../features/pvp-scouting/ScoutReviewLearning.js');
 const { buildGroupLinks, PvpScoutIngestor } = require('../features/pvp-scouting/PvpScoutIngestor.js');
 const events = require('../events/pvpScouting.js');
+
+test('Gold and Silver refresh saved reports with populated review history without failing or demoting member opponents', async () => {
+    for (const server of ['gold', 'silver']) {
+        const channelId = `${server}-channel`, updates = [];
+        const content = 'Miltos7\nHeatran: Taunt\nClefable: Moonblast';
+        const parsed = extractScoutData({ content });
+        const before = { ign: parsed.ign, ignSource: parsed.ignSource, messageContent: content, attachments: [] };
+        const learning = buildReviewLearning([{ event_id: '1', message_id: 'reviewed-source', channel_id: channelId,
+            action: 'confirmed', before_json: before, after_json: { ...before, reviewStatus: 'confirmed' } }], { channelId });
+        assert.equal(learning.sourceStats.size, 1);
+        const raw = { message_id: '1554691886654955681', channel_id: channelId, server, guild_id: 'guild', author_id: 'reporter',
+            message_content: content, attachments_json: '[]', ocr_json: '[]', content_hash: 'saved-hash',
+            classification: 'scout', opponent_ign: parsed.ign, ign_normalized: parsed.ignNormalized,
+            ign_confidence: parsed.ignConfidence, ign_source: parsed.ignSource, team_text: parsed.teamText,
+            rating: null, notes: null, review_status: 'pending',
+            review_reason: 'The detected IGN matches a current or former guild member; verify that the screenshot names the opponent.' };
+        const store = new PvpScoutStore({ server, channelId, rosterStore: { async ocrMemberContext(guildId, authorId) {
+            assert.equal(guildId, 'guild'); assert.equal(authorId, 'reporter');
+            return { authorNames: ['Reporter'], memberNames: ['Reporter', 'Miltos7'] };
+        } }, db: { async query(sql, params) {
+            if (sql.includes('SELECT m.*')) return [[raw, { ...raw, message_id: '1554691886654955682', reviewed_by_id: 'officer' }]];
+            if (sql.includes('SET classification')) { updates.push({ sql, params }); return [{ affectedRows: 1 }]; }
+            return [{ affectedRows: 0 }];
+        } } });
+        store.schemaReady = true;
+        store.knownIgnEvidence = async () => [];
+        store.staffReviewLearning = async () => learning;
+        assert.equal(await store.refreshAutomaticRecords(), 1);
+        assert.equal(updates.length, 1);
+        assert.equal(updates[0].params[1], 'Miltos7');
+        assert.equal(updates[0].params[8], 'not_required');
+        assert.equal(updates[0].params[9], null);
+        assert.deepEqual(updates[0].params.slice(10), [channelId, raw.message_id, 'saved-hash']);
+    }
+});
 
 function registryFixture() {
     const calls = [];

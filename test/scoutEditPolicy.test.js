@@ -1,25 +1,61 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { isSafeScoutTypo } = require('../features/pvp-scouting/ScoutEditPolicy');
+const { AUTHOR_EDIT_WINDOW_MS, canAutoApplyScoutEdit } = require('../features/pvp-scouting/ScoutEditPolicy');
 const { PvpScoutStore } = require('../features/pvp-scouting/PvpScoutStore');
 const { auditPayload, memberEditPayload, publishedPayload, diagnosticPayload } = require('../features/pvp-scouting/ScoutAuditLogger');
 const oldText = 'Vegeta111\n[Hoppowdon Rocky Helmet] Earthquake, Toxic';
 const newText = oldText.replace('Hoppowdon', 'Hippowdon');
 const base = { content: oldText, ign: 'Vegeta111', rating: 300, authorId: 'member',
+    messageId: '123', channelId: 'channel', createdAt: '2026-11-01T12:00:00.000Z',
     classification: 'scout', reviewStatus: 'not_required', teamText: '[Hippowdon Rocky Helmet] Earthquake, Toxic',
     attachments: [{ id: 'image', name: 'image.jpg', url: 'https://cdn/image?old' }] };
 
-test('the requested one-letter species correction auto-approves, but semantic changes cannot', () => {
-    const proposal = { ...base, content: newText };
-    assert.equal(isSafeScoutTypo(base, proposal), true);
+test('authors can change all scout details before the exact 24-hour cutoff', () => {
+    const now = Date.parse(base.createdAt) + AUTHOR_EDIT_WINDOW_MS - 1;
     for (const patch of [{ ign: 'Vegeta112' }, { rating: 301 }, { attachments: [] },
-        { reviewStatus: 'pending' }, { content: newText + '\nspam' },
-        { content: newText.replace('Toxic', 'Taunt') }, { content: 'spam' }]) {
-        assert.equal(isSafeScoutTypo(base, { ...proposal, ...patch }), false, JSON.stringify(patch));
+        { notes: 'Choice Scarf confirmed' }, { content: newText.replace('Toxic', 'Taunt') }]) {
+        const proposal = { ...base, ...patch };
+        assert.equal(canAutoApplyScoutEdit(base, proposal, { now }), true);
+        assert.equal(canAutoApplyScoutEdit(base, proposal, { now: now + 1 }), false);
     }
-    assert.equal(isSafeScoutTypo({ ...base, reviewed_by_id: 'officer' }, proposal), false);
-    assert.equal(isSafeScoutTypo({ ...base, staffOverrides: { locked: true } }, proposal), false);
-    assert.equal(isSafeScoutTypo(base, { ...proposal, attachments: [{ ...base.attachments[0], url: 'https://cdn/image?new' }] }), true);
+});
+
+test('the original posting time and Discord edit timestamp govern queued edits and invalid dates fail closed', () => {
+    const postedAt = Date.parse(base.createdAt), now = postedAt + 2 * AUTHOR_EDIT_WINDOW_MS;
+    assert.equal(canAutoApplyScoutEdit(base, { ...base, editedAt: new Date(postedAt + AUTHOR_EDIT_WINDOW_MS - 1) }, { now }), true);
+    assert.equal(canAutoApplyScoutEdit(base, { ...base, editedAt: new Date(postedAt + AUTHOR_EDIT_WINDOW_MS) }, { now }), false);
+    for (const patch of [{ createdAt: null }, { createdAt: 'invalid' }, { createdAt: new Date(now + 1) }]) {
+        assert.equal(canAutoApplyScoutEdit({ ...base, ...patch }, base, { now }), false);
+    }
+    for (const editedAt of ['invalid', new Date(postedAt - 1), new Date(now + 1)]) {
+        assert.equal(canAutoApplyScoutEdit(base, { ...base, editedAt }, { now }), false);
+    }
+    assert.equal(canAutoApplyScoutEdit(base, { ...base, createdAt: new Date(now) }, { now }), false);
+});
+
+test('officer decisions, pending proposals, source ownership and archive boundaries remain protected', () => {
+    const now = Date.parse(base.createdAt) + 1000;
+    for (const patch of [{ reviewed_by_id: 'officer' }, { reviewStatus: 'confirmed' }, { reviewStatus: 'corrected' },
+        { reviewStatus: 'not_scout' }, { staffOverrides: { locked: true } }, { staffOverrides: { hidden: true } }, { is_deleted: true }]) {
+        assert.equal(canAutoApplyScoutEdit({ ...base, ...patch }, base, { now }), false);
+        assert.equal(canAutoApplyScoutEdit(base, base, { now, root: { ...base, ...patch } }), false);
+    }
+    for (const patch of [{ authorId: 'other' }, { messageId: 'other' }, { channelId: 'other' }]) {
+        assert.equal(canAutoApplyScoutEdit(base, { ...base, ...patch }, { now }), false);
+    }
+    assert.equal(canAutoApplyScoutEdit(base, base, { now, pendingEdit: { status: 'pending' } }), false);
+    assert.equal(canAutoApplyScoutEdit(base, base, { now, rootEdit: { status: 'pending' } }), false);
+    assert.equal(canAutoApplyScoutEdit(base, base, { now, root: { ...base, channelId: 'silver-channel', server: 'silver' } }), false);
+});
+
+test('linked follow-ups have their own 24-hour window without bypassing officer decisions', () => {
+    const now = Date.parse(base.createdAt) + AUTHOR_EDIT_WINDOW_MS - 1;
+    const source = { ...base, root_message_id: 'root' };
+    const root = { ...base, messageId: 'root', createdAt: '2026-10-01T12:00:00Z' };
+    assert.equal(canAutoApplyScoutEdit(source, base, { now, root }), true);
+    assert.equal(canAutoApplyScoutEdit(source, base, { now: now + 1, root }), false);
+    assert.equal(canAutoApplyScoutEdit(source, base, { now }), false);
+    assert.equal(canAutoApplyScoutEdit(source, base, { now, root: { ...root, reviewed_by_id: 'officer' } }), false);
 });
 
 test('audit ignores refreshed screenshots, equal dates, numeric types and supplied false changes', () => {
@@ -68,34 +104,58 @@ test('historical edit guard counts two other distinct old reports using durable 
     assert.equal(calls.length, 0);
 });
 
-test('live typo updates publish and log; old spam, bursts, and pending proposals stay staged', async () => {
+test('Gold and Silver apply recent edits and log each change while older or protected edits require review', async () => {
     const { PvpScoutIngestor } = require('../features/pvp-scouting/PvpScoutIngestor');
-    for (const scenario of ['typo', 'old typo', 'old spam', 'burst', 'pending']) {
-        const old = scenario !== 'typo';
+    const cases = [
+        ['team', {}, { content: newText.replace('Toxic', 'Taunt'), teamText: 'Hippowdon: Taunt' }, true],
+        ['ign', {}, { ign: 'Vegeta112' }, true], ['rating', {}, { rating: 301 }, true],
+        ['notes', {}, { notes: 'Choice Scarf confirmed' }, true], ['screenshots', {}, { attachments: [] }, true],
+        ['failed retry', { review_status: 'pending' }, {}, true],
+        ['failed validation', {}, { reviewStatus: 'pending', reviewReason: 'Unclear IGN' }, true],
+        ['old typo', { age: 8 * 86400000 }, {}, false],
+        ['old failed retry', { age: 25 * 3600000, review_status: 'pending' }, {}, false],
+        ['burst', { age: 8 * 86400000 }, {}, false], ['pending', {}, {}, false],
+        ['officer', { review_status: 'confirmed', reviewed_by_id: 'officer' }, {}, false],
+        ['linked recent source', { root_message_id: 'root' }, {}, true],
+        ['linked old source', { root_message_id: 'root', age: 25 * 3600000 }, {}, false],
+        ['linked officer decision', { root_message_id: 'root' }, {}, false],
+        ['queued edit', { age: 25 * 3600000 }, { editAge: 23 * 3600000 }, true]
+    ];
+    for (const server of ['gold', 'silver']) for (const [scenario, patch, changed, allowed] of cases) {
+        const createdAt = new Date(Date.now() - (patch.age || 3600000));
         let row = { message_id: '123', root_message_id: '123', channel_id: 'channel', author_id: 'member',
             author_username: 'Member', message_content: oldText, attachments: base.attachments,
-            classification: 'scout', review_status: 'not_required', opponent_ign: base.ign, rating: base.rating,
-            team_text: base.teamText, created_at: new Date(Date.now() - (old ? 8 : 0) * 86400000) };
+            classification: 'scout', review_status: 'not_required', opponent_ign: base.ign, ign_normalized: 'vegeta111', rating: base.rating,
+            team_text: base.teamText, created_at: createdAt, server, ...patch };
+        const root = { ...row, message_id: 'root', root_message_id: 'root', created_at: new Date(Date.now() - 8 * 86400000),
+            reviewed_by_id: scenario === 'linked officer decision' ? 'officer' : null };
         const logs = [], calls = [];
         const pending = scenario === 'pending' ? { status: 'pending', after: { ...base, content: oldText } } : null;
-        const store = { async getMessage() { return row; }, async getEditReview() { return pending; },
+        const store = { async getMessage(id) { return id === 'root' ? root : row; }, async getEditReview() { return pending; },
             async isHistoricalEditBurst() { return scenario === 'burst'; },
             async sourcesForRoots() { return [row]; },
-            async saveMessage(proposal) { calls.push('save'); row = { ...row, message_content: proposal.content }; return row; },
+            async saveMessage(proposal) {
+                calls.push('save'); assert.equal(proposal.createdAt, createdAt);
+                row = { ...row, message_content: proposal.content, review_status: proposal.reviewStatus,
+                    review_reason: proposal.reviewReason, opponent_ign: proposal.ign, rating: proposal.rating,
+                    team_text: proposal.teamText, attachments: proposal.attachments };
+                return row;
+            },
             async stageEditReview() { calls.push('stage'); return { message_id: '123', revision: 1 }; },
             auditLogger: { memberEdited(event) { logs.push(event); } } };
-        const ingestor = new PvpScoutIngestor({ store, channelId: 'channel', client: { user: { id: 'bot' } }, ocr: {},
+        const ingestor = new PvpScoutIngestor({ server, store, channelId: 'channel', client: { user: { id: 'bot' } }, ocr: {},
             feedback: { async observeMessage() { calls.push('feedback'); } } });
-        ingestor.buildRecord = async () => ({ ...base, messageId: '123', channelId: 'channel',
-            createdAt: row.created_at, content: scenario === 'old spam' ? 'spam' : newText });
+        ingestor.buildRecord = async () => ({ ...base, server, createdAt: row.created_at, content: newText, ...changed,
+            editedAt: changed.editAge ? new Date(createdAt.getTime() + changed.editAge) : null });
         ingestor.rebuildGroups = async () => { calls.push('publish'); };
         ingestor.notifyEditReview = async () => { calls.push('notify'); };
         await ingestor.handleUpdate({ id: '123', channelId: 'channel', author: { id: 'member' } });
-        const safe = scenario === 'typo' || scenario === 'old typo';
-        assert.deepEqual(calls, safe ? ['save', 'publish', 'feedback'] : ['stage', 'notify', 'feedback'], scenario);
+        assert.deepEqual(calls, allowed ? ['save', 'publish', 'feedback'] : ['stage', 'notify', 'feedback'], scenario);
         assert.equal(logs.length, 1, scenario);
-        assert.equal(logs[0].awaitingApproval, !safe, scenario);
-        assert.equal(logs[0].autoApproved, safe ? true : undefined, scenario);
+        assert.equal(logs[0].awaitingApproval, !allowed, scenario);
+        assert.equal(logs[0].autoApproved, allowed ? true : undefined, scenario);
+        assert.equal(logs[0].failed, scenario === 'failed validation', scenario);
+        assert.equal(logs[0].server, server);
     }
 });
 

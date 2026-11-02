@@ -65,7 +65,7 @@ test('guild settings registers the command and shows branded private controls in
     assert.match(embed.description, /Selected Server: \*`None`\*/u);
     const buttons = payload.components[0].toJSON().components;
     assert.deepEqual(buttons.map(b => b.label), ['Gold', 'Silver', 'Cross Server', 'Notifications']);
-    assert.deepEqual(buttons.map(b => b.style), [ButtonStyle.Secondary, ButtonStyle.Secondary, ButtonStyle.Secondary, ButtonStyle.Primary]);
+    assert.deepEqual(buttons.map(b => b.style), Array(4).fill(ButtonStyle.Secondary));
     assert.deepEqual(buttons.map(b => b.emoji.name), ['gold', 'silver', '🔗', '🔔']);
     assert.deepEqual(buttons.slice(0, 2).map(b => b.emoji.id), ['1555743525759356948', '1555743603567886478']);
     assert.equal(new Set(buttons.map(b => b.custom_id)).size, 4);
@@ -111,6 +111,8 @@ test('selecting, switching and removing servers updates the panel and gives priv
         ['gold', 'gold', `### ${SERVERS.gold.markup} Gold Server selected ✅`],
         ['silver', 'silver', `### Server changed from **Gold** to ${SERVERS.silver.markup} **Silver**`],
         ['silver', null, `### ${SERVERS.silver.markup} Silver Server was removed ❌`],
+        ['cross', 'cross', `### ${SERVERS.cross.markup} Cross Server selected ✅`],
+        ['cross', null, `### ${SERVERS.cross.markup} Cross Server was removed ❌`],
         ['gold', 'gold', `### ${SERVERS.gold.markup} Gold Server selected ✅`],
         ['gold', null, `### ${SERVERS.gold.markup} Gold Server was removed ❌`]
     ]) {
@@ -118,6 +120,9 @@ test('selecting, switching and removing servers updates the panel and gives priv
         assert.equal(await f.command.handleButton(i), true);
         assert.equal(i.calls[0][0], 'deferUpdate');
         assert.equal(f.selected.get('user'), expected);
+        const buttons = i.calls.find(call => call[0] === 'editReply')[1].components[0].toJSON().components;
+        assert.deepEqual(buttons.map(button => button.style), ['gold', 'silver', 'cross', 'notifications']
+            .map(server => server === expected ? ButtonStyle.Success : ButtonStyle.Secondary));
         const response = i.calls.find(call => call[0] === 'followUp')[1];
         assert.ok(response.content.startsWith(feedback));
         assert.equal(response.flags, MessageFlags.Ephemeral);
@@ -134,6 +139,8 @@ test('reopening settings reads the persistent server preference after acknowledg
     };
     await f.command.execute(i);
     assert.match(i.calls[1][1].embeds[0].toJSON().description, /Selected Server: <:silver:1555743603567886478> Silver/u);
+    assert.deepEqual(i.calls[1][1].components[0].toJSON().components.map(button => button.style),
+        [ButtonStyle.Secondary, ButtonStyle.Success, ButtonStyle.Secondary, ButtonStyle.Secondary]);
 });
 
 test('a previously posted settings button still saves a server and refreshes to new controls', async () => {

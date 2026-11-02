@@ -11,6 +11,19 @@ function version(ign, reviewStatus = 'pending') {
         rating: null, teamText: '- Zapdos: Roost\n- Keldeo: Scald', notes: null };
 }
 
+test('confirming an unchanged guild-member opponent teaches a successful read without a spelling alias', () => {
+    const before = { ...version('Twinsoul'), messageContent: 'Twinsoul\nZapdos: Roost\nKeldeo: Scald',
+        reviewReason: 'The detected IGN matches a current or former guild member; verify that the screenshot names the opponent.' };
+    const learning = buildReviewLearning([{ event_id: '1', message_id: '1563947587097067621',
+        reviewer_id: 'officer', action: 'confirmed', before_json: before,
+        after_json: { ...before, reviewStatus: 'confirmed', reviewReason: null } }]);
+    assert.deepEqual(learning.sourceStats.get(reviewPatternKey('first_line', false, 'none')),
+        { confirmed: 1, changedIgn: 0, rejected: 0 });
+    assert.equal(learning.aliases.size, 0);
+    assert.equal(learning.exactCorrections.size, 0);
+    assert.equal(learning.rejectedText.size, 0);
+});
+
 test('shares format and spelling evidence without borrowing exact team edits from another server', () => {
     const before = version('Go1denp1kachu'), after = version('Goldenp1kachu', 'corrected');
     const events = [{ event_id: '1', message_id: 'gold-source', channel_id: 'gold-channel',

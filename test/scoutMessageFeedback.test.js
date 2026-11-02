@@ -58,9 +58,11 @@ function fixture(patch = {}) {
             }
         } } };
     const store = {
-        async reserveCorrectionWindow(id) {
-            if (!windows.has(String(id))) windows.set(String(id), { message_id: String(id), channel_id: CHANNEL,
-                started_at_ms: null, due_at_ms: null, status: 'waiting' });
+        async reserveCorrectionWindow(id, _channelId, { reopenResolved = false } = {}) {
+            if (!windows.has(String(id)) || reopenResolved && windows.get(String(id)).status === 'resolved') {
+                windows.set(String(id), { message_id: String(id), channel_id: CHANNEL,
+                    started_at_ms: null, due_at_ms: null, status: 'waiting' });
+            }
         },
         async startCorrectionWindow(id, started, duration) {
             await this.reserveCorrectionWindow(id); const window = windows.get(String(id));
@@ -759,7 +761,7 @@ function editFixture(row, pendingEdit = null) {
         feedback: { async observeMessage() { feedback++; }, async refreshReport() { feedback++; }, async drain() {} } });
     ingestor.rebuildGroups = async () => { grouped++; };
     ingestor.notifyEditReview = async () => {};
-    ingestor.buildRecord = async () => ({ messageId: ID, reviewStatus: 'not_required' });
+    ingestor.buildRecord = async () => ({ messageId: ID, channelId: CHANNEL, authorId: 'member', reviewStatus: 'not_required' });
     const message = { id: ID, channelId: CHANNEL, author: { id: 'member', bot: false } };
     return { ingestor, store, message, counts: () => ({ saves, staged, grouped, feedback }) };
 }
@@ -767,18 +769,19 @@ function editFixture(row, pendingEdit = null) {
 test('editing an unreviewed parse failure retries and publishes without staging an officer edit', async () => {
     const f = editFixture({ classification: 'review', review_status: 'pending' });
     f.message.content = 'Opponent IGN: Blacku\nGliscor: Toxic, Protect';
-    f.ingestor.buildRecord = async message => ({ messageId: ID, ...extractScoutData({ content: message.content, attachments: [] }) });
+    f.ingestor.buildRecord = async message => ({ messageId: ID, channelId: CHANNEL, authorId: 'member',
+        ...extractScoutData({ content: message.content, attachments: [] }) });
     const saved = await f.ingestor.handleUpdate(f.message);
     assert.equal(saved.review_status, 'not_required');
     assert.deepEqual(f.counts(), { saves: 1, staged: 0, grouped: 1, feedback: 1 });
 });
 
-test('a pending nameless source in an accepted report still needs approval for edits', async () => {
+test('a recent pending nameless source in an unreviewed report can be corrected automatically', async () => {
     const f = editFixture({ root_message_id: ROOT, review_status: 'pending', opponent_ign: null, ign_normalized: null });
     const getMessage = f.store.getMessage;
     f.store.getMessage = async id => id === ROOT ? scout({ message_id: ROOT, root_message_id: ROOT }) : getMessage(id);
     await f.ingestor.handleUpdate(f.message);
-    assert.deepEqual(f.counts(), { saves: 0, staged: 1, grouped: 0, feedback: 1 });
+    assert.deepEqual(f.counts(), { saves: 1, staged: 0, grouped: 1, feedback: 1 });
 });
 
 test('feedback reaction errors cannot undo a successfully archived live scout', async t => {
@@ -794,15 +797,15 @@ test('feedback reaction errors cannot undo a successfully archived live scout', 
 
 test('an unsuccessful edit remains in review and refreshes feedback', async () => {
     const f = editFixture({ classification: 'review', review_status: 'pending' });
-    f.ingestor.buildRecord = async () => ({ messageId: ID, reviewStatus: 'pending' });
+    f.ingestor.buildRecord = async () => ({ messageId: ID, channelId: CHANNEL, authorId: 'member', reviewStatus: 'pending' });
     const saved = await f.ingestor.handleUpdate(f.message);
     assert.equal(saved.review_status, 'pending');
     assert.deepEqual(f.counts(), { saves: 1, staged: 0, grouped: 1, feedback: 1 });
 });
 
-test('edits to published scouts, officer decisions, and pending proposals keep officer approval', async () => {
+test('edits after 24 hours, officer decisions, and pending proposals keep officer approval', async () => {
     for (const [patch, proposal] of [
-        [{ review_status: 'not_required' }, null],
+        [{ review_status: 'not_required', created_at: new Date(Date.now() - 25 * 3600000) }, null],
         [{ review_status: 'confirmed', reviewed_by_id: 'officer' }, null],
         [{ review_status: 'pending', reviewed_by_id: 'officer' }, null],
         [{ review_status: 'pending', staffOverrides: { locked: true } }, null],
@@ -988,9 +991,11 @@ test('rapid edits to Discord’s mutable cached message retain each gateway revi
     assert.equal(f.logs[1].before.content, 'bad first edit');
 });
 
-test('successive protected edit logs compare against the previous proposed edit and suppress duplicate events', async () => {
+test('successive edits after the window closes compare against the previous proposal and suppress duplicate events', async t => {
     const f = memberEditLogFixture(); f.message.content = 'good published report';
     await f.ingestor.handleUpdate(f.message);
+    const later = Date.now() + 25 * 3600000;
+    t.mock.method(Date, 'now', () => later);
     f.message.content = 'good first proposed edit'; await f.ingestor.handleUpdate(f.message);
     f.message.content = 'good second proposed edit'; await f.ingestor.handleUpdate(f.message);
     await f.ingestor.handleUpdate(f.message);
@@ -1005,6 +1010,61 @@ test('live parser failures reserve a hidden correction window before the archive
     await store.saveMessage({ messageId: ID, channelId: CHANNEL, content: 'bad report', reviewStatus: 'pending', deferReview: true });
     assert.match(queries[0], /INSERT IGNORE INTO pvp_scout_correction_windows/u);
     assert.match(queries[1], /INSERT INTO pvp_scout_messages/u);
+});
+
+test('a fresh failed edit reopens only a resolved correction window before saving, while repeated failures keep their deadline', async () => {
+    for (const status of ['not_required', 'pending']) {
+        const calls = [];
+        const store = new PvpScoutStore({ channelId: CHANNEL, db: { async query(sql, params) {
+            calls.push({ sql, params }); return [{ affectedRows: 1 }];
+        } } });
+        store.schemaReady = true;
+        store.getMessage = async () => scout({ review_status: status });
+        await store.saveMessage({ messageId: ID, channelId: CHANNEL, authorId: 'member', content: 'bad edit',
+            classification: 'review', reviewStatus: 'pending', deferReview: true });
+        assert.match(calls[0].sql, /INSERT IGNORE INTO pvp_scout_correction_windows/u);
+        assert.deepEqual(calls[0].params, [ID, CHANNEL, ID, CHANNEL]);
+        if (status === 'not_required') {
+            assert.match(calls[0].sql, /started_at_ms = IF\(status = 'resolved', NULL, started_at_ms\)/u);
+            assert.match(calls[0].sql, /due_at_ms = IF\(status = 'resolved', NULL, due_at_ms\)/u);
+            assert.match(calls[0].sql, /status = IF\(status = 'resolved', 'waiting', status\)/u);
+        } else assert.doesNotMatch(calls[0].sql, /ON DUPLICATE KEY UPDATE/u);
+        assert.match(calls[1].sql, /INSERT INTO pvp_scout_messages/u);
+        calls.length = 0;
+        await store.ensureReportTeamPresence(ID, false, CHANNEL, true);
+        assert.match(calls[0].sql, /ON DUPLICATE KEY UPDATE/u);
+        assert.match(calls[0].sql, /review_status = 'not_required'/u);
+        assert.match(calls[1].sql, /UPDATE pvp_scout_messages/u);
+    }
+});
+
+test('an edited successful report gets a new warning before officer escalation and repeated failed edits keep that deadline', async t => {
+    const clock = feedbackClock(t), f = fixture({ attachments: [{ contentType: 'image/png' }] });
+    const alerts = [];
+    f.windows.set(ID, { message_id: ID, channel_id: CHANNEL, status: 'resolved',
+        started_at_ms: Date.now() - 2 * 3600000, due_at_ms: Date.now() - 3600000 });
+    f.feedback.onReview = async id => { alerts.push(id); };
+    await f.feedback.observeMessage(f.message);
+    await clock.advance(60_000, f.feedback);
+    const row = f.rows.get(ID);
+    row.review_status = 'pending'; row.review_reason = 'Message text and screenshot identify different opponents.';
+    await f.store.reserveCorrectionWindow(ID, CHANNEL, { reopenResolved: true });
+    await f.feedback.observeMessage(f.message);
+    await clock.advance(60_000, f.feedback);
+    assert.equal(f.sent.length, 1);
+    assert.match(f.sent[0].content, /different opponents/u);
+    assert.match(f.sent[0].content, /What to improve/u);
+    assert.deepEqual(alerts, []);
+    const deadline = f.windows.get(ID).due_at_ms;
+    await clock.advance(30 * 60_000, f.feedback);
+    await f.feedback.observeMessage(f.message);
+    await clock.advance(60_000, f.feedback);
+    assert.equal(f.windows.get(ID).due_at_ms, deadline);
+    assert.equal(f.sent.length, 1);
+    assert.deepEqual(alerts, []);
+    await clock.advance(deadline - Date.now(), f.feedback);
+    assert.deepEqual(alerts, [ID]);
+    await f.feedback.stop();
 });
 
 

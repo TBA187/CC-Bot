@@ -354,6 +354,14 @@ function nameFromResultLine(line) {
     return strayCharacters.length <= 2 ? ign : null;
 }
 
+function nameFromUnlabelledOcr(line) {
+    const ign = nameFromResultLine(line);
+    const pokemon = ign && matchSpeciesHeading(ign);
+    // A roster label is not opponent evidence. Explicit IGN fields and focused
+    // player-name reads are handled separately, including species-named players.
+    return pokemon?.species && pokemon.end === ign.length ? null : ign;
+}
+
 function candidateFromResultCard(source, ocrLines, imageInfo = {}) {
     const width = Number(imageInfo.width || 0);
     const height = Number(imageInfo.height || 0);
@@ -394,9 +402,9 @@ function candidateFromResultCard(source, ocrLines, imageInfo = {}) {
                 return atLeft && line.box.y0 >= bandStart && line.box.y0 <= bandEnd;
             })
             .sort((a, b) => b.box.y0 - a.box.y0 || a.box.x0 - b.box.x0);
-        const names = [...new Set(lowerLeft.map(line => nameFromResultLine(line.text)).filter(Boolean))];
+        const names = [...new Set(lowerLeft.map(line => nameFromUnlabelledOcr(line.text)).filter(Boolean))];
         if (names.length === 1) {
-            const outcomeOnNameLine = lowerLeft.some(line => nameFromResultLine(line.text) === names[0]
+            const outcomeOnNameLine = lowerLeft.some(line => nameFromUnlabelledOcr(line.text) === names[0]
                 && /\b(?:K\.?\s*[O0]\.?|surrendered|victory|defeat)(?=\W|$)|🏆/iu.test(line.text));
             return { ign: names[0], confidence: anchored ? 0.92 : outcomeOnNameLine ? 0.86 : 0.74,
                 source: anchored || outcomeOnNameLine ? 'result_card_ocr' : 'bottom_ocr_line' };
@@ -405,7 +413,7 @@ function candidateFromResultCard(source, ocrLines, imageInfo = {}) {
     }
 
     const bottomText = source.split(/\n+/).map(line => line.trim()).filter(Boolean).slice(-4);
-    const names = bottomText.reverse().map(line => ({ line, ign: nameFromResultLine(line) }))
+    const names = bottomText.reverse().map(line => ({ line, ign: nameFromUnlabelledOcr(line) }))
         .filter(item => item.ign);
     const distinctNames = [...new Set(names.map(item => item.ign))];
     if (distinctNames.length === 1) {
@@ -515,7 +523,7 @@ function candidateFromOcr(ocrText, ocrLines = [], imageInfo = {}) {
         .filter(Boolean);
     const lastLines = lines.slice(-4).reverse();
     for (const line of lastLines) {
-        const ign = nameFromResultLine(line.replace(/\s+(?:K\.?O\.?|Win|Loss).*$/iu, ''));
+        const ign = nameFromUnlabelledOcr(line.replace(/\s+(?:K\.?O\.?|Win|Loss).*$/iu, ''));
         if (ign && /\p{L}/u.test(ign)
             && !/^(?:K\.?O\.?|win|loss|rating|system|date|duration|opponent|battle|replay|surrendered|lv\.?\s*\d+)$/iu.test(ign)) {
             return { ign, confidence: 0.64, source: 'bottom_ocr_line' };

@@ -154,7 +154,7 @@ class ScoutSourceAdminStore {
         } catch (error) { await connection.rollback().catch(() => {}); throw error; }
         finally { connection.release(); }
         this.store.invalidateAutocompleteCache(); this.store.ignEvidenceAt = 0; this.store.reviewLearningAt = 0;
-        this.store.auditLogger?.enqueue(audit);
+        this.store.auditLogger?.enqueue(audit, () => this.store.getReviewAlertIds(audit));
         return result;
     }
 }

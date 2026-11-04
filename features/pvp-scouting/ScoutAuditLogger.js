@@ -47,9 +47,13 @@ function auditPayload(event, logoPath = path.join(__dirname, '../../images/cc_lo
     const sources = event.sources || [];
     const changes = first.changes || changesBetween(before, after);
     const entries = Object.entries(changes).filter(([key, change]) => LABELS[key] && !sameValue(key, change.before, change.after));
-    for (const [key, change] of entries.slice(0, 5)) embed.addFields({ name: LABELS[key],
-        value: ['messageContent', 'teamText', 'notes'].includes(key) ? diffPreview(scoutTextDiff(change.before || '', change.after || ''))
-            : `**Before:** ${display(change.before)}\n**${event.action === 'edit_rejected' ? 'Proposed' : 'After'}:** ${display(change.after)}`, inline: false });
+    for (const [key, change] of entries.slice(0, 5)) {
+        const beforeLabel = key === 'ign' && before.reviewStatus === 'pending' && /ocr/u.test(before.ignSource || '')
+            ? 'Before (unconfirmed OCR)' : 'Before';
+        embed.addFields({ name: LABELS[key],
+            value: ['messageContent', 'teamText', 'notes'].includes(key) ? diffPreview(scoutTextDiff(change.before || '', change.after || ''))
+                : `**${beforeLabel}:** ${display(change.before)}\n**${event.action === 'edit_rejected' ? 'Proposed' : 'After'}:** ${display(change.after)}`, inline: false });
+    }
     if (event.action === 'deleted') embed.addFields({ name: 'Deleted report',
         value: `${sources.length} source(s) removed from \`/scout\`. The original Discord messages remain available.`, inline: false });
     if (sources.length > 1) embed.addFields({ name: 'Affected source IDs',
@@ -172,10 +176,11 @@ function recoveryPayload(event, logoPath = path.join(__dirname, '../../images/cc
 }
 
 class ScoutAuditLogger {
-    constructor({ client, guildId, channelId, ownerId, logoPath } = {}) {
+    constructor({ client, guildId, channelId, officerChannelId, ownerId, logoPath } = {}) {
         this.client = client; this.guildId = String(guildId || ''); this.channelId = String(channelId || '');
         this.logoPath = logoPath; this.pending = Promise.resolve();
         this.ownerId = String(ownerId || '');
+        this.officerChannelId = String(officerChannelId || '');
     }
 
     published(event) {
@@ -216,14 +221,44 @@ class ScoutAuditLogger {
         return result;
     }
 
-    enqueue(event) {
+    enqueue(event, resolveReviewAlerts) {
         if (!this.channelId) return;
         const saved = structuredClone({ ...event, timestamp: new Date().toISOString() });
         // Only new committed user actions enter this queue. Startup never replays old review history.
         this.pending = this.pending.then(async () => {
             const channel = this.client.channels.cache.get(this.channelId) || await this.client.channels.fetch(this.channelId);
             if (!channel?.send || channel.guildId !== this.guildId) throw new Error('Scout log channel is unavailable in this server.');
-            await channel.send(auditPayload(saved, this.logoPath));
+            const log = await channel.send(auditPayload(saved, this.logoPath));
+            if (!log?.id || !this.officerChannelId || !resolveReviewAlerts) return;
+            try {
+                const alerts = [...new Set((await resolveReviewAlerts()).filter(Boolean).map(String))];
+                if (!alerts.length) return;
+                const officers = this.client.channels.cache.get(this.officerChannelId)
+                    || await this.client.channels.fetch(this.officerChannelId);
+                if (!officers?.send || officers.guildId !== this.guildId) throw new Error('Officer channel is unavailable in this server.');
+                let officer = this.client.users?.cache?.get(String(saved.actorId));
+                if (!officer?.username && this.client.users?.fetch) {
+                    try { officer = await this.client.users.fetch(String(saved.actorId)); }
+                    catch (error) { console.warn(`[CC LOG] Could not fetch scout reviewer username: ${error.message}`); }
+                }
+                const username = escapeMarkdown(String(officer?.username || `Officer ${saved.actorId}`).replace(/[\r\n]+/gu, ' ').slice(0, 100))
+                    .replace(/@/gu, '@\u200b');
+                const [title] = ACTIONS[saved.action] || ['Scout Report Updated'];
+                const emoji = ['deleted', 'source_deleted'].includes(saved.action) ? '🗑️'
+                    : ['not_scout', 'edit_rejected'].includes(saved.action) ? '❌'
+                    : ['confirmed', 'corrected', 'edit_accepted'].includes(saved.action) ? '✅' : '📝';
+                for (const alert of alerts) {
+                    try {
+                        await officers.send({ content: `${emoji} **${title} by ${username}: https://discord.com/channels/${this.guildId}/${this.channelId}/${log.id}**`,
+                            reply: { messageReference: alert, failIfNotExists: true },
+                            allowedMentions: { parse: [], repliedUser: false } });
+                    } catch (error) {
+                        console.warn(`[CC LOG] Could not reply to scout review alert ${alert}: ${error.message}`);
+                    }
+                }
+            } catch (error) {
+                console.warn(`[CC LOG] Could not update scout review alerts for ${saved.messageId}: ${error.message}`);
+            }
         }).catch(error => console.warn(`[CC LOG] Could not send scout action log for ${saved.messageId}: ${error.message}. The saved change history is intact.`));
     }
 

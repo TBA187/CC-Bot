@@ -62,6 +62,132 @@ test('log delivery failure is reported without retrying duplicate messages or bl
     assert.equal(sends, 2); assert.equal(logs.length, 1); assert.match(logs[0], /saved change history is intact/u);
 });
 
+test('officer alert replies link the completed action log with the matching status and no mentions', async () => {
+    const sent = [], replies = [];
+    const logger = new ScoutAuditLogger({ guildId: 'guild', channelId: 'log', officerChannelId: 'officers',
+        client: { users: { cache: new Map([['291142291073269761', { username: 'reviewer', globalName: 'Display name' }]]) }, channels: { cache: new Map([
+            ['log', { guildId: 'guild', async send(payload) { sent.push(payload); return { id: String(sent.length) }; } }],
+            ['officers', { guildId: 'guild', async send(payload) { replies.push(payload); } }]
+        ]) } } });
+    const cases = [['confirmed', '✅ Scout Review Approved'], ['corrected', '✅ Scout Review Corrected'],
+        ['not_scout', '❌ Scout Review Declined'], ['deleted', '🗑️ Scout Report Deleted'],
+        ['edit_accepted', '✅ Scout Message Edit Accepted'], ['edit_rejected', '❌ Scout Message Edit Declined'],
+        ['source_deleted', '🗑️ Scout Source Deleted'], ['edited', '📝 Scout Report Edited'],
+        ['attached', '📝 Scout Source Attached'], ['detached', '📝 Scout Source Made Independent'],
+        ['source_edited', '📝 Scout Source Edited'], ['reply_added', '📝 Scout Information Added']];
+    for (const [action, label] of cases) {
+        logger.enqueue(event(action), async () => ['original-alert', 'original-alert', null]);
+        await logger.flush();
+        const [emoji, ...words] = label.split(' ');
+        assert.equal(replies.at(-1).content, `${emoji} **${words.join(' ')} by reviewer: https://discord.com/channels/guild/log/${sent.length}**`);
+        assert.deepEqual(replies.at(-1).reply, { messageReference: 'original-alert', failIfNotExists: true });
+        assert.deepEqual(replies.at(-1).allowedMentions, { parse: [], repliedUser: false });
+    }
+    assert.equal(replies.length, cases.length);
+    logger.enqueue(event(), async () => []);
+    await logger.flush();
+    assert.equal(replies.length, cases.length);
+});
+
+test('officer alert replies fetch uncached usernames, escape imported formatting and tolerate lookup failures', async t => {
+    t.mock.method(console, 'warn', () => {});
+    const replies = [];
+    let failLookup = false;
+    const logger = new ScoutAuditLogger({ guildId: 'guild', channelId: 'log', officerChannelId: 'officers',
+        client: { users: { cache: new Map(), async fetch(id) {
+            assert.equal(id, event().actorId);
+            if (failLookup) throw new Error('User unavailable');
+            return { username: '*officer* @everyone', globalName: 'Display name' };
+        } }, channels: { cache: new Map([
+            ['log', { guildId: 'guild', async send() { return { id: 'saved' }; } }],
+            ['officers', { guildId: 'guild', async send(payload) { replies.push(payload); } }]
+        ]) } } });
+    logger.enqueue(event('confirmed'), async () => ['alert']);
+    await logger.flush();
+    assert.ok(replies[0].content.includes('by \\*officer\\* @\u200beveryone:'));
+    assert.doesNotMatch(replies[0].content, /<@|Display name/u);
+    assert.deepEqual(replies[0].allowedMentions, { parse: [], repliedUser: false });
+    failLookup = true;
+    logger.enqueue(event('not_scout'), async () => ['alert']);
+    await logger.flush();
+    assert.match(replies[1].content, /Scout Review Declined by Officer 291142291073269761:/u);
+});
+
+test('audit IGN changes identify unconfirmed OCR guesses while retaining the exact saved history', () => {
+    const audit = event('corrected');
+    const source = audit.sources[0];
+    source.before = { ...source.before, ign: 'Diancie', ignSource: 'bottom_ocr_line', ignConfidence: 0.64 };
+    source.after = { ...source.after, ign: 'GDarch', ignSource: 'human_corrected', ignConfidence: 1 };
+    const payload = auditPayload(audit);
+    assert.equal(payload.embeds[0].toJSON().fields.find(field => field.name === 'Opponent IGN').value,
+        '**Before (unconfirmed OCR):** Diancie\n**After:** GDarch');
+    assert.equal(JSON.parse(payload.files[1].attachment.toString()).sources[0].before.ign, 'Diancie');
+    for (const before of [{ reviewStatus: 'confirmed', ignSource: 'labelled_ocr' },
+        { reviewStatus: 'pending', ignSource: 'labelled_text' }, { reviewStatus: 'corrected', ignSource: 'human_corrected' }]) {
+        source.before = { ...source.before, ...before };
+        assert.match(auditPayload(audit).embeds[0].toJSON().fields.find(field => field.name === 'Opponent IGN').value, /^\*\*Before:\*\*/u);
+    }
+});
+
+test('alert replies require successful logs and failures do not block other alerts or later actions', async t => {
+    const warnings = [], replies = [];
+    t.mock.method(console, 'warn', warning => warnings.push(warning));
+    let failLog = true, failLookup = false;
+    const logger = new ScoutAuditLogger({ guildId: 'guild', channelId: 'log', officerChannelId: 'officers',
+        client: { channels: { cache: new Map([
+            ['log', { guildId: 'guild', async send() { if (failLog) throw new Error('log unavailable'); return { id: 'saved-log' }; } }],
+            ['officers', { guildId: 'guild', async send(payload) {
+                if (payload.reply.messageReference === 'missing') throw new Error('Unknown message');
+                replies.push(payload);
+            } }]
+        ]) } } });
+    const resolve = async () => { if (failLookup) throw new Error('database unavailable'); return ['missing', 'present']; };
+    logger.enqueue(event(), resolve); await logger.flush();
+    assert.equal(replies.length, 0);
+    failLog = false; failLookup = true;
+    logger.enqueue(event(), resolve); await logger.flush();
+    assert.equal(replies.length, 0);
+    failLookup = false;
+    logger.enqueue(event(), resolve); await logger.flush();
+    assert.equal(replies.length, 1);
+    assert.equal(replies[0].reply.messageReference, 'present');
+    assert.equal(warnings.length, 3);
+});
+
+test('officer alert replies cannot send to a different guild', async t => {
+    t.mock.method(console, 'warn', () => {});
+    const logger = new ScoutAuditLogger({ guildId: 'guild', channelId: 'log', officerChannelId: 'officers',
+        client: { channels: { cache: new Map([
+            ['log', { guildId: 'guild', async send() { return { id: 'saved' }; } }],
+            ['officers', { guildId: 'other', async send() { assert.fail('Wrong guild'); } }]
+        ]) } } });
+    logger.enqueue(event(), async () => ['alert']);
+    await logger.flush();
+});
+
+test('saved alert lookups preserve Gold and Silver scope and edit revision ownership', async () => {
+    const { PvpScoutStore } = require('../features/pvp-scouting/PvpScoutStore.js');
+    for (const server of ['gold', 'silver']) {
+        const queries = [];
+        const store = Object.create(PvpScoutStore.prototype);
+        store.channelId = `${server}-channel`;
+        store.ensureSchema = async () => {};
+        store.db = { async query(sql, params) {
+            queries.push({ sql, params });
+            return [[{ alert_message_id: '1567422622671831201' }, { alert_message_id: null },
+                { alert_message_id: '1567422622671831201' }]];
+        } };
+        assert.deepEqual(await store.getReviewAlertIds({ messageId: 'root', sources: [{ messageId: 'child' }] }), ['1567422622671831201']);
+        assert.deepEqual(queries[0].params, [store.channelId, 'root', 'child', store.channelId, 'root', 'child']);
+        assert.match(queries[0].sql, /pvp_scout_review_alerts/u);
+        assert.match(queries[0].sql, /alerted_revision = revision/u);
+        await store.getReviewAlertIds({ action: 'edit_accepted', messageId: 'child', editRevision: 4 });
+        assert.deepEqual(queries[1].params, [store.channelId, 'child', 4]);
+        assert.doesNotMatch(queries[1].sql, /pvp_scout_review_alerts/u);
+        assert.match(queries[1].sql, /AND revision = \?/u);
+    }
+});
+
 test('automatic publication logs use the report ID, logo, timestamp and correct source link without pinging contributors', () => {
     const payload = publishedPayload({ ign: '90skid', reportId: '1500728816346075216', messageId: '1500728954083086407',
         sourceUrl: 'https://discord.com/channels/1/2/1500728816346075216', rating: 318,

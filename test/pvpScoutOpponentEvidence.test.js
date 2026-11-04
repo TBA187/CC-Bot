@@ -3,10 +3,44 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { extractRating, extractScoutData, opponentFromBattleBanner } = require('../features/pvp-scouting/PvpScoutParser.js');
+const { candidateFromOcr, extractRating, extractScoutData, nameFromResultLine, opponentFromBattleBanner } = require('../features/pvp-scouting/PvpScoutParser.js');
 const { reviewPatternKey } = require('../features/pvp-scouting/ScoutReviewLearning.js');
 
 const image = { id: 'image-1', name: 'scout.png', contentType: 'image/png', width: 900, height: 500 };
+
+test('a nameless six-Pokémon preview cannot make its last Pokémon the opponent IGN', () => {
+    const text = 'Volcarona, Dragapult, Landorus, Keldeo-Resolute, Toxapex,\nDiancie';
+    for (const lines of [[], text.split('\n'), text.split('\n').map(text => ({ text }))]) {
+        assert.equal(candidateFromOcr(text, lines, { width: 383, height: 42 }), null);
+        const parsed = extractScoutData({ content: '', attachments: [{ ...image, width: 383, height: 42 }] }, {
+            ocrResults: [{ attachmentId: image.id, text, lines }]
+        });
+        assert.equal(parsed.ign, null);
+        assert.equal(parsed.classification, 'review');
+        assert.equal(parsed.reviewStatus, 'pending');
+        assert.match(parsed.reviewReason, /Could not identify the opponent IGN/u);
+        assert.equal(parsed.ocrText, text);
+    }
+});
+
+test('unlabelled result-card OCR ignores species names and retains real opponent candidates', () => {
+    for (const name of ['Diancie', 'Zapdos', 'Keldeo-Resolute']) {
+        assert.equal(candidateFromOcr(`Rating: +15\n${name}`), null);
+        assert.equal(candidateFromOcr(`Rating: +15\n${name}`, [
+            { text: name, bbox: { x0: 10, x1: 120, y0: 450, y1: 470 } }
+        ], { width: 900, height: 500 }), null);
+    }
+    assert.equal(candidateFromOcr('Rating: +15\nGDarch').ign, 'GDarch');
+    assert.equal(candidateFromOcr('Dianciefan', ['Dianciefan']).ign, 'Dianciefan');
+});
+
+test('species-named players remain valid in explicit fields, focused reads and stored-name validation', () => {
+    for (const text of ['Opponent IGN: Diancie', 'Inspect: Diancie\nName: Diancie', 'Reporter VS Diancie']) {
+        assert.equal(candidateFromOcr(text).ign, 'Diancie');
+    }
+    assert.equal(candidateFromOcr('Diancie', [], { focusedIgn: 'Diancie', focusedConfidence: 0.95 }).ign, 'Diancie');
+    assert.equal(nameFromResultLine('Diancie'), 'Diancie');
+});
 
 test('a framed focused opponent stays accepted when its score is 88 percent', () => {
     const parsed = extractScoutData({ content: '', attachments: [image] }, {

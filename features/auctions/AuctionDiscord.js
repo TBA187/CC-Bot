@@ -227,12 +227,14 @@ function buildBidNotificationPayload(job, userId, botUser = null, auctionMessage
     const lead = `${recipient ? `<@${recipient}> ` : ''}There's a new ${isOffer ? 'price offer' : 'bid'} for `;
     const title = text(auction.title || 'Auction', Math.min(250, 2000 - lead.length - (link ? link.length + 10 : 4)));
     const content = `**${lead}${link ? `[${title}](<${link}>)` : title}**`;
+    const forumTime = /^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)(?: UTC)?$/i.exec(String(bid.time || '').trim());
+    const bidTime = (forumTime && discordTime(`${forumTime[1]}T${forumTime[2]}Z`))
+        || discordTime(bid.timestamp) || text(bid.time, 100);
     const embed = new EmbedBuilder().setColor(0x57F287)
         .setTitle(text(`${label} — ${auction.title || 'Auction'}`, 256))
         .addFields(
             { name: label, value: `**${text(bid.amount, 100)} by ${person(bid.bidder)}**`, inline: false },
-            { name: 'Bid time (forum)', value: bid.time ? `${text(bid.time, 100).replace(/\s+UTC$/i, '')} UTC`
-                : bid.timestamp && Number.isFinite(Date.parse(bid.timestamp)) ? `${new Date(bid.timestamp).toISOString().replace('T', ' ').slice(0, 19)} UTC` : NONE, inline: false },
+            { name: 'Bid time (forum)', value: bidTime, inline: false },
             { name: 'Auction ends', value: discordTime(auction.endsAt) || text(auction.timeLeft, 300), inline: false },
             { name: 'Server', value: server(auction.server), inline: true },
             { name: 'Minimum bid', value: text(auction.minimumBid, 100), inline: true },

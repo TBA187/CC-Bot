@@ -362,7 +362,8 @@ test('bid DMs identify their auction and include linked bidder, price, source ti
     assert.equal(embed.url, auction.url);
     assert.equal(embed.description, undefined);
     assert.match(embed.fields[0].value, /^\*\*250\.000 by \[Player\].*\*\*$/);
-    assert.equal(embed.fields[1].value, '2026-11-04 00:30:00 UTC');
+    const seconds = Date.parse('2026-11-04T00:30:00Z') / 1000;
+    assert.equal(embed.fields[1].value, `<t:${seconds}:R> (<t:${seconds}:F>)`);
     assert.match(embed.fields.find(field => field.name === 'Auction ends').value, /<t:\d+:R>/);
     assert.ok(!embed.fields.some(field => field.name === 'Auction' || field.name === 'Current offer'));
     assert.deepEqual(embed.fields.slice(-3).map(field => field.name), ['Server', 'Minimum bid', 'Discord message']);
@@ -539,14 +540,28 @@ test('private auction links show unavailable for missing or invalid Discord mess
     }
 });
 
-test('delivery recovery recognizes a previously sent DM with the older timestamp and embed layout', async () => {
+test('bid DMs localize UTC forum times and fall back to stored timestamps or source text', () => {
+    const timestamp = '2026-11-04T06:54:22Z';
+    const seconds = Date.parse(timestamp) / 1000;
+    for (const labels of [[], ['Price offer']]) {
+        for (const bid of [{ time: '2026-11-04 06:54:22' }, { time: '2026-11-04 06:54:22 UTC' },
+            { timestamp }, { time: 'unavailable', timestamp }, { timestamp: 'invalid', time: 'Unknown', expected: 'Unknown' },
+            { expected: '*None*' }]) {
+            const embed = buildBidNotificationPayload({ auction: sample(), bid: { ...bid, labels } }, '111').embeds[0].toJSON();
+            assert.equal(embed.fields.find(field => field.name === 'Bid time (forum)').value,
+                bid.expected || `<t:${seconds}:R> (<t:${seconds}:F>)`);
+        }
+    }
+});
+
+for (const format of ['discord', 'utc']) test(`delivery recovery recognizes a previously sent DM with ${format} time and the older embed layout`, async () => {
     const auction = sample();
     const bidder = { name: 'Bidder', url: 'https://pokemonrevolution.net/forum/profile/2-bidder/' };
     const timestamp = '2026-11-04T00:30:00.000Z';
     const seconds = Math.floor(Date.parse(timestamp) / 1000);
     const previous = { id: '500', author: { id: 'bot' }, embeds: [{ url: auction.url, fields: [
         { name: 'New bid', value: '**200.000** by [Bidder](<https://pokemonrevolution.net/forum/profile/2-bidder/>)' },
-        { name: 'Bid time (forum)', value: `<t:${seconds}:R> (<t:${seconds}:F>)` }
+        { name: 'Bid time (forum)', value: format === 'discord' ? `<t:${seconds}:R> (<t:${seconds}:F>)` : '2026-11-04 00:30:00 UTC' }
     ] }] };
     const channel = { messages: { async fetch() { return new Collection([[previous.id, previous]]); } },
         async send() { assert.fail('A confirmed previous DM must not be sent twice'); } };

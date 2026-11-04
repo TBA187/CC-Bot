@@ -6,6 +6,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { ComponentType, MessageFlags, MessageFlagsBitField } = require('discord.js');
 const { createInteractionHandler } = require('../app/interactionRouter.js');
 const { InteractionDiagnostics, setInteractionContext } = require('../utils/interactionDiagnostics.js');
 
@@ -34,6 +35,70 @@ test('the application router dispatches message-builder buttons, channel selecti
         await handler(interaction);
         assert.deepEqual(calls, [interaction]);
     }
+});
+
+test('the application router dispatches persistent auction controls to the stored listing', async () => {
+    const calls = [];
+    const handler = createInteractionHandler({
+        lifecycle: { stopping: false }, interactionDiagnostics: { track() {} },
+        commandMap: new Map(), appConfig: { auctionChannelID: 'channel' },
+        auctionMonitor: { store: { async getAuctionRecord(id) {
+            calls.push(id);
+            return { auction: { id, imageUrls: ['https://example.com/1.png', 'https://example.com/2.png'] } };
+        } } }
+    });
+    const interaction = {
+        customId: 'auction:images:14702:0', channelId: 'channel',
+        isAutocomplete: () => false, isButton: () => true,
+        async deferReply(payload) { calls.push(payload); },
+        async editReply(payload) { calls.push(payload); }
+    };
+    await handler(interaction);
+    assert.equal(calls[1], '14702');
+    assert.equal(calls[2].flags, MessageFlags.IsComponentsV2);
+    assert.equal(calls[2].components[0].toJSON().components
+        .find(component => component.type === ComponentType.MediaGallery).items.length, 2);
+});
+
+test('private V2 gallery lookup failures use component-only error replies and preserve diagnostic logging', async () => {
+    const calls = [], errors = [];
+    const handler = createInteractionHandler({
+        lifecycle: { stopping: false }, interactionDiagnostics: { track() {}, describe: () => 'gallery failed' },
+        commandMap: new Map(), appConfig: { auctionChannelID: '123' }, botDiagnostics: { secrets: [] },
+        consoleObject: { error: (...args) => errors.push(args) },
+        auctionMonitor: { store: { async getAuctionRecord() { throw new Error('Storage unavailable'); } } }
+    });
+    const interaction = { customId: 'auction:images:14702:1', channelId: '123',
+        isAutocomplete: () => false, isButton: () => true,
+        message: { flags: new MessageFlagsBitField([MessageFlags.Ephemeral, MessageFlags.IsComponentsV2]) },
+        async deferUpdate() { this.deferred = true; calls.push('deferUpdate'); },
+        async editReply(payload) { calls.push(payload); } };
+    await handler(interaction);
+    assert.equal(errors.length, 1);
+    assert.equal(calls[0], 'deferUpdate');
+    assert.equal(calls[1].content, undefined);
+    assert.equal(calls[1].embeds, undefined);
+    assert.equal(calls[1].components[0].toJSON().type, ComponentType.TextDisplay);
+    assert.match(calls[1].components[0].toJSON().content, /Something went wrong/);
+    assert.deepEqual(calls[1].allowedMentions, { parse: [] });
+});
+
+test('auction bid controls route the saved Discord message into the history link', async () => {
+    const calls = [];
+    const handler = createInteractionHandler({
+        lifecycle: { stopping: false }, interactionDiagnostics: { track() {} },
+        commandMap: new Map(), appConfig: { auctionChannelID: '456' },
+        auctionMonitor: { store: { async getAuctionRecord() {
+            return { messageId: '789', auction: { id: '14702', bids: [] } };
+        } } }
+    });
+    const interaction = {
+        customId: 'auction:bids:14702:0', guildId: '123', channelId: '456',
+        isAutocomplete: () => false, isButton: () => true,
+        async deferReply() {}, async editReply(payload) { calls.push(payload); }
+    };
+    await handler(interaction);
+    assert.equal(calls[0].embeds[0].toJSON().fields[0].value, '[**Jump to message** ↗️](<https://discord.com/channels/123/456/789>)');
 });
 
 test('the actual router reports expired crowns with timing and retry guidance, and redacts other acknowledgement errors', async () => {

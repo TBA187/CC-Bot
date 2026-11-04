@@ -190,3 +190,22 @@ test('two clicks on the same panel are acknowledged promptly and saved in order'
     assert.equal(f.selected.get('user'), 'silver');
     assert.match(silver.calls.find(call => call[0] === 'editReply')[1].embeds[0].toJSON().description, /Selected Server: <:silver:1555743603567886478> Silver/u);
 });
+
+test('membership revoked after opening settings gives a private explanation and contextual console entry', async t => {
+    const logs = [], errors = [];
+    t.mock.method(console, 'log', (...args) => logs.push(args));
+    t.mock.method(console, 'error', (...args) => errors.push(args));
+    for (const server of ['gold', 'silver', 'cross']) {
+        const f = fixture(), i = interaction(server);
+        const freshMember = { ...i.member, roles: { ...i.member.roles, cache: new Set() } };
+        i.guild.members.fetch = async () => freshMember;
+        await f.command.handleButton(i);
+        assert.deepEqual(i.calls.map(call => call[0]), ['deferUpdate', 'followUp']);
+        assert.equal(i.calls[1][1].flags, MessageFlags.Ephemeral);
+        assert.match(i.calls[1][1].content, /require a Crow Control member or staff role/);
+        assert.match(logs.at(-1)[0], /User: AccountName \(user\)/);
+        assert.match(logs.at(-1)[0], /Permission check: current member roles/);
+        assert.equal(f.selected.size, 0);
+        assert.equal(errors.length, 0);
+    }
+});

@@ -178,7 +178,8 @@ test('explicit first-use confirmation offers selected and alternative servers, a
 });
 
 test('failed first-use selection returns private feedback and retains the setup controls', async t => {
-    t.mock.method(console, 'error', () => {});
+    const errors = [];
+    t.mock.method(console, 'error', (...args) => errors.push(args));
     const f = fixture(null);
     f.service.select = async () => { throw new Error('Role assignment failed'); };
     const setup = f.command.serverSetupPayload(interaction(), null, 'SameOpponent');
@@ -187,6 +188,9 @@ test('failed first-use selection returns private feedback and retains the setup 
     assert.deepEqual(i.calls.map(([action]) => action), ['deferUpdate', 'followUp']);
     assert.equal(i.calls[1][1].flags, MessageFlags.Ephemeral);
     assert.match(i.calls[1][1].content, /Could not save/u); assert.deepEqual(f.reads, []);
+    assert.ok(errors[0][0].includes(USER_ID));
+    assert.match(errors[0][0], /Selected server: Gold/);
+    assert.match(errors[0][0], /Reason: Role assignment failed/);
 });
 
 test('commands, buttons and modals enforce permissions, while autocomplete exposes no names', async () => {
@@ -503,7 +507,7 @@ test('report counts use all report dates in UTC, independently of stored ratings
     assert.ok(body(cross).includes(`${SERVERS.gold.markup} **Gold: \`2\`** scout reports (2026-09-18 — 2026-09-20)\n${SERVERS.silver.markup} **Silver: \`1\`** scout report (2026-09-20)`));
     assert.doesNotMatch(body(cross), /Scout Reports: `3`/u);
     const gold = await f.command.viewFor('gold').teamsPayload('SameOpponent', USER_ID);
-    assert.match(body(gold), /\*\*Scout Reports: `2`\*\*\u2002 \(2026-09-18 — 2026-09-20\)/u);
+    assert.match(body(gold), /\*\*Scout Reports: `2`\*\* \(2026-09-18 — 2026-09-20\)/u);
     f.contexts[1].store.roots.splice(0);
     f.contexts[1].store.dataRevision++;
     const updated = await f.command.viewFor('cross').teamsPayload('SameOpponent', USER_ID);

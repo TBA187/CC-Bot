@@ -42,6 +42,7 @@ An unreadable guild-settings, dungeon or notification recovery file is preserved
 | `pvpKingSilverChannelID`, `pvpKingSilverRoleID`, `historySilverThreadID` | Silver PvP King channel, crown role and history destination. |
 | `dungeonChannelID`, `dungeonRoleID`, `giveawayChannelID` | Recruitment and giveaway destinations. |
 | `officerChannelID`, `courtHouseChannelID` | Guild application alerts and voting polls. |
+| `auctionChannelID` | Channel for PRO Trade Zone Auction listings and their updates. |
 | `ownerID` | Owner-only forum review alerts and shop notifications. |
 | `brandingImageURL` | Crow Control banner image URL hosted online. |
 
@@ -78,6 +79,10 @@ Guild applications use `forumGuildApplicationPage` and are checked every ten min
 
 Forum shop notifications use `tbaProForumShop`, `tbaProDungeonShop` and `tbaProForumNotifications` (`1` enables delivery, `0` disables it). The monitors check every twelve minutes, establish a silent initial baseline and share processed-post checkpoints through MySQL. New replies are sent to `ownerID`.
 
+The PRO Auction Trade Zone monitor uses `auctionChannelID`, records a silent discovery baseline on every fresh start, and checks active and inactive auction listings every 90 seconds. Auctions already present at startup and undelivered announcements from an earlier run are skipped; already-announced auctions keep receiving updates. Each scan attempts up to five announcements and refreshes up to ten previously announced active listings, so delivery and bid updates can take longer during busy periods. It keeps a local recovery file and synchronizes its state to MySQL unless `STORAGE_MODE=json`.
+
+Members can follow multiple auctions to receive a separate DM for each new valid bid detected after subscribing. DM Notifications stop when the auction ends or the user unfollows. Subscriptions in the database are removed when the auction ends, and are also removed for a member when Discord reports that their DMs are unavailable.
+
 Scout reports that fail validation receive correction suggestions and a one-hour correction window before staff escalation. Correction deadlines survive restarts. Gold and Silver reports remain in separate archives; Cross Server searches read both. The saved autocomplete snapshots can be rebuilt from the database.
 
 Members can edit their own scout messages during the first 24 hours after posting; each linked follow-up has its own 24-hour window. Edits are validated and logged in the scout log channel. Edits after the deadline or edits to officer-reviewed reports require officer approval.
@@ -106,6 +111,7 @@ Stop the old bot instance before moving hosts. Back up MySQL and preserve the fe
 | `notifications.json` | Subscription settings and recovery state. |
 | `guild_applications.json` | Forum scan checkpoint, application records and pending delivery state. |
 | `tba_forum_shops.json` | Forum shop recovery checkpoints. |
+| `forum_auctions.json` | Pending auction database operations and any outage snapshot; full auction state when using JSON-only storage. Do not switch a healthy MySQL journal to JSON-only mode without first exporting a full snapshot. |
 | `scout-autocomplete-cache.json`, `scout-autocomplete-silver-cache.json` | Rebuildable Gold and Silver search indexes. |
 | `tesseract-cache/` | Reusable OCR language data. |
 | `logs/cc-YYYY-MM.log` | Runtime diagnostic output. |

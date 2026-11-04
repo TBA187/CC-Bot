@@ -261,12 +261,12 @@ class ScoutStats {
         const currentPage = Math.max(0, Math.min(contributorPageCount, Number(page) || 0));
         const logoReference = logoUrl || 'attachment://cc_logo.webp';
         const embed = new EmbedBuilder().setColor(0x452366)
-            .setTitle('<:dark_murkrow:1565243892255694908>\u2002PvP Crow Control  •  Scout Statistics')
+            .setTitle('<:dark_murkrow:1565243892255694908>\u2002Crow Control  •  Scout Statistics')
             .setThumbnail(logoReference);
 
         const embeds = [embed];
         if (currentPage === 0) {
-            embed.setFooter({ text: 'PvP Crow Control  •  Scout Statistics', iconURL: logoReference })
+            embed.setFooter({ text: 'Crow Control  •  Scout Statistics', iconURL: logoReference })
                 .setTimestamp(new Date(stats.generatedAt));
             const ratings = stats.ratings;
             const average = ratings.count ? (ratings.sum / ratings.count).toFixed(1) : 'No ratings yet';
@@ -325,7 +325,7 @@ class ScoutStats {
             if (secondGroup.length) {
                 embeds.push(new EmbedBuilder().setColor(0x452366)
                     .setDescription(contributorLines(secondGroup, start + CONTRIBUTORS_PER_EMBED))
-                    .setFooter({ text: `PvP Crow Control  •  Scout Statistics  •  Contributors ${currentPage}/${contributorPageCount}`,
+                    .setFooter({ text: `Crow Control  •  Scout Statistics  •  Contributors ${currentPage}/${contributorPageCount}`,
                         iconURL: logoReference })
                     .setTimestamp(new Date(stats.generatedAt)));
             }

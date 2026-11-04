@@ -13,13 +13,59 @@ const SERVERS = Object.freeze({
 });
 const memberJobs = new Map();
 
-function canUseGuildSettings(interaction, config) {
-    if (!interaction.inGuild?.() || String(interaction.guildId || interaction.guild?.id || '') !== String(config.guildId || '')) return false;
+function guildSettingsDenial(interaction, config) {
+    if (!interaction.inGuild?.()) return 'outside_guild';
+    if (String(interaction.guildId || interaction.guild?.id || '') !== String(config.guildId || '')) return 'wrong_guild';
     const roles = interaction.member?.roles;
     const permittedRoles = [config.guildMemberRoleID, config.officerRoleID, config.adminRoleID, config.leaderRoleID]
         .filter(Boolean).map(String);
-    return permittedRoles.some(id => roles?.cache?.has(id) || (Array.isArray(roles) && roles.includes(id)))
+    const allowed = permittedRoles.some(id => roles?.cache?.has(id) || (Array.isArray(roles) && roles.includes(id)))
         || Boolean((interaction.memberPermissions || interaction.member?.permissions)?.has?.(PermissionFlagsBits.Administrator));
+    return allowed ? null : 'missing_guild_role';
+}
+
+function canUseGuildSettings(interaction, config) { return guildSettingsDenial(interaction, config) === null; }
+
+function permissionError(reason, interaction, config, stage) {
+    const roles = interaction.member?.roles;
+    return Object.assign(new Error('No permission!'), {
+        code: 'SCOUT_SERVER_FORBIDDEN', permissionReason: reason, permissionStage: stage,
+        reason: reason === 'outside_guild' ? 'The interaction was not used inside a Discord server.'
+            : reason === 'wrong_guild' ? 'The interaction was used outside the configured Crow Control Discord server.'
+                : 'The member has none of the configured member or staff roles and does not have Discord Administrator permission.',
+        checkedRoleIds: Array.isArray(roles) ? [...roles] : [...(roles?.cache?.keys?.() || [])],
+        requiredRoleIds: [config.guildMemberRoleID, config.officerRoleID, config.adminRoleID, config.leaderRoleID].filter(Boolean).map(String)
+    });
+}
+
+function serverSelectionFailureMessage(error) {
+    if (error.code !== 'SCOUT_SERVER_FORBIDDEN') return error.message === 'No permission!' ? 'No permission!' : null;
+    return error.permissionReason === 'missing_guild_role'
+        ? 'No permission! These server settings require a Crow Control member or staff role, or Discord Administrator permission.'
+        : 'No permission! These server settings are only available in the Crow Control Discord server.';
+}
+
+function logServerSelectionFailure(interaction, server, error) {
+    const safe = value => String(value ?? 'Unknown').replace(/[\u0000-\u001f\u007f\u0085\u2028\u2029]/gu, ' ').slice(0, 300);
+    const denied = error.code === 'SCOUT_SERVER_FORBIDDEN';
+    const ids = [interaction.guildId || interaction.guild?.id, interaction.channelId, interaction.message?.id];
+    const context = [
+        `User: ${safe(interaction.user?.username)} (${safe(interaction.user?.id)})`,
+        `Selected server: ${safe(SERVERS[server]?.label || server)}`,
+        `Guild: ${safe(ids[0])}`,
+        `Channel: ${safe(ids[1])}`,
+        `Control: ${safe(interaction.customId || interaction.commandName)}`,
+        `Reason: ${safe(error.reason || error.message)}`
+    ];
+    if (ids.every(id => /^\d+$/.test(String(id || '')))) context.push(`Panel message: https://discord.com/channels/${ids.join('/')}`);
+    if (denied) {
+        context.push(`Permission check: ${safe(error.permissionStage)}`,
+            `Member role IDs: ${safe(error.checkedRoleIds?.join(', ') || 'None')}`,
+            `Accepted role IDs: ${safe(error.requiredRoleIds?.join(', ') || 'None configured')}`);
+        console.log(`[CC LOG] Server selection denied.\n${context.join('\n')}`);
+    } else {
+        console.error(`[CC LOG] Server selection failed.\n${context.join('\n')}`, error);
+    }
 }
 
 function selectionFeedback({ previous, selected }) {
@@ -42,7 +88,9 @@ class ScoutServerSettings {
 
     async select(interaction, server, { toggle = false } = {}) {
         if (!SERVERS[server]) throw new Error('Select Gold, Silver, or Cross Server.');
-        if (!this.canUse(interaction)) throw new Error('No permission!');
+        const denial = guildSettingsDenial(interaction, this.config);
+        // Current member roles are verified below; interaction role data can be stale.
+        if (denial && denial !== 'missing_guild_role') throw permissionError(denial, interaction, this.config, 'interaction');
         const key = `${interaction.guildId || interaction.guild.id}:${interaction.user.id}`;
         const prior = memberJobs.get(key) || Promise.resolve();
         const job = prior.catch(() => {}).then(() => this.applySelection(interaction, server, toggle))
@@ -63,8 +111,10 @@ class ScoutServerSettings {
             guild.members.me ? Promise.resolve(guild.members.me) : guild.members.fetchMe()
         ]);
         if (!member || !member.roles?.add || !member.roles?.remove) throw new Error('Could not load your Discord member roles.');
-        if (!this.canUse({ guildId: interaction.guildId || guild.id, guild, inGuild: () => true, member,
-            memberPermissions: member.permissions || interaction.memberPermissions })) throw new Error('No permission!');
+        const freshInteraction = { guildId: interaction.guildId || guild.id, guild, inGuild: () => true, member,
+            memberPermissions: member.permissions || interaction.memberPermissions };
+        const denial = guildSettingsDenial(freshInteraction, this.config);
+        if (denial) throw permissionError(denial, freshInteraction, this.config, 'current member roles');
         if (!bot?.permissions?.has(PermissionFlagsBits.ManageRoles)) throw new Error('The bot needs Manage Roles permission to select a server.');
         const highest = bot.roles?.highest;
         for (const role of [goldRole, silverRole]) {
@@ -139,4 +189,5 @@ class ScoutServerSettings {
     }
 }
 
-module.exports = { ScoutServerSettings, SERVERS, canUseGuildSettings, selectionFeedback };
+module.exports = { ScoutServerSettings, SERVERS, canUseGuildSettings, selectionFeedback,
+    logServerSelectionFailure, serverSelectionFailureMessage };

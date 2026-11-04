@@ -11,6 +11,8 @@ const TRANSIENT_CONNECTION_CODES = /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AG
 
 // Pair known outage and recovery messages by subsystem. Other console logs stay local.
 const STATUS_EVENTS = [
+    { key: 'forum:auctions', component: 'PRO Auctions', warning: /^\[CC LOG\] PRO auction monitor is unavailable\./u,
+        recovery: /^\[CC LOG\] PRO auction monitor connection restored\./u },
     { key: 'forum:pro-forum-shop', component: 'PRO Forum Shop', warning: /^\[CC LOG\] PRO Forum Shop monitor is unavailable\./u,
         recovery: /^\[CC LOG\] PRO Forum Shop monitor connection restored\./u },
     { key: 'forum:pro-dungeon-shop', component: 'PRO Dungeon Shop', warning: /^\[CC LOG\] PRO Dungeon Shop monitor is unavailable\./u,

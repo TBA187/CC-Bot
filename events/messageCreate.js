@@ -98,7 +98,7 @@ module.exports = {
                                 { name: 'Channel', value: `<#${message.channel.id}>`, inline: true },
                                 { name: '\u200b', value: '\u200b', inline: true },
                                 { name: 'Message ID', value: `\`${sentMessage.id}\``, inline: true },
-                                { name: 'Message Link', value: `[Jump to message](${sentMessage.url})`, inline: true },
+                                { name: 'Message Link', value: `[Jump to message ↗️](${sentMessage.url})`, inline: true },
                                 { name: '\u200b', value: '\u200b', inline: true },
                                 {
                                     name: '📝 Message Content',

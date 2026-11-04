@@ -266,7 +266,7 @@ for (const [alias, target] of Object.entries(vocabulary.aliases)) {
         termsByKey.get(nameKey(alias)).push({ kind, name: target });
     }
 }
-for (const [alias, name] of Object.entries({ rockhelmet: 'Rocky Helmet', rockyhelm: 'Rocky Helmet', scarfed: 'Choice Scarf',
+for (const [alias, name] of Object.entries({ rockhelmet: 'Rocky Helmet', rockyhelm: 'Rocky Helmet', scarfed: 'Choice Scarf', vest: 'Assault Vest',
     rocks: 'Stealth Rock', banded: 'Choice Band', sitrus: 'Sitrus Berry',
     adam: 'Adamant', mod: 'Modest', tim: 'Timid', joll: 'Jolly', care: 'Careful' })) {
     if (!termsByKey.has(alias)) termsByKey.set(alias, []);
@@ -527,7 +527,7 @@ function modifierFirstEntries(line) {
         let prefix = null;
         for (let index = 1; index <= Math.min(3, tokens.length - 1); index++) {
             const before = clause.slice(0, tokens[index].index).trim();
-            if (!/^(?:(?:choice\s+)?(?:scarf|band|specs)|sash|life\s+orb|leftovers|assault\s+vest|sand\s*veil|will-?o-?wisp|wilowisp|wisp|bold|impish|modest|timid|mega|z\s*move)$/iu.test(before)) continue;
+            if (!/^(?:(?:choice\s+)?(?:scarf|band|specs)|sash|life\s+orb|leftovers|(?:assault\s+)?vest|sand\s*veil|will-?o-?wisp|wilowisp|wisp|bold|impish|modest|timid|mega|z\s*move)$/iu.test(before)) continue;
             const candidate = matchSpeciesHeading(clause.slice(tokens[index].index), { allowTypo: true, allowBroadAlias: true });
             if (candidate?.species) {
                 heading = { ...candidate, start: tokens[index].index };

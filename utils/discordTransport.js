@@ -6,8 +6,10 @@ const diagnostics = require('node:diagnostics_channel');
 const { performance } = require('node:perf_hooks');
 const { DefaultRestOptions, DefaultUserAgent } = require('@discordjs/rest');
 const { Pool } = require('undici');
-const { networkErrorCode: safeErrorCode } = require('./networkErrors.js');
+const { networkErrorCode: safeErrorCode, isTransientDiscordError } = require('./networkErrors.js');
 const CALLBACK_CONNECTIONS = 4;
+const SLOW_REUSED_RESPONSE_MS = 1500;
+const CONNECTION_REFRESH_INTERVAL_MS = 30_000;
 
 // Initial callbacks have a three-second deadline. Give them a small, separate
 // connection pool so uploads and ordinary REST traffic cannot occupy its sockets.
@@ -15,23 +17,34 @@ const CALLBACK_CONNECTIONS = 4;
 function createDiscordTransport({
     origin = 'https://discord.com',
     request = (...args) => DefaultRestOptions.makeRequest(...args),
-    pool = new Pool(origin, { connections: CALLBACK_CONNECTIONS, pipelining: 1, keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000 }),
+    pool,
+    poolFactory,
     onTiming = () => {},
     consoleObject = console,
     clock = () => performance.now(),
     warmupIntervalMs = 30_000,
-    warmupTimeoutMs = 5_000
+    warmupTimeoutMs = 5_000,
+    slowReusedResponseMs = SLOW_REUSED_RESPONSE_MS,
+    refreshIntervalMs = CONNECTION_REFRESH_INTERVAL_MS
 } = {}) {
+    const createPool = poolFactory || (!pool ? () => new Pool(origin, {
+        connections: CALLBACK_CONNECTIONS, pipelining: 1, keepAliveTimeout: 60_000, keepAliveMaxTimeout: 60_000
+    }) : null);
+    pool ||= createPool();
     const scope = new AsyncLocalStorage();
     const requests = new WeakMap();
     const usedSockets = new WeakSet();
     const subscriptions = [];
+    const retiredPools = new Set();
+    const closingPools = new WeakSet();
+    const poolRequests = new Map();
     let stopped = false, warmupTimer, warmupPromise, warmupController;
     let warmupFailed = false;
     let pooledCallbacks = 0;
+    let lastRefreshAt = -Infinity;
 
-    const poolStats = () => {
-        const stats = pool.stats;
+    const poolStats = (dispatcher = pool) => {
+        const stats = dispatcher.stats;
         return { connected: Number(stats?.connected) || 0, running: Number(stats?.running) || 0,
             pending: Number(stats?.pending) || 0 };
     };
@@ -40,7 +53,7 @@ function createDiscordTransport({
         try {
             onTiming({ interactionId: state.interactionId, stage,
                 elapsedMs: Math.max(0, clock() - state.startedAt),
-                ...(state.dedicatedPool ? { pool: poolStats() } : {}), ...extra });
+                ...(state.dedicatedPool ? { pool: poolStats(state.dispatcher) } : {}), ...extra });
         } catch { /* Instrumentation must never interrupt an acknowledgement. */ }
     };
     const subscribe = (name, listener) => {
@@ -52,10 +65,48 @@ function createDiscordTransport({
         subscriptions.push([channel, safeListener]);
     };
 
+    function closeRetiredPool(dispatcher) {
+        if (stopped || !retiredPools.has(dispatcher) || poolRequests.has(dispatcher) || closingPools.has(dispatcher)) return;
+        closingPools.add(dispatcher);
+        // Wait for reservations that are still preparing request bodies before
+        // closing. Undici can only drain requests already dispatched to it.
+        try {
+            Promise.resolve(dispatcher.close()).then(() => retiredPools.delete(dispatcher), () => {
+                if (dispatcher.destroyed) retiredPools.delete(dispatcher);
+            });
+        } catch { /* Keep the retired pool tracked for forced shutdown cleanup. */ }
+    }
+
+    function retainPool(dispatcher) {
+        poolRequests.set(dispatcher, (poolRequests.get(dispatcher) || 0) + 1);
+    }
+
+    function releasePool(dispatcher) {
+        const remaining = poolRequests.get(dispatcher) - 1;
+        if (remaining > 0) poolRequests.set(dispatcher, remaining);
+        else poolRequests.delete(dispatcher);
+        closeRetiredPool(dispatcher);
+    }
+
+    function refreshConnections(previous) {
+        if (stopped || previous !== pool || !createPool || retiredPools.size >= 2
+            || clock() - lastRefreshAt < refreshIntervalMs) return;
+        let replacement;
+        try { replacement = createPool(); }
+        catch { return; }
+        if (!replacement || replacement === previous) return;
+        pool = replacement;
+        lastRefreshAt = clock();
+        retiredPools.add(previous);
+        closeRetiredPool(previous);
+        try { consoleObject.log('[CC LOG] Discord interaction connections refreshed after a slow response or connection failure; active callbacks are finishing normally.'); } catch {}
+        if (!warmupPromise && !pooledCallbacks) void warmup();
+    }
+
     subscribe('undici:request:create', ({ request: outgoing }) => {
         const state = scope.getStore();
         if (!state || stopped) return;
-        requests.set(outgoing, { ...state });
+        requests.set(outgoing, { ...state, owner: state });
         notify(state, 'created');
     });
     subscribe('undici:client:sendHeaders', ({ request: outgoing, socket }) => {
@@ -71,6 +122,8 @@ function createDiscordTransport({
     const complete = (outgoing, stage, extra) => {
         const state = requests.get(outgoing);
         if (!state) return;
+        if (stage === 'headers' && state.dedicatedPool && state.reusedConnection
+            && clock() - state.sentAt >= slowReusedResponseMs) state.owner.refreshNeeded = true;
         notify(state, stage, { ...(state.sentAt !== undefined ? {
             dispatchToSendMs: Math.max(0, state.sentAt - state.startedAt),
             sendToHeadersMs: Math.max(0, clock() - state.sentAt),
@@ -95,13 +148,23 @@ function createDiscordTransport({
         const stats = poolStats();
         const occupied = Math.max(pooledCallbacks + (warmupPromise ? 1 : 0), stats.running + stats.pending);
         const usePool = !init.dispatcher && occupied < CALLBACK_CONNECTIONS;
-        const options = usePool ? { ...init, dispatcher: pool } : init;
-        if (usePool) pooledCallbacks++;
-        return scope.run({ interactionId, startedAt: clock(), dedicatedPool: options.dispatcher === pool }, () => {
+        const requestPool = pool;
+        const options = usePool ? { ...init, dispatcher: requestPool } : init;
+        const state = { interactionId, startedAt: clock(), dedicatedPool: usePool, dispatcher: requestPool };
+        if (usePool) { pooledCallbacks++; retainPool(requestPool); }
+        const finished = () => {
+            if (usePool) { pooledCallbacks--; releasePool(requestPool); }
+            if (usePool && state.refreshNeeded) refreshConnections(requestPool);
+        };
+        return scope.run(state, () => {
             try {
-                return Promise.resolve(request(url, options)).finally(() => { if (usePool) pooledCallbacks--; });
+                return Promise.resolve(request(url, options)).catch(error => {
+                    if (isTransientDiscordError(error)) state.refreshNeeded = true;
+                    throw error;
+                }).finally(finished);
             } catch (error) {
-                if (usePool) pooledCallbacks--;
+                if (isTransientDiscordError(error)) state.refreshNeeded = true;
+                finished();
                 throw error;
             }
         });
@@ -110,6 +173,8 @@ function createDiscordTransport({
     async function warmup() {
         if (stopped || pooledCallbacks || poolStats().running || poolStats().pending) return false;
         if (warmupPromise) return warmupPromise;
+        const warmupPool = pool;
+        retainPool(warmupPool);
         warmupController = new AbortController();
         const timeout = setTimeout(() => warmupController?.abort(Object.assign(new Error('Discord warmup deadline exceeded.'),
             { code: 'ETIMEDOUT' })), warmupTimeoutMs);
@@ -119,7 +184,7 @@ function createDiscordTransport({
                 // GET /gateway is public and performs no Discord or database writes.
                 // Consume its small body so the socket is eligible for reuse.
                 const response = await scope.run({ startedAt: clock() }, () => request(`${origin}/api/v10/gateway`, {
-                    method: 'GET', dispatcher: pool, signal: warmupController.signal,
+                    method: 'GET', dispatcher: warmupPool, signal: warmupController.signal,
                     headers: { 'User-Agent': DefaultUserAgent }
                 }));
                 await response.arrayBuffer();
@@ -142,6 +207,7 @@ function createDiscordTransport({
                 clearTimeout(timeout);
                 warmupController = undefined;
                 warmupPromise = undefined;
+                releasePool(warmupPool);
             }
         });
         return warmupPromise;
@@ -162,7 +228,11 @@ function createDiscordTransport({
         clearInterval(warmupTimer);
         warmupController?.abort();
         for (const [channel, listener] of subscriptions) channel.unsubscribe(listener);
-        await pool.destroy();
+        const results = await Promise.allSettled([pool, ...retiredPools].map(dispatcher =>
+            Promise.resolve().then(() => dispatcher.destroy())));
+        retiredPools.clear();
+        const failure = results.find(result => result.status === 'rejected');
+        if (failure) throw failure.reason;
     }
 
     return { makeRequest, startWarmup, stop };

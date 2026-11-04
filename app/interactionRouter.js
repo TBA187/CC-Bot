@@ -1,12 +1,13 @@
 // Route commands and persistent controls, preserving their acknowledgement and error handling.
 'use strict';
 
-const { MessageFlags } = require('discord.js');
+const { MessageFlags, TextDisplayBuilder } = require('discord.js');
 const { redactDiagnostic } = require('../utils/discordDiagnostics.js');
 const { handleGiveawayButton } = require('../events/giveaways.js');
 const { handleGuildForumFeedbackButton } = require('../features/guild-applications/index.js');
+const { handleAuctionButton } = require('../features/auctions/AuctionDiscord.js');
 
-function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMap, commandConfig,
+function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMap, commandConfig, auctionMonitor,
     botDiagnostics, appConfig, consoleObject = console,
     giveawayButton = handleGiveawayButton, forumFeedbackButton = handleGuildForumFeedbackButton }) {
     const console = consoleObject;
@@ -29,6 +30,14 @@ function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMa
                 if (manager && await manager.handleInteraction(interaction)) return true;
             }
             if (interaction.isButton()) {
+                if (interaction.customId?.startsWith('auction:') && auctionMonitor) {
+                    if (await handleAuctionButton(interaction, {
+                        getAuctionRecord: id => auctionMonitor.store.getAuctionRecord(id),
+                        channelId: appConfig.auctionChannelID,
+                        guildId: appConfig.guildId,
+                        followService: auctionMonitor.followService
+                    })) return true;
+                }
                 if (interaction.customId?.startsWith('send_message:')) {
                     const builder = commandMap.get('send_message');
                     if (builder && await builder.handleButton(interaction)) return true;
@@ -151,7 +160,10 @@ function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMa
                 return;
             }
             if (interaction.deferred || interaction.replied) {
-                interaction.editReply({ content: '⚠️ Something went wrong!' }).catch(() => { });
+                const errorPayload = interaction.message?.flags?.has?.(MessageFlags.IsComponentsV2)
+                    ? { components: [new TextDisplayBuilder().setContent('⚠️ Something went wrong!')], allowedMentions: { parse: [] } }
+                    : { content: '⚠️ Something went wrong!' };
+                interaction.editReply(errorPayload).catch(() => { });
             } else if (interactionDiagnostics.canAcknowledge(interaction)) {
                 interaction.reply({ content: '⚠️ Something went wrong!', flags: MessageFlags.Ephemeral }).catch(() => { });
             }

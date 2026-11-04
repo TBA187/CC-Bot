@@ -366,7 +366,7 @@ class EditBotMsg {
                 );
             if (embedStatus !== 'no changes') embed.addFields({ name: 'Embed Status:', value: embedStatus, inline: true });
             embed.addFields(
-                { name: 'Message Link:', value: '[Jump to Message](' + message.url + ')', inline: false },
+                { name: 'Message Link:', value: '[Jump to Message ↗️](' + message.url + ')', inline: false },
                 { name: 'Difference:', value: formatMessageDiff(oldContent, finalContent), inline: false }
             ).setTimestamp();
             const logo = logoFile();

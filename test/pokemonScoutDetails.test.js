@@ -30,3 +30,15 @@ test('a colon after the opponent heading never becomes a Pokemon detail', () => 
     assert.match(rated.teamText, /^- Mega Diancie: Psyshock, Moonblast, Earth Power/u);
     assert.doesNotMatch(rated.teamText, /90skid|300/u);
 });
+
+test('Vest resolves to Assault Vest before or after a Pokémon name', () => {
+    for (const text of ['Tyranitar Vest: Flamethower', 'Tyranitar vest: Flamethrower', 'Vest Tyranitar: Flamethrower',
+        'Tyranitar AV: Flamethrower', 'Tyranitar Assault Vest: Flamethrower']) {
+        assert.equal(splitScoutText(text, 'Rogue005').teamText, '- Tyranitar (Item: Assault Vest): Flamethrower');
+    }
+    for (const text of ['Tyranitar maybe vest: Flamethrower', 'Tyranitar no vest: Flamethrower']) {
+        const parsed = splitScoutText(text, 'Rogue005');
+        assert.match(parsed.teamText, /(?:maybe|no) vest/u);
+        assert.doesNotMatch(parsed.teamText, /Item: Assault Vest/u);
+    }
+});

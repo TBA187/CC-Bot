@@ -8,9 +8,20 @@ const { once } = require('node:events');
 const { createDiscordTransport } = require('../utils/discordTransport.js');
 
 function fakePool() {
-    return { stats: { connected: 1, running: 0, pending: 0 }, destroyed: false,
+    return { stats: { connected: 1, running: 0, pending: 0 }, destroyed: false, closed: false,
+        async close() { this.closed = true; },
         async destroy() { this.destroyed = true; } };
 }
+
+function publishResponse(socket, beforeHeaders = () => {}) {
+    const outgoing = {};
+    diagnostics.channel('undici:request:create').publish({ request: outgoing });
+    diagnostics.channel('undici:client:sendHeaders').publish({ request: outgoing, socket });
+    beforeHeaders();
+    diagnostics.channel('undici:request:headers').publish({ request: outgoing, response: { statusCode: 204 } });
+}
+
+const callback = 'https://discord.com/api/v10/interactions/123/fake-private-token/callback';
 
 test('only Discord initial POST callbacks use the dedicated pool; ordinary traffic and explicit proxies keep their strategy', async () => {
     const calls = [], pool = fakePool();
@@ -175,6 +186,163 @@ test('warmup deadlines report ETIMEDOUT instead of the numeric AbortError code',
     } finally { clearInterval(keepAlive); await transport.stop(); }
 });
 
+test('a slow reused connection is replaced without replaying callbacks or closing requests still preparing their body', async () => {
+    const pools = [fakePool(), fakePool()], calls = [], logs = [];
+    const sockets = pools.map(() => ({ remoteFamily: 'IPv4' }));
+    let elapsed = 0, created = 0, finishReserved;
+    const transport = createDiscordTransport({ poolFactory: () => pools[created++], clock: () => elapsed,
+        consoleObject: { log: text => logs.push(text) }, request: (url, init) => {
+            calls.push({ url, init });
+            if (init.body === 'reserved') return new Promise(resolve => { finishReserved = () => {
+                assert.equal(init.dispatcher.closed, false);
+                publishResponse(sockets[0]);
+                resolve('reserved accepted');
+            }; });
+            publishResponse(sockets[pools.indexOf(init.dispatcher)], () => { elapsed += init.body === 'slow' ? 1600 : 10; });
+            return 'accepted';
+        } });
+    try {
+        await transport.makeRequest(callback, { method: 'POST' });
+        const reserved = transport.makeRequest(callback, { method: 'POST', body: 'reserved' });
+        assert.equal(await transport.makeRequest(callback, { method: 'POST', body: 'slow' }), 'accepted');
+        assert.equal(created, 2);
+        assert.equal(pools[0].closed, false, 'a reserved request has not dispatched yet');
+        await transport.makeRequest(callback, { method: 'POST' });
+        assert.equal(calls.at(-1).init.dispatcher, pools[1]);
+        assert.equal(pools[0].destroyed, false);
+        finishReserved();
+        assert.equal(await reserved, 'reserved accepted');
+        assert.equal(pools[0].closed, true);
+        assert.equal(calls.length, 4, 'each callback is sent exactly once');
+        assert.equal(logs.length, 1);
+        assert.doesNotMatch(logs.join(''), /fake-private-token|https|123/u);
+    } finally { await transport.stop(); }
+});
+
+test('connection failures propagate unchanged while refresh cooldown and retired-pool bounds prevent churn', async () => {
+    const pools = [], calls = [], failure = new Error('private request', { cause: { code: 'ECONNRESET' } });
+    let elapsed = 0;
+    const transport = createDiscordTransport({ clock: () => elapsed, consoleObject: { log() {} }, poolFactory: () => {
+        const pool = fakePool();
+        pool.close = () => new Promise(() => {});
+        pools.push(pool);
+        return pool;
+    }, request: async (_, init) => {
+        calls.push(init);
+        if (init.method === 'POST') throw failure;
+        return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) };
+    } });
+    try {
+        await assert.rejects(transport.makeRequest(callback, { method: 'POST' }), error => error === failure);
+        assert.equal(pools.length, 2);
+        await assert.rejects(transport.makeRequest(callback, { method: 'POST' }), error => error === failure);
+        assert.equal(pools.length, 2, 'the cooldown prevents repeated refreshes during one network incident');
+        elapsed += 30_000;
+        await assert.rejects(transport.makeRequest(callback, { method: 'POST' }), error => error === failure);
+        assert.equal(pools.length, 3);
+        elapsed += 30_000;
+        await assert.rejects(transport.makeRequest(callback, { method: 'POST' }), error => error === failure);
+        assert.equal(pools.length, 3, 'at most two retired pools may wait for cleanup');
+        assert.equal(calls.filter(init => init.method === 'POST').length, 4, 'recovery does not retry acknowledgements');
+    } finally { await transport.stop(); }
+    assert.ok(pools.every(pool => pool.destroyed), 'shutdown includes retired pools whose close is still pending');
+});
+
+test('slow new connections, fast reused connections, explicit proxies and ordinary REST errors do not refresh the pool', async () => {
+    const pool = fakePool(), socket = { remoteFamily: 'IPv4' };
+    let elapsed = 0, created = 0;
+    const transport = createDiscordTransport({ poolFactory: () => { created++; return pool; }, clock: () => elapsed,
+        request: async (_, init) => {
+            if (init.body === 'failure') throw Object.assign(new Error('failure'), { code: 'ECONNRESET' });
+            publishResponse(socket, () => { elapsed += init.body === 'slow' ? 2000 : 100; });
+            return 'accepted';
+        } });
+    try {
+        await transport.makeRequest(callback, { method: 'POST', body: 'slow' });
+        await transport.makeRequest(callback, { method: 'POST' });
+        await transport.makeRequest(callback, { method: 'POST', body: 'slow', dispatcher: {} });
+        await assert.rejects(transport.makeRequest(callback, { method: 'POST', body: 'failure', dispatcher: {} }));
+        await assert.rejects(transport.makeRequest('https://discord.com/api/v10/channels/123/messages',
+            { method: 'POST', body: 'failure' }));
+        assert.equal(created, 1);
+    } finally { await transport.stop(); }
+});
+
+test('a warmup already starting on a retired pool finishes before that pool is closed', async () => {
+    const pools = [fakePool(), fakePool()], socket = { remoteFamily: 'IPv4' };
+    let created = 0, elapsed = 0, finishWarmup;
+    const transport = createDiscordTransport({ poolFactory: () => pools[created++], clock: () => elapsed, warmupIntervalMs: 0,
+        consoleObject: { log() {} }, request: (url, init) => {
+            if (init.method === 'GET') return new Promise(resolve => { finishWarmup = () => {
+                assert.equal(init.dispatcher, pools[0]);
+                assert.equal(init.dispatcher.closed, false);
+                resolve({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) });
+            }; });
+            publishResponse(socket, () => { elapsed += init.body === 'slow' ? 2000 : 1; });
+            return 'accepted';
+        } });
+    try {
+        await transport.makeRequest(callback, { method: 'POST' });
+        const warming = transport.startWarmup();
+        await transport.makeRequest(callback, { method: 'POST', body: 'slow' });
+        assert.equal(created, 2);
+        assert.equal(pools[0].closed, false);
+        finishWarmup();
+        assert.equal(await warming, true);
+        assert.equal(pools[0].closed, true);
+    } finally { await transport.stop(); }
+});
+
+test('refresh factory, cleanup and logging failures cannot change an accepted callback result', async () => {
+    const pools = [fakePool(), fakePool()], socket = { remoteFamily: 'IPv4' };
+    let elapsed = 0, attempts = 0;
+    pools[0].close = () => { throw new Error('close failure'); };
+    const transport = createDiscordTransport({ poolFactory: () => {
+        if (++attempts === 2) throw new Error('factory failure');
+        return attempts === 1 ? pools[0] : pools[1];
+    }, clock: () => elapsed, consoleObject: { log() { throw new Error('log failure'); } }, request: async (_, init) => {
+        if (init.method === 'GET') return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) };
+        publishResponse(socket, () => { elapsed += 2000; });
+        return 'accepted';
+    } });
+    try {
+        for (let i = 0; i < 3; i++) assert.equal(await transport.makeRequest(callback, { method: 'POST' }), 'accepted');
+        assert.equal(attempts, 3);
+    } finally { await transport.stop(); }
+    assert.ok(pools.every(pool => pool.destroyed));
+});
+
+test('shutdown prevents an outstanding callback failure from creating a replacement or restarting warmup', async () => {
+    const pools = [], calls = [];
+    let rejectCallback;
+    const transport = createDiscordTransport({ poolFactory: () => { const pool = fakePool(); pools.push(pool); return pool; },
+        request: (_, init) => { calls.push(init); return new Promise((resolve, reject) => { rejectCallback = reject; }); } });
+    const pending = transport.makeRequest(callback, { method: 'POST' });
+    const rejected = assert.rejects(pending, error => error.code === 'ECONNRESET');
+    await transport.stop();
+    rejectCallback(Object.assign(new Error('connection closed'), { code: 'ECONNRESET' }));
+    await rejected;
+    assert.equal(pools.length, 1);
+    assert.equal(calls.length, 1);
+});
+
+test('shutdown still reports destruction failures after cleaning up every pool', async () => {
+    const pools = [], failure = new Error('destroy failed');
+    const transport = createDiscordTransport({ consoleObject: { log() {} }, poolFactory: () => {
+        const pool = fakePool();
+        pool.close = async () => { throw new Error('close failed'); };
+        if (!pools.length) pool.destroy = () => { throw failure; };
+        pools.push(pool);
+        return pool;
+    }, request: async (_, init) => {
+        if (init.method === 'POST') throw Object.assign(new Error('network failure'), { code: 'ECONNRESET' });
+        return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) };
+    } });
+    await assert.rejects(transport.makeRequest(callback, { method: 'POST' }));
+    await assert.rejects(transport.stop(), error => error === failure);
+    assert.equal(pools[1].destroyed, true);
+});
+
 test('installed REST strategy reuses the warmed socket for an actual local callback and emits its timing stages', async () => {
     const timings = [], seen = [];
     const server = http.createServer((req, res) => {
@@ -203,6 +371,38 @@ test('installed REST strategy reuses the warmed socket for an actual local callb
         assert.ok(timings.at(-1).dispatchToSendMs >= 0);
         assert.ok(timings.at(-1).sendToHeadersMs >= 0);
         assert.doesNotMatch(JSON.stringify(timings), /fake-token|Content-Type/u);
+    } finally {
+        await transport.stop();
+        await new Promise(resolve => server.close(resolve));
+    }
+});
+
+test('installed REST strategy replaces a slow reused socket for the next callback without interrupting either response', async () => {
+    let elapsed = 0;
+    const seen = [], logs = [];
+    const server = http.createServer((req, res) => {
+        req.resume();
+        if (req.method === 'GET') { res.writeHead(200); res.end('{}'); return; }
+        seen.push(req.socket);
+        if (seen.length === 1) elapsed += 2000;
+        res.writeHead(204);
+        res.end();
+    });
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const origin = `http://127.0.0.1:${server.address().port}`;
+    const transport = createDiscordTransport({ origin, warmupIntervalMs: 0, clock: () => elapsed,
+        consoleObject: { log: text => logs.push(text), warn() {} } });
+    try {
+        await transport.startWarmup();
+        for (let i = 0; i < 2; i++) {
+            const response = await transport.makeRequest(`${origin}/api/v10/interactions/123/fake-token/callback`, { method: 'POST' });
+            assert.equal(response.status, 204);
+            await response.arrayBuffer();
+        }
+        assert.equal(logs.length, 1);
+        assert.equal(seen.length, 2);
+        assert.notEqual(seen[0], seen[1]);
     } finally {
         await transport.stop();
         await new Promise(resolve => server.close(resolve));

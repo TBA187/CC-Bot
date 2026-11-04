@@ -324,7 +324,7 @@ class EmbedBuilderSession {
             return;
         const embed = new EmbedBuilder().setTitle(this.editing ? 'Bot Embed Edited' : 'Custom Bot Message Sent').setDescription(`Executor: <@${interaction.user.id}> (\`${interaction.user.username}\`)`).setColor(0x452366).setFooter({ text: 'Crow Control Logs', iconURL: LOGO_ATTACHMENT_URL }).setTimestamp();
         if (this.editing) {
-            embed.addFields({ name: 'Channel', value: channelMention(this.target.channel), inline: true }, { name: 'Message ID', value: `\`${message.id}\``, inline: true }, { name: 'Message', value: `[Jump to Message](${message.url})`, inline: false });
+            embed.addFields({ name: 'Channel', value: channelMention(this.target.channel), inline: true }, { name: 'Message ID', value: `\`${message.id}\``, inline: true }, { name: 'Message', value: `[Jump to Message ↗️](${message.url})`, inline: false });
             if (this.originalDraft.messageContent !== this.draft.messageContent) {
                 const { formatMessageDiff } = require('../../commands/edit_bot_msg.js');
                 embed.addFields({ name: 'Message Content Changes', value: formatMessageDiff(this.originalDraft.messageContent, this.draft.messageContent), inline: false });
@@ -332,7 +332,7 @@ class EmbedBuilderSession {
             embed.addFields({ name: 'Embed Changes', value: truncate(formatEmbedChanges(this.originalDraft, this.draft), 1024), inline: false });
         }
         else
-            embed.addFields({ name: 'Invocation Channel', value: this.target.invocationChannelId ? `<#${this.target.invocationChannelId}>` : 'Unknown', inline: true }, { name: 'Destination', value: channelMention(this.target.channel), inline: true }, { name: 'Message ID', value: `\`${message.id}\``, inline: true }, { name: 'Message', value: `[Jump to Message](${message.url})`, inline: false }, { name: 'Crow Control Branding', value: this.draft.crowControlBranding ? 'Yes' : 'No', inline: true }, { name: 'Populated Properties', value: truncate(populatedEmbedProperties(this.draft).join(', ') || 'Message content only', 1024), inline: false });
+            embed.addFields({ name: 'Invocation Channel', value: this.target.invocationChannelId ? `<#${this.target.invocationChannelId}>` : 'Unknown', inline: true }, { name: 'Destination', value: channelMention(this.target.channel), inline: true }, { name: 'Message ID', value: `\`${message.id}\``, inline: true }, { name: 'Message', value: `[Jump to Message ↗️](${message.url})`, inline: false }, { name: 'Crow Control Branding', value: this.draft.crowControlBranding ? 'Yes' : 'No', inline: true }, { name: 'Populated Properties', value: truncate(populatedEmbedProperties(this.draft).join(', ') || 'Message content only', 1024), inline: false });
         await channel.send({ embeds: [embed], files: [new AttachmentBuilder(LOGO_PATH, { name: LOGO_FILENAME })], allowedMentions: NO_MENTIONS });
     }
 }

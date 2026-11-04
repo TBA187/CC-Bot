@@ -13,6 +13,7 @@ const NotificationStore = require('../features/pro-notifications/NotificationSto
 const { NOTIFICATION_DEFINITIONS } = require('../features/pro-notifications/notificationCatalog.js');
 const { createGuildApplicationMonitor } = require('../features/guild-applications/index.js');
 const { createTbaForumShopMonitor } = require('../features/tba-forum-shops/index.js');
+const { createAuctionMonitor } = require('../features/auctions/index.js');
 const { ScoutServerRegistry } = require('../features/pvp-scouting/ScoutServerRegistry.js');
 const { ScoutRosterStore } = require('../features/pvp-scouting/ScoutRosterStore.js');
 const { ScoutServerSettings } = require('../features/pvp-scouting/ScoutServerSettings.js');
@@ -89,6 +90,7 @@ function createBotApplication({ appConfig, runtimeLogging, processObject = proce
     });
     const guildApplicationMonitor = createGuildApplicationMonitor({ client, db, config: appConfig });
     const tbaForumShopMonitor = createTbaForumShopMonitor({ client, db, config: appConfig });
+    const auctionMonitor = createAuctionMonitor({ client, db, config: appConfig, rootPath, storageMode: processObject.env.STORAGE_MODE });
     const scoutRosterStore = new ScoutRosterStore({ db, guildMemberRoleID });
     const scoutServerSettings = new ScoutServerSettings({ config: appConfig, store: scoutRosterStore });
     const scoutAuditLogger = new ScoutAuditLogger({ client, guildId, channelId: logChannelID, ownerId: ownerID });
@@ -161,7 +163,7 @@ function createBotApplication({ appConfig, runtimeLogging, processObject = proce
     return new BotApplication({ appConfig, runtimeLogging, processObject, rootPath, db, lifecycle,
         token, clientId, client, commandConfig, commandMap, guildSettings, botDiagnostics,
         interactionDiagnostics, discordTransport, runtimeHealth, memberHistory, xpStore,
-        pvpKingStores, notificationStore, giveawayStore, guildApplicationMonitor, tbaForumShopMonitor,
+        pvpKingStores, notificationStore, giveawayStore, guildApplicationMonitor, tbaForumShopMonitor, auctionMonitor,
         scoutServers, scoutServerSettings, scoutAuditLogger });
 }
 

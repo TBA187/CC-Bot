@@ -138,8 +138,44 @@ test('a permission revoked since the settings panel opened prevents selection', 
     const f = fixture();
     f.interaction.member = { roles: ['member'] };
     f.roles.delete('member');
-    await assert.rejects(f.service.select(f.interaction, 'gold'), /No permission/u);
+    await assert.rejects(f.service.select(f.interaction, 'gold'), error => {
+        assert.equal(error.code, 'SCOUT_SERVER_FORBIDDEN');
+        assert.equal(error.permissionReason, 'missing_guild_role');
+        assert.equal(error.permissionStage, 'current member roles');
+        assert.equal(error.checkedRoleIds.includes('member'), false);
+        return true;
+    });
     assert.deepEqual(f.calls, []);
+});
+
+test('server selection checks current membership when interaction roles are stale', async () => {
+    for (const server of ['gold', 'silver', 'cross']) {
+        const f = fixture();
+        f.interaction.member = { roles: [] };
+        assert.equal(f.service.canUse(f.interaction), false);
+        await f.service.select(f.interaction, server, { toggle: true });
+        assert.equal(f.selected(), server);
+    }
+});
+
+test('nonmembers cannot save any server preference or change roles', async () => {
+    for (const server of ['gold', 'silver', 'cross']) {
+        const f = fixture({ roleIds: ['unrelated'] });
+        await assert.rejects(f.service.select(f.interaction, server), { code: 'SCOUT_SERVER_FORBIDDEN' });
+        assert.equal(f.selected(), null);
+        assert.deepEqual(f.calls, []);
+        assert.deepEqual([...f.roles], ['unrelated']);
+    }
+});
+
+test('other guilds and DMs are rejected before fetching Discord roles', async () => {
+    for (const change of [f => { f.interaction.guildId = 'other'; }, f => { f.interaction.inGuild = () => false; }]) {
+        const f = fixture();
+        change(f);
+        f.interaction.guild.members.fetch = () => assert.fail('No request should be made outside the configured guild');
+        await assert.rejects(f.service.select(f.interaction, 'gold'), { code: 'SCOUT_SERVER_FORBIDDEN' });
+        assert.deepEqual(f.calls, []);
+    }
 });
 
 test('shared permissions reject DMs and other guilds even for Discord administrators', () => {

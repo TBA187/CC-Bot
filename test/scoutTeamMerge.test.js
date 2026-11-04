@@ -46,6 +46,35 @@ test('May 15 original and reply show six unique Pokémon and combine observation
     assert.ok(detail.fields.some(field => field.name === 'Message reply' && field.value.includes(reply.source_url)));
 });
 
+test('saved Vest shorthand in another reporter’s supplement is canonical in merged scout views', async () => {
+    const original = '- Pelipper (Item: Damp Rock): U-turn\n- Zapdos: Thunder, Hurricane, Roost\n'
+        + '- Mega Swampert: Superpower, Ice Punch, Earthquake\n'
+        + '- Tyranitar sassy, AV or smooth rock, doesnt have pursuit and is very very slow\n'
+        + '- Ferrothorn leechseed protect stealthrock, doesnt have spikes\n'
+        + '- Azumarill: Belly Drum, Knock Off, Play Rough, Aqua Jet';
+    const raw = 'Ferro relaxed: Gyro ball, Protect\nTyranitar Vest: Flamethower';
+    for (const server of ['gold', 'silver']) {
+        const root = source('1000', original, { server });
+        const reply = source('1001', '- Ferrothorn (Nature: Relaxed): Gyro Ball, Protect\n- Tyranitar Vest: Flamethower',
+            { server, root_message_id: root.message_id, reply_to_id: root.message_id, author_id: 'other',
+                opponent_ign: null, ign_normalized: null, message_content: raw, review_status: 'pending',
+                review_reason: 'Message looks like scouting information but the opponent IGN is unclear.',
+                created_at: new Date('2026-10-12T08:00:00Z') });
+        const command = new Scout({ pvpScoutStore: {} });
+        const results = [{ root, sources: [root, reply] }];
+        const detail = buildScoutEmbed(root, results[0].sources, 0, 1).embed.toJSON();
+        const history = await command.teamsPayload('Minglil', 'owner', null, results);
+        for (const description of [detail.description, history.embeds[0].toJSON().description]) {
+            assert.match(description, /Tyranitar\*\* \(Item: Assault Vest\): Flamethrower/u);
+            assert.equal(description.split('\n').filter(line => /^- \*\*/u.test(line)).length, 6);
+            assert.match(description, /AV or smooth rock/u);
+        }
+        assert.ok(detail.fields.some(field => field.name === 'Message reply' && field.value.includes(reply.source_url)));
+        assert.equal(reply.message_content, raw);
+        assert.match(reply.team_text, /Vest: Flamethower/u);
+    }
+});
+
 test('later attributes replace older values while moves, forms and uncertain wording survive', () => {
     const merged = mergeTeamLines(['- Scizor (Item: Leftovers; Ability: Technician): Bullet Punch',
         '- Mega Scizor (Item: Scizorite): Roost, Bullet Punch', '- Scizor: Swords Dance',

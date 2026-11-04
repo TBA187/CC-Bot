@@ -40,6 +40,9 @@ data/guild_applications.json
 data/guild_applications.json.tmp
 data/tba_forum_shops.json
 data/tba_forum_shops.json.tmp
+data/forum_auctions.json
+data/forum_auctions.json.tmp
+data/forum_auctions.json.corrupt-*
 data/tesseract-cache/
 data/member-audit-history.json
 data/member-audit-history.json.tmp

@@ -28,7 +28,7 @@ const { mergeTeamLines, teamMergeNotice } = require('../features/pvp-scouting/Sc
 const { isButtonLoading } = require('../utils/interactionLoading.js');
 const { scoutPayload, withScoutLoading } = require('../features/pvp-scouting/ScoutPresentation.js');
 const { packTeamPages } = require('../features/pvp-scouting/ScoutTeamPages.js');
-const { SERVERS, ScoutServerSettings, canUseGuildSettings } = require('../features/pvp-scouting/ScoutServerSettings.js');
+const { SERVERS, ScoutServerSettings, canUseGuildSettings, logServerSelectionFailure, serverSelectionFailureMessage } = require('../features/pvp-scouting/ScoutServerSettings.js');
 const { bindServer } = require('../features/pvp-scouting/ScoutStaffServers.js');
 const { ScoutArchiveView, utcDate: ratingDate, reportServer, reportRating: savedPvpRating, sortReports } = require('../features/pvp-scouting/ScoutArchiveView.js');
 const { detailQuery, matchesDetails, reportDateRange, suggestionLabel } = require('../features/pvp-scouting/ScoutSearch.js');
@@ -229,7 +229,7 @@ async function teamCredits(entry, guild) {
         const url = source?.source_url || '';
         if (!/^https:\/\/discord\.com\/channels\/\d{1,20}\/\d{1,20}\/\d{1,20}$/u.test(url) || seen.has(url)) return;
         seen.add(url);
-        links.push(`[**${label}**](${url})`);
+        links.push(`[**${label}** ↗️](${url})`);
     };
     addLink(rootSource, 'Jump to message');
     if (!links.length) {
@@ -599,11 +599,11 @@ class Scout {
             await interaction.editReply(scoutPayload(await view.teamsPayload(setup.ign, ownerId, interaction.guild), interaction.message));
             this.setupSessions.delete(token);
         } catch (error) {
-            console.error('[CC LOG] Could not save /scout server settings:', error);
+            logServerSelectionFailure(interaction, server, error);
             await interaction.followUp({
-                content: error.message === 'No permission!' ? 'No permission!'
-                    : saved ? 'Your default server was saved, but the scout reports could not load. Use `/scout` again.'
-                        : 'Could not save your server selection. Please try again.', flags: MessageFlags.Ephemeral
+                content: serverSelectionFailureMessage(error)
+                    || (saved ? 'Your default server was saved, but the scout reports could not load. Use `/scout` again.'
+                        : 'Could not save your server selection. Please try again.'), flags: MessageFlags.Ephemeral
             });
         }
         return true;
@@ -898,9 +898,9 @@ class Scout {
                 headerForPage: (pageIndex, count) => {
                     let heading = session.search ? searchHeading : !count ? ''
                         : teams.length > HISTORY_PAGE_SIZE && pageIndex === 0
-                            ? `**Scout Reports: \`${results.length}\`**\u2002${reportDateRange(results)}\n`
+                            ? `**Scout Reports: \`${results.length}\`**${reportDateRange(results)}\n`
                                 + `- Showing the **\`${count}\`** latest Scout Report${count === 1 ? '' : 's'}`
-                            : `**Scout Reports: \`${results.length}\`**\u2002${reportDateRange(results)}`;
+                            : `**Scout Reports: \`${results.length}\`**${reportDateRange(results)}`;
                     if (heading && otherServerCount) {
                         const otherServerName = `${SERVERS[otherServer].markup} **${SERVERS[otherServer].label} Server**`;
                         heading += `\n- There ${otherServerCount === 1 ? 'is' : 'are'} \`${otherServerCount}\` scout report${otherServerCount === 1 ? '' : 's'} in ${otherServerName}.`

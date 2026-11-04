@@ -17,7 +17,7 @@ const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
 const botConfig = require('../config.json');
-const { SERVERS, selectionFeedback } = require('../features/pvp-scouting/ScoutServerSettings.js');
+const { SERVERS, selectionFeedback, logServerSelectionFailure, serverSelectionFailureMessage } = require('../features/pvp-scouting/ScoutServerSettings.js');
 const { rolePanelReason } = require('../utils/roleAuditSource.js');
 
 
@@ -1915,10 +1915,9 @@ async function handleServerRoleButton(interaction, server, serverSettings) {
         const result = await serverSettings.select(interaction, server, { toggle: true });
         await sendHiddenFeedback(interaction, selectionFeedback(result));
     } catch (error) {
-        console.error('[CC LOG] Could not save a guild member server preference:', error);
-        await sendHiddenFeedback(interaction, error.message === 'No permission!'
-            ? 'No permission!'
-            : 'Could not save your server selection and role. Please try again.');
+        logServerSelectionFailure(interaction, server, error);
+        await sendHiddenFeedback(interaction, serverSelectionFailureMessage(error)
+            || 'Could not save your server selection and role. Please try again.');
     }
 }
 

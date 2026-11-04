@@ -118,7 +118,7 @@ test('write publication keeps message.client audit delivery, hidden labels and i
         const embed = payload.embeds[0].toJSON();
         assert.equal(embed.title, `💻 \u2002\`?write${hidden ? ' -h' : ''}\` command used!`);
         assert.equal(embed.fields.find(field => field.name === 'Message ID').value, '`sent-message`');
-        assert.equal(embed.fields.find(field => field.name === 'Message Link').value, `[Jump to message](${state.sentMessage.url})`);
+        assert.equal(embed.fields.find(field => field.name === 'Message Link').value, `[Jump to message ↗️](${state.sentMessage.url})`);
         assert.equal(embed.fields.at(-1).value, '```text\nLogged text\n```');
         assert.equal(embed.footer.text, 'Crow Control Logs');
         assert.equal(payload.files[0].name, 'cc_logo.webp');

@@ -40,6 +40,48 @@ test('role button writes verified panel provenance on both assign and remove req
     for (const reason of calls) assert.equal(roleSource({ executor: bot, reason }, member, bot.id).kind, 'self_panel');
 });
 
+test('server-panel denials report who and why without a bot error, while real failures remain errors', async t => {
+    const logs = [], errors = [];
+    t.mock.method(console, 'log', (...args) => logs.push(args));
+    t.mock.method(console, 'error', (...args) => errors.push(args));
+    const panel = findAutoRolePanel('guild_roles');
+    for (const server of ['gold', 'silver', 'cross']) {
+        const calls = [];
+        const interaction = {
+            customId: panel.customIdForRole(server), guildId: '1148499020038295582', channelId: '1184121209609269409',
+            user: { id: '296447098298171393', username: 'Player\nname' }, message: { id: '1567080500479266877' },
+            async deferReply(payload) { this.deferred = true; calls.push(['defer', payload]); },
+            async editReply(payload) { calls.push(['edit', payload]); }
+        };
+        const denied = Object.assign(new Error('No permission!'), {
+            code: 'SCOUT_SERVER_FORBIDDEN', permissionReason: 'missing_guild_role', permissionStage: 'current member roles',
+            reason: 'The member has none of the configured member or staff roles and does not have Discord Administrator permission.',
+            checkedRoleIds: ['unrelated'], requiredRoleIds: ['member', 'officer']
+        });
+        const settings = { async select(_interaction, selected) {
+            assert.equal(calls[0][0], 'defer');
+            assert.equal(selected, server);
+            throw denied;
+        } };
+        assert.equal(await handleAutoRoleButton(interaction, settings), true);
+        assert.equal(calls[0][1].flags, MessageFlags.Ephemeral);
+        assert.match(calls[1][1].content, /require a Crow Control member or staff role/);
+        assert.match(logs.at(-1)[0], /User: Player name \(296447098298171393\)/);
+        assert.match(logs.at(-1)[0], /Reason: The member has none/);
+        assert.match(logs.at(-1)[0], /Member role IDs: unrelated/);
+        assert.match(logs.at(-1)[0], /Accepted role IDs: member, officer/);
+        assert.ok(logs.at(-1)[0].includes(interaction.customId));
+        assert.match(logs.at(-1)[0], /Panel message: https:\/\/discord.com\/channels\/1148499020038295582\/1184121209609269409\/1567080500479266877/);
+        assert.equal(errors.length, 0);
+        settings.select = async () => { throw Object.assign(new Error('Role assignment failed'), { code: 50013 }); };
+        await handleAutoRoleButton(interaction, settings);
+        assert.match(errors.at(-1)[0], /User: Player name/);
+        assert.match(errors.at(-1)[0], /Reason: Role assignment failed/);
+        assert.match(calls.at(-1)[1].content, /Could not save/);
+        errors.length = 0;
+    }
+});
+
 test('role dropdown records its actual channel and cannot label a panel elsewhere as the roles-channel panel', async () => {
     const panel = findAutoRolePanel('region_roles'), calls = [], bot = { id: '223456789012345678', bot: true };
     const member = { id: '296447098298171393', user: { id: '296447098298171393', username: 'kaasfondue' }, roles: { cache: new Collection(),

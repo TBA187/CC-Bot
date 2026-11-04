@@ -132,6 +132,7 @@ class BotApplication {
         startGiveawayLoop(client, commandConfig);
         this.guildApplicationMonitor.start().catch(error => this.console.error('[CC LOG] Guild Application monitor failed to start:', error));
         this.tbaForumShopMonitor.start().catch(error => this.console.error('[CC LOG] TBA PRO Forum shop monitor failed to start:', error));
+        this.auctionMonitor.start().catch(error => this.console.error('[CC LOG] Auction monitor failed to start:', error));
         this.scoutServers.start().catch(error => this.console.error('[CC LOG] PvP scouting ingestion failed to start:', error));
         require('../events/userUpdatesLogger.js').primeUserProfileCache(commandConfig);
         require('../tasks/cooldownNotifier.js').execute(client, commandConfig);
@@ -172,6 +173,7 @@ class BotApplication {
         stop(() => require('../tasks/proNotifications.js').stop?.());
         stop(() => this.guildApplicationMonitor.stop?.());
         stop(() => this.tbaForumShopMonitor.stop?.());
+        stop(() => this.auctionMonitor.stop?.());
         stop(() => this.scoutServers.stop());
         stop(() => this.discordTransport.stop());
         stop(() => this.botDiagnostics.stop());

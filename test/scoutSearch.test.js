@@ -11,6 +11,9 @@ test('search vocabulary resolves move, item, ability and nature shorthands', () 
     assert.equal(detailQuery('eq')[0].name, 'Earthquake');
     assert.equal(detailQuery('hdb')[0].name, 'Heavy-Duty Boots');
     assert.equal(detailQuery('sash, focus sash').length, 1);
+    assert.deepEqual(detailQuery('vest').map(term => [term.kind, term.name]), [['item', 'Assault Vest']]);
+    assert.equal(matchesDetails('Tyranitar Vest: Flamethrower', detailQuery('assault vest')), true);
+    assert.equal(matchesDetails('Tyranitar no vest: Flamethrower', detailQuery('vest')), false);
 });
 
 test('detail searches accept comma, space, and mixed separators', () => {

@@ -255,6 +255,8 @@ test('recoverable warnings get a reply only after the same subsystem reports rec
             '[CC LOG] PRO Forum Shop monitor connection restored.'],
         ['[CC LOG] PRO Dungeon Shop monitor is unavailable. Retrying in 12 minute(s): HTTP 522',
             '[CC LOG] PRO Dungeon Shop monitor connection restored.'],
+        ['[CC LOG] PRO auction monitor is unavailable. Retrying in 2 minute(s); pending work retained: PRO auction request timed out after 15000 ms (active listings page 1).',
+            '[CC LOG] PRO auction monitor connection restored.'],
         ['[CC LOG] Discord interaction connection warmup failed (ETIMEDOUT). Initial responses may need a new connection.',
             '[CC LOG] Discord interaction connection warmup recovered.'],
         ['[RUNTIME MEMORY] CRITICAL: 460.8/512.0 MiB (90.0%; container); OCR 0 queued/active task(s).',
@@ -287,6 +289,40 @@ test('unmatched recovery logs do not create standalone Discord alerts', () => {
     f.consoleObject.log('[CC LOG] PRO Forum Shop monitor connection restored.');
     assert.deepEqual(f.sent, []);
     f.logger.stop();
+});
+
+test('brief auction forum timeouts stay local while persistent outages alert once under PRO Auctions and recover in a reply', async t => {
+    const f = fixture();
+    t.after(() => f.logger.stop());
+    f.logger.start();
+    const warning = '[CC LOG] PRO auction monitor is unavailable. Retrying in 2 minute(s); pending work retained:';
+    const detail = 'PRO auction request timed out after 15000 ms (active listings page 1).';
+    f.consoleObject.warn(warning, detail, { code: 'ETIMEDOUT' });
+    assert.equal(f.printed.length, 1);
+    assert.deepEqual(f.sent, []);
+    await f.clock.advance(120000);
+    f.consoleObject.log('[CC LOG] PRO auction monitor connection restored.');
+    await f.clock.advance(10 * 60000);
+    assert.deepEqual(f.sent, []);
+    f.consoleObject.warn(warning, detail, { code: 'ETIMEDOUT' });
+    await f.clock.advance(10 * 60000 - 1);
+    assert.deepEqual(f.sent, []);
+    await f.clock.advance(1);
+    assert.equal(f.sent.length, 1);
+    assert.equal(f.sent[0].statusKey, 'forum:auctions');
+    assert.equal(f.sent[0].component, 'PRO Auctions');
+    assert.equal(f.sent[0].code, 'ETIMEDOUT');
+    f.consoleObject.warn(warning, detail, { code: 'ETIMEDOUT' });
+    await f.clock.advance(120000);
+    assert.equal(f.sent.length, 1);
+    f.consoleObject.warn('[CC LOG] PRO auction monitor failed; retaining pending work:', 'disk failure');
+    assert.equal(f.sent.length, 2, 'unexpected monitor failures remain immediate');
+    f.consoleObject.log('[CC LOG] PRO auction monitor connection restored.');
+    await settle();
+    assert.equal(f.sent.length, 3);
+    assert.equal(f.sent[2].status, 'recovered');
+    assert.equal(f.sent[2].replyTo, 'message-1');
+    assert.equal(f.sent[2].statusKey, 'forum:auctions');
 });
 
 test('a recoverable outage resolved before Discord is ready does not post a stale warning later', () => {

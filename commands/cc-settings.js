@@ -6,7 +6,7 @@ const {
     ActionRowBuilder, AttachmentBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder,
     MessageFlags, SlashCommandBuilder
 } = require('discord.js');
-const { ScoutServerSettings, SERVERS, selectionFeedback } = require('../features/pvp-scouting/ScoutServerSettings.js');
+const { ScoutServerSettings, SERVERS, selectionFeedback, logServerSelectionFailure, serverSelectionFailureMessage } = require('../features/pvp-scouting/ScoutServerSettings.js');
 
 const PREFIX = 'cc-settings:';
 const LEGACY_PREFIX = 'ww-settings:';
@@ -93,9 +93,9 @@ class CcSettings {
         try {
             result = await this.serverSettings.select(interaction, action, { toggle: true });
         } catch (error) {
-            console.error('[CC LOG] Could not save a guild member server preference:', error);
-            await interaction.followUp({ content: error.message === 'No permission!' ? 'No permission!'
-                : 'Could not save your server selection and role. Please try again.', flags: MessageFlags.Ephemeral });
+            logServerSelectionFailure(interaction, action, error);
+            await interaction.followUp({ content: serverSelectionFailureMessage(error)
+                || 'Could not save your server selection and role. Please try again.', flags: MessageFlags.Ephemeral });
             return true;
         }
         try {

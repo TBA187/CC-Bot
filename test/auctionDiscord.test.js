@@ -360,6 +360,8 @@ test('bid DMs identify their auction and include linked bidder, price, source ti
     const embed = payload.embeds[0].toJSON();
     assert.equal(embed.title, 'New bid — Another auction');
     assert.equal(embed.url, auction.url);
+    assert.equal(embed.thumbnail.url, buildAuctionPayload(auction).embeds[0].toJSON().image.url);
+    assert.equal(embed.image, undefined);
     assert.equal(embed.description, undefined);
     assert.match(embed.fields[0].value, /^\*\*250\.000 by \[Player\].*\*\*$/);
     const seconds = Date.parse('2026-11-04T00:30:00Z') / 1000;
@@ -383,6 +385,7 @@ test('bid DMs distinguish delayed bids and price offers from the current offer',
         const embed = payload.embeds[0].toJSON();
         assert.equal(embed.title, `${labels.length ? 'New price offer' : 'New bid'} — ${auction.title}`);
         assert.equal(embed.url, auction.url);
+        assert.equal(embed.thumbnail.url, auction.imageUrls[0]);
         assert.equal(payload.content, `**<@111> There's a new ${labels.length ? 'price offer' : 'bid'} for [${auction.title}](<${auction.url}>)**`);
         assert.deepEqual(payload.allowedMentions, { parse: [], users: ['111'] });
         assert.equal(embed.fields.find(field => field.name === 'Current offer').value, '**300.000 by Leader**');

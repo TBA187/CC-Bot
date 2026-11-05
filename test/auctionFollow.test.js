@@ -54,11 +54,12 @@ test('multiple auctions and followers receive every new bid once, oldest first',
     assert.equal(f.sent.length, 5);
 });
 
-test('bid DMs link to the stored auction announcement after restart', async t => {
+test('bid DMs retain their auction image and link to the stored announcement after restart', async t => {
     const f = await fixture(t);
     await f.store.update(data => { data.tracked['101'].messageId = '123'; });
     await f.service.follow('101', '111', '123');
     f.auctions.get('101').bids = [bid('200')];
+    f.auctions.get('101').imageUrls = ['https://example.com/main.png', 'https://example.com/second.png'];
     await f.observe('101');
     const restored = new AuctionStore({ dataFile: f.store.dataFile, storageMode: 'json' });
     await restored.initialize();
@@ -71,6 +72,7 @@ test('bid DMs link to the stored auction announcement after restart', async t =>
     assert.equal(payloads.length, 1);
     assert.deepEqual(payloads[0].embeds[0].toJSON().fields.at(-1), { name: 'Discord message',
         value: '[**Jump to message** ↗️](<https://discord.com/channels/444/555/123>)', inline: false });
+    assert.equal(payloads[0].embeds[0].toJSON().thumbnail.url, 'https://example.com/main.png');
     assert.deepEqual((await restored.getAuctionRecord('101')).follow.pending, {});
 });
 

@@ -30,7 +30,7 @@ function validFollowState(value, auctionId) {
 }
 
 function snapshot(auction) {
-    const fields = ['id', 'url', 'title', 'status', 'server', 'currentOffer', 'highestBidder', 'minimumBid', 'endsAt', 'timeLeft', 'sourceUnavailable'];
+    const fields = ['id', 'url', 'title', 'status', 'server', 'currentOffer', 'highestBidder', 'minimumBid', 'endsAt', 'timeLeft', 'imageUrls', 'sourceUnavailable'];
     return Object.fromEntries(fields.filter(key => auction[key] !== undefined).map(key => [key, auction[key]]));
 }
 

@@ -246,6 +246,8 @@ function buildBidNotificationPayload(job, userId, botUser = null, auctionMessage
     if (auction.currentOffer && !sameOffer) embed.spliceFields(2, 0, { name: 'Current offer',
         value: `**${text(auction.currentOffer, 100)} by ${person(auction.highestBidder)}**`, inline: false });
     if (link) embed.setURL(link);
+    const mainImage = (auction.imageUrls || []).map(url).find(Boolean);
+    if (mainImage) embed.setThumbnail(mainImage);
     const components = [];
     const row = new ActionRowBuilder();
     if (link) row.addComponents(new ButtonBuilder().setLabel('View Auction').setEmoji('🔨').setStyle(ButtonStyle.Link).setURL(link));

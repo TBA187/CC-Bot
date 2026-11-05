@@ -50,6 +50,13 @@ function forumReactionKey(emoji) {
     return `${emoji.id || ''}:${emoji.name || ''}`;
 }
 
+function fencedCode(value) {
+    const text = String(value);
+    const longestTickRun = Math.max(0, ...(text.match(/`+/g) || []).map(run => run.length));
+    const fence = '`'.repeat(Math.max(3, longestTickRun + 1));
+    return `${fence}\n${text}\n${fence}`;
+}
+
 module.exports = {
     // Channel creation.
     async handleChannelCreate(channel, config) {
@@ -225,7 +232,7 @@ async function processBatchedUpdate(oldChannel, channelId, config) {
     if ((oldChannel.topic || '') !== (newChannel.topic || '')) {
         const oldT = oldChannel.topic || '*No topic*';
         const newT = newChannel.topic || '*No topic*';
-        changes.push(`- **Topic Changed:**\n**From:** \`\`\`${oldT}\`\`\`\n**To:** \`\`\`${newT}\`\`\``);
+        changes.push(`- **Topic Changed:**\n**From:**\n${fencedCode(oldT)}\n**To:**\n${fencedCode(newT)}`);
     }
 
     // Slowmode (rate limit).

@@ -167,7 +167,8 @@ class GuildApplicationVoteReminder {
                 this.checkRunning();
                 reminder = await courtChannel.send({
                     content: this.reminderContent(record, stage.hours),
-                    allowedMentions: { parse: [], roles: [this.officerRoleId] }
+                    allowedMentions: { parse: [], roles: [this.officerRoleId], repliedUser: false },
+                    reply: { messageReference: pollMessage.id }
                 });
             }
             record[stage.messageField] = reminder.id;

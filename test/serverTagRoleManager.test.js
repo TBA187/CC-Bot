@@ -379,8 +379,8 @@ test('self role-panel changes show member intent and executing bot, while comman
     const f = fixture(), entry = { executor: f.client.user, reason: rolePanelReason({ user: f.user, channelId: PANEL }, 'Role selection button') };
     for (const added of [true, false]) {
         const payload = json(roleEvents.buildRoleAuditPayload(f.member, { addedRoles: added ? [f.role] : [], removedRoles: added ? [] : [f.role], entry, source: roleSource(entry, f.member, BOT) }));
-        assert.match(payload.description, added ? /self-assigned roles using the role selection panel/ : /self-removed roles using the role selection panel/);
-        assert.match(payload.description, /Roles Updated By:\*\* <@223456789012345678>/);
+        assert.match(payload.description, added ? /self-assigned a role using the role selection panel/ : /self-removed a role using the role selection panel/);
+        assert.match(payload.description, /Role Updated By:\*\* <@223456789012345678>/);
         assert.doesNotMatch(payload.description, /- \*\*[+-]\*\*/);
     }
     const command = { executor: f.client.user, reason: 'Command /level: XP track confirmation' };

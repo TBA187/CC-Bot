@@ -93,7 +93,8 @@ function createBotApplication({ appConfig, runtimeLogging, processObject = proce
     const auctionMonitor = createAuctionMonitor({ client, db, config: appConfig, rootPath, storageMode: processObject.env.STORAGE_MODE });
     const scoutRosterStore = new ScoutRosterStore({ db, guildMemberRoleID });
     const scoutServerSettings = new ScoutServerSettings({ config: appConfig, store: scoutRosterStore });
-    const scoutAuditLogger = new ScoutAuditLogger({ client, guildId, channelId: logChannelID, ownerId: ownerID });
+    const scoutAuditLogger = new ScoutAuditLogger({ client, guildId, channelId: logChannelID,
+        officerChannelId: appConfig.officerChannelID, ownerId: ownerID });
     const botDiagnostics = new DiscordDiagnosticLogger({ consoleObject: console,
         send: event => scoutAuditLogger.diagnostic(event),
         secrets: Object.entries(processObject.env).filter(([key]) => /TOKEN|PASSWORD|SECRET|API_KEY/iu.test(key)).map(([, value]) => value) });

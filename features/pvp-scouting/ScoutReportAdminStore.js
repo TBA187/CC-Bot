@@ -169,8 +169,9 @@ class ScoutReportAdminStore {
             await connection.rollback().catch(() => {});
             throw error;
         } finally { connection.release(); }
-        this.store.auditLogger?.enqueue({ action: deleting ? 'deleted' : 'edited', actorId: String(reviewer),
-            reportId: String(reportId), messageId: String(sourceId), sources: events });
+        const audit = { action: deleting ? 'deleted' : 'edited', actorId: String(reviewer),
+            reportId: String(reportId), messageId: String(sourceId), sources: events };
+        this.store.auditLogger?.enqueue(audit, () => this.store.getReviewAlertIds(audit));
         this.store.invalidateAutocompleteCache();
         this.store.ignEvidenceAt = 0;
         this.store.reviewLearningAt = 0;

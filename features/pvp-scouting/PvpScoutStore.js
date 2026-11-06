@@ -596,7 +596,7 @@ class PvpScoutStore {
             changed = true;
             const proposed = decode(edit.after_json, {});
             auditEvent = { action: accept ? 'edit_accepted' : 'edit_rejected', actorId: String(reviewerId),
-                reportId: String(current.root_message_id || id), messageId: id,
+                reportId: String(current.root_message_id || id), messageId: id, editRevision: Number(edit.revision),
                 sources: [{ messageId: id, before: { ...before, messageContent: before.content },
                     after: accept ? reviewSnapshot(publishedRows[0]) : { ...proposed, messageContent: proposed.content } }] };
         } catch (error) {
@@ -606,7 +606,7 @@ class PvpScoutStore {
             connection.release();
         }
         if (changed) {
-            this.auditLogger?.enqueue(auditEvent);
+            this.auditLogger?.enqueue(auditEvent, () => this.getReviewAlertIds(auditEvent));
             this.invalidateAutocompleteCache();
             this.ignEvidenceAt = 0;
             this.reviewLearningAt = 0;
@@ -1388,7 +1388,7 @@ class PvpScoutStore {
             connection.release();
         }
         if (changed) {
-            if (logAction) this.auditLogger?.enqueue(auditEvent);
+            if (logAction) this.auditLogger?.enqueue(auditEvent, () => this.getReviewAlertIds(auditEvent));
             this.invalidateAutocompleteCache();
             this.ignEvidenceAt = 0;
             this.reviewLearningAt = 0;
@@ -1407,6 +1407,24 @@ class PvpScoutStore {
 
     async markNotScout(messageId, reviewerId, options = {}) {
         return this.applyStaffReview(messageId, reviewerId, 'not_scout', {}, options);
+    }
+
+    async getReviewAlertIds(event) {
+        await this.ensureSchema();
+        const ids = [...new Set([event.messageId, ...(event.sources || []).map(source => source.messageId)].filter(Boolean).map(String))];
+        if (!ids.length) return [];
+        const placeholders = ids.map(() => '?').join(', ');
+        const editOnly = ['edit_accepted', 'edit_rejected'].includes(event.action);
+        const [rows] = await this.db.query(`
+            ${editOnly ? '' : `SELECT alert_message_id FROM pvp_scout_review_alerts
+                WHERE channel_id = ? AND message_id IN (${placeholders})
+                UNION ALL`}
+            SELECT alert_message_id FROM pvp_scout_edit_reviews
+            WHERE channel_id = ? AND message_id IN (${placeholders}) AND alerted_revision = revision
+            ${editOnly ? 'AND revision = ?' : ''}
+        `, [...(editOnly ? [] : [this.channelId, ...ids]), this.channelId, ...ids,
+            ...(editOnly ? [event.editRevision] : [])]);
+        return [...new Set(rows.map(row => row.alert_message_id).filter(Boolean).map(String))];
     }
 
     async claimReviewAlert(messageId) {

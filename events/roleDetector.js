@@ -24,21 +24,23 @@ function roleLines(roles, added, mixed = false) {
 function buildRoleAuditPayload(member, { addedRoles = [], removedRoles = [], entry, source, definitionDeleted = false }) {
     const roles = [...addedRoles, ...removedRoles], mixed = addedRoles.length > 0 && removedRoles.length > 0;
     const added = addedRoles.length > 0;
+    const roleLabel = `Role${roles.length > 1 ? 's' : ''}`;
+    const rolePhrase = roles.length === 1 ? 'a role' : 'roles';
     const lines = [...roleLines(addedRoles, true, mixed), ...roleLines(removedRoles, false, mixed)];
-    if (definitionDeleted) lines.push('- **Removal Context:** The role itself was deleted from the server.');
+    if (definitionDeleted) lines.push(`- **Removal Context:** The ${roles.length === 1 ? 'role itself was' : 'roles themselves were'} deleted from the server.`);
     let actionText = mixed ? `had roles updated by ${auditActor(entry?.executor)}`
-        : `had ${roles.length > 1 ? 'roles' : 'a role'} ${added ? 'added' : 'removed'} by ${auditActor(entry?.executor)}`;
+        : `had ${rolePhrase} ${added ? 'added' : 'removed'} by ${auditActor(entry?.executor)}`;
     if (source?.kind === 'self_panel') {
-        actionText = `${mixed ? 'updated their self-assigned roles' : added ? 'self-assigned roles' : 'self-removed roles'} using the role selection panel.`;
-        lines.push(`- **Role Selection Panel:** <#${source.channelId}>`, `- **Roles Updated By:** ${auditActor(entry.executor)}`);
-    } else if (source?.kind === 'other_panel') lines.push(`- **Action Source:** Role panel in <#${source.channelId}>`, `- **Roles Updated By:** ${auditActor(entry.executor)}`);
+        actionText = `${mixed ? 'updated their self-assigned roles' : `${added ? 'self-assigned' : 'self-removed'} ${rolePhrase}`} using the role selection panel.`;
+        lines.push(`- **Role Selection Panel:** <#${source.channelId}>`, `- **${roleLabel} Updated By:** ${auditActor(entry.executor)}`);
+    } else if (source?.kind === 'other_panel') lines.push(`- **Action Source:** Role panel in <#${source.channelId}>`, `- **${roleLabel} Updated By:** ${auditActor(entry.executor)}`);
     else if (source?.kind === 'command' || source?.kind === 'settings') lines.push(`- **Action Source:** ${source.detail}`);
     else if (source?.kind === 'automatic') lines.push(`- **Action Source:** Automatic event — ${source.detail}`);
     else if (entry?.executor?.bot) lines.push(`- **Action Source:** ${source?.detail || 'Bot role update — the command, panel, or event was not supplied.'}`);
-    else if (roles.every(role => role.managed)) lines.push('- **Action Source:** Integration-managed role');
-    if (!entry?.executor) lines.push('- **Discord Audit Log:** Executor unavailable; the role change was confirmed from member data.');
+    else if (roles.every(role => role.managed)) lines.push(`- **Action Source:** Integration-managed ${roleLabel.toLowerCase()}`);
+    if (!entry?.executor) lines.push(`- **Discord Audit Log:** Executor unavailable; the ${roles.length === 1 ? 'role change was' : 'role changes were'} confirmed from member data.`);
     return buildMemberAuditPayload({
-        authorName: mixed ? 'Member Roles Updated 🔄' : `Member Role${roles.length > 1 ? 's' : ''} ${added ? 'Added 🏷️➕' : 'Removed 🏷️➖'}`,
+        authorName: mixed ? 'Member Roles Updated 🔄' : `Member ${roleLabel} ${added ? 'Added 🏷️➕' : 'Removed 🏷️➖'}`,
         member, actionText,
         color: mixed ? 0x5865F2 : added ? 0x57F287 : 0xED4245,
         reason: source && source.kind !== 'bot' ? undefined : entry?.reason?.trim() || undefined, extraLines: lines, showUserDetails: false

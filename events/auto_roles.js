@@ -339,7 +339,8 @@ const GUILD_ROLES_PANEL = autoRolePanelConfig({
         '-# - Select **Dungeon 🧙‍♂️** to be pinged for Dungeon runs.\n' +
         '-# - Select **Level / EV ✨** to be pinged for service requests.\n' +
         '-# - Select **Dex Service 🤝** to be pinged for service requests.\n' +
-        '-# - Select **PRO Notifications 🔔** to receive notifications about useful game information, updates, and upcoming events.\n' +
+        '-# - Select **PRO Auctions 🔔** to be pinged for new auctions in the [PRO Trade Zone](https://pokemonrevolution.net/forum/trade/).\n' +
+        // '-# - Select **PRO Notifications 🔔** to receive notifications about useful game information, updates, and upcoming events.\n' +
         '-# - Select **Stream 🔔** to be pinged when someone from the Guild streams. You can also ping this role when you go live.\n' +
         '-# - Select your **Server Roles**. <@1470242342383521943> will remember your **Server** choice and use it for future commands.',
     colorHex: '#452366',
@@ -418,8 +419,8 @@ const GUILD_ROLES_PANEL = autoRolePanelConfig({
             row: 1
         }),
         autoRoleChoiceConfig({
-            key: 'pro_notifications',
-            label: 'PRO Notifications',
+            key: 'pro_auctions',
+            label: 'PRO Auctions',
             roleId: '1537991574162640906',
             unicodeEmoji: '🔔',
             buttonStyle: ButtonStyle.Secondary,

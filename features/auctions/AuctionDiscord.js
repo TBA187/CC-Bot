@@ -201,7 +201,7 @@ function buildAuctionPayload(auction, config = {}, botUser = null) {
     const roleChannelId = String(config.selfRoleChannelID || '');
     const validRole = /^\d+$/.test(roleId);
     const instructions = validRole && /^\d+$/.test(roleChannelId)
-        ? `\n-# - Get notified about new auctions by selecting the \`@PRO Notifications 🔔\` role in <#${roleChannelId}>` : '';
+        ? `\n-# - Get notified about new auctions by selecting the \`@PRO Auctions 🔔\` role in <#${roleChannelId}>` : '';
     const prefix = validRole ? `<@&${roleId}> There's` : "There's";
     return { content: `${prefix} a new auction in the [**PRO Trade Zone**](<https://pokemonrevolution.net/forum/trade/>)${instructions}\n-# - Click the 🔔 **Follow** button on an auction to receive notifications for new bids.`,
         embeds: [embed], components: rows, allowedMentions: { parse: [], roles: validRole ? [roleId] : [] } };

@@ -1,7 +1,7 @@
 // Log role and member-role changes while tracking their audit sources.
 'use strict';
 
-const { AuditLogEvent, AttachmentBuilder, EmbedBuilder, Events } = require('discord.js');
+const { AuditLogEvent, AttachmentBuilder, EmbedBuilder, Events, escapeMarkdown } = require('discord.js');
 const path = require('node:path');
 const { findModerationAuditEntry } = require('./memberExit.js');
 const { buildMemberAuditPayload, auditActor, inlineCode } = require('../utils/memberAuditEmbeds.js');
@@ -14,10 +14,12 @@ function changedRole(entry, roleId, added) {
         Array.isArray(change.new) && change.new.some(role => String(role.id) === String(roleId)));
 }
 
-function roleLines(roles, added, mixed = false) {
+function roleLines(roles, added, mixed = false, definitionDeleted = false) {
     if (!roles.length) return [];
     const label = `- ${mixed ? `**${added ? '+' : '-'}** ` : ''}**Role${roles.length > 1 ? 's' : ''} ${added ? 'Added' : 'Removed'}:**`;
-    const format = role => `<@&${role.id}> (\`${role.id}\`)`;
+    const format = role => definitionDeleted
+        ? `${escapeMarkdown(role.name || 'Unknown role')} (\`${role.id}\`)`
+        : `<@&${role.id}> (\`${role.id}\`)`;
     return roles.length === 1 ? [`${label} ${format(roles[0])}`] : [label, ...roles.map(role => `  - ${format(role)}`)];
 }
 
@@ -26,7 +28,7 @@ function buildRoleAuditPayload(member, { addedRoles = [], removedRoles = [], ent
     const added = addedRoles.length > 0;
     const roleLabel = `Role${roles.length > 1 ? 's' : ''}`;
     const rolePhrase = roles.length === 1 ? 'a role' : 'roles';
-    const lines = [...roleLines(addedRoles, true, mixed), ...roleLines(removedRoles, false, mixed)];
+    const lines = [...roleLines(addedRoles, true, mixed), ...roleLines(removedRoles, false, mixed, definitionDeleted)];
     if (definitionDeleted) lines.push(`- **Removal Context:** The ${roles.length === 1 ? 'role itself was' : 'roles themselves were'} deleted from the server.`);
     let actionText = mixed ? `had roles updated by ${auditActor(entry?.executor)}`
         : `had ${rolePhrase} ${added ? 'added' : 'removed'} by ${auditActor(entry?.executor)}`;

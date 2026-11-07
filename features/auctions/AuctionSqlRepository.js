@@ -16,6 +16,7 @@ function flatten(data) {
     for (const [id, record] of Object.entries(data.tracked)) {
         const follow = record.follow;
         const followDetails = follow ? JSON.stringify({ seenBids: follow.seenBids,
+            ...(follow.baselinePendingUsers === undefined ? {} : { baselinePendingUsers: follow.baselinePendingUsers }),
             ...(follow.currentAuction === undefined ? {} : { currentAuction: follow.currentAuction }) }) : null;
         put('records', [id], [record.messageId, record.messageMissing === undefined ? null : Number(record.messageMissing), JSON.stringify(record.auction), followDetails]);
         if (!record.follow) continue;

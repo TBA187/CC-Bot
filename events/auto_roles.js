@@ -336,12 +336,12 @@ const GUILD_ROLES_PANEL = autoRolePanelConfig({
         '**Choose your Guild Roles by clicking the buttons below.**\nYou can select multiple roles. ' +
         'To remove a role, simply click the button corresponding to the role you want to remove.\n' +
         '-# - Select **PvP ⚔️** if you are interested in PvP-related content.\n' +
-        '-# - Select **Dungeon 🧙‍♂️** to be pinged for Dungeon runs.\n' +
-        '-# - Select **Level / EV ✨** to be pinged for service requests.\n' +
-        '-# - Select **Dex Service 🤝** to be pinged for service requests.\n' +
-        '-# - Select **PRO Auctions 🔔** to be pinged for new **[PRO Auctions](https://discord.com/channels/1148499020038295582/1566940660274303016).**\n' +
+        '-# - Select **Dungeon 🧙‍♂️** to receive pings for Dungeon runs.\n' +
+        '-# - Select **Level / EV ✨** to receive pings for service requests.\n' +
+        '-# - Select **Dex Service 🤝** to receive pings for service requests.\n' +
+        '-# - Select **PRO Auctions 🔔** to receive pings for new **[Auctions](https://discord.com/channels/1148499020038295582/1566940660274303016)**.\n' +
         // '-# - Select **PRO Notifications 🔔** to receive notifications about useful game information, updates, and upcoming events.\n' +
-        '-# - Select **Stream 🔔** to be pinged when someone from the Guild streams. You can also ping this role when you go live.\n' +
+        '-# - Select **Stream 🔔** to receive pings when someone from the Guild streams. You can also ping this role when you go live.\n' +
         '-# - Select your **Server Roles**. <@1470242342383521943> will remember your **Server** choice and use it for future commands.',
     colorHex: '#452366',
     imagePath: 'images/cc_logo.webp',

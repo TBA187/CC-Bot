@@ -40,6 +40,30 @@ test('role button writes verified panel provenance on both assign and remove req
     for (const reason of calls) assert.equal(roleSource({ executor: bot, reason }, member, bot.id).kind, 'self_panel');
 });
 
+test('renamed PRO Auctions role works with its current role-panel button', async () => {
+    const panel = findAutoRolePanel('guild_roles');
+    const choice = panel.roles.find(item => item.key === 'pro_auctions');
+    assert.equal(choice.label, 'PRO Auctions');
+
+    const cache = new Collection();
+    const role = { id: choice.roleId, name: choice.label, comparePositionTo: () => -1,
+        toString: () => `<@&${choice.roleId}>` };
+    const user = { id: '296447098298171393', username: 'kaasfondue' };
+    const member = { id: user.id, user, roles: { cache,
+        add: async value => cache.set(typeof value === 'string' ? value : value.id, role),
+        remove: async value => cache.delete(typeof value === 'string' ? value : value.id) } };
+    const interaction = { customId: panel.customIdForRole('pro_auctions'), channelId: '1184121209609269409',
+        user, member, guild: { roles: { cache: new Collection([[role.id, role]]) }, members: {
+            me: { permissions: { has: () => true }, roles: { highest: {} } }
+        } },
+        async deferReply() { this.deferred = true; },
+        async editReply(payload) { this.response = payload; } };
+
+    assert.equal(await handleAutoRoleButton(interaction), true);
+    assert.equal(cache.has(role.id), true);
+    assert.match(interaction.response.content, /assigned the <@&1537991574162640906> role/u);
+});
+
 test('server-panel denials report who and why without a bot error, while real failures remain errors', async t => {
     const logs = [], errors = [];
     t.mock.method(console, 'log', (...args) => logs.push(args));

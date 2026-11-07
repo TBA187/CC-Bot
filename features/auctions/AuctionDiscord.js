@@ -197,7 +197,7 @@ function buildAuctionPayload(auction, config = {}, botUser = null) {
     if (needsOverflow(auction.paymentMethods, 700)) controls.push(button('payment', id, 0, 'Payment Details', '💰'));
     const rows = [];
     for (let i = 0; i < controls.length; i += 5) rows.push(new ActionRowBuilder().addComponents(controls.slice(i, i + 5)));
-    const roleId = String(config.proNotificationRoleID || '');
+    const roleId = String(config.proAuctionsRoleID || '');
     const roleChannelId = String(config.selfRoleChannelID || '');
     const validRole = /^\d+$/.test(roleId);
     const instructions = validRole && /^\d+$/.test(roleChannelId)
@@ -207,12 +207,15 @@ function buildAuctionPayload(auction, config = {}, botUser = null) {
         embeds: [embed], components: rows, allowedMentions: { parse: [], roles: validRole ? [roleId] : [] } };
 }
 
-function followConfirmation(auction, alreadyFollowing = false) {
+const FOLLOW_PENDING_NOTICE = 'Your subscription is saved. The forum page is temporarily unavailable. The bot will check it again automatically, then notify you about new bids.';
+
+function followConfirmation(auction, alreadyFollowing = false, waitingForSource = false) {
     const title = text(auction.title || 'this auction', 250);
     const link = url(auction.url);
     const name = link ? `[**${title}**](<${link}>)` : `**${title}**`;
     return `### 🔔 You're ${alreadyFollowing ? 'already' : 'now'} following ${name} ✅\n`
-        + 'You\'ll receive a DM for every new bid on this auction. DM notifications stop automatically when the auction ends.\n'
+        + (waitingForSource ? `${FOLLOW_PENDING_NOTICE} DM notifications stop automatically when the auction ends.\n`
+            : 'You\'ll receive a DM for every new bid on this auction. DM notifications stop automatically when the auction ends.\n')
         + 'To stop receiving notifications, click the 🔕 **Unfollow** button here or in the auction notification DM.\n'
         + '-# If your privacy settings restrict DMs, you might not receive DM notifications. Make sure DMs from this server are enabled.';
 }
@@ -307,7 +310,7 @@ async function handleAuctionButton(interaction, options = {}) {
             await interaction.followUp({ content: 'Auction subscriptions are temporarily unavailable. Please try again later.', flags: MessageFlags.Ephemeral });
             return true;
         }
-        let following = false;
+        let following = false, waitingForSource = false;
         if (dm[1] === 'unfollow') await options.followService.unfollow(dm[2], dm[3]);
         else {
             if (!/^\d+$/.test(String(options.guildId || '')) || !/^\d+$/.test(String(options.channelId || ''))) {
@@ -330,16 +333,19 @@ async function handleAuctionButton(interaction, options = {}) {
             const record = await options.getAuctionRecord(dm[2]);
             const result = await options.followService.follow(dm[2], dm[3], record?.messageId);
             if (result.ended || result.unavailable) {
-                await interaction.followUp({ content: result.ended ? 'This auction has ended and can no longer be followed.' : 'This auction is unavailable right now.', flags: MessageFlags.Ephemeral });
+                await interaction.followUp({ content: result.ended ? 'This auction has ended and can no longer be followed.' : 'This auction is unavailable right now. Please try again later.', flags: MessageFlags.Ephemeral });
                 return true;
             }
+            waitingForSource = Boolean(result.waitingForSource);
             following = true;
         }
         const rows = interaction.message.components.map(row => ActionRowBuilder.from(row));
         for (const row of rows) row.components = row.components.map(component => component.data.custom_id === interaction.customId
             ? button(following ? 'dm-unfollow' : 'dm-follow', dm[2], dm[3], following ? 'Unfollow' : 'Follow', following ? '🔕' : '🔔', false, following ? ButtonStyle.Danger : ButtonStyle.Success) : component);
         await interaction.editReply({ components: rows });
-        await interaction.followUp({ content: following ? '**🔔 You\'re following this auction again and will receive new bid notifications ✅**' : '**🔕 You\'re no longer following this auction and won\'t receive new bid notifications.**', flags: MessageFlags.Ephemeral });
+        const confirmation = following ? '**🔔 You\'re following this auction again and will receive new bid notifications ✅**'
+            + (waitingForSource ? `\n${FOLLOW_PENDING_NOTICE}` : '') : '**🔕 You\'re no longer following this auction and won\'t receive new bid notifications.**';
+        await interaction.followUp({ content: confirmation, flags: MessageFlags.Ephemeral });
         return true;
     }
     const match = /^auction:(follow|refollow|unfollow|images|bids|description|payment):(\d+):(\d+)$/.exec(String(interaction.customId || ''));
@@ -372,8 +378,8 @@ async function handleAuctionButton(interaction, options = {}) {
         }
         const sourceId = match[1] === 'refollow' ? (await options.getAuctionRecord(match[2]))?.messageId : interaction.message?.id;
         const result = await options.followService.follow(match[2], String(interaction.user.id), sourceId);
-        const content = result.unavailable ? 'This auction is unavailable and cannot be followed right now.'
-            : result.ended ? 'This auction has ended, so it can no longer be followed.' : followConfirmation(result.auction, result.alreadyFollowing);
+        const content = result.unavailable ? 'This auction is unavailable and cannot be followed right now. Please try again later.'
+            : result.ended ? 'This auction has ended, so it can no longer be followed.' : followConfirmation(result.auction, result.alreadyFollowing, result.waitingForSource);
         const components = result.unavailable || result.ended ? [] : [new ActionRowBuilder().addComponents(
             button('unfollow', match[2], String(interaction.user.id), 'Unfollow', '🔕', false, ButtonStyle.Danger))];
         await interaction.editReply({ content, components, allowedMentions: { parse: [] } });

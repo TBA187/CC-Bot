@@ -207,6 +207,74 @@ test('a disappeared tracked auction is marked unavailable and recovers when it r
     assert.equal((await f.store.getAuctionRecord('11')).auction.sourceUnavailable, undefined);
 });
 
+test('missing tracked auction pages retry quietly and unexpected later failures still warn', async t => {
+    const f = fixture(t), warnings = [];
+    t.mock.method(console, 'warn', (...args) => warnings.push(args));
+    let now = Date.now();
+    f.monitor.clock = () => now;
+    f.pages.set(1, ['10']);
+    await f.monitor.runOnce();
+    f.pages.set(1, ['11', '10']);
+    f.auctions.set('11', { id: '11', status: 'Active', bids: [] });
+    await f.monitor.runOnce();
+    const fetchAuction = f.monitor.forumClient.fetchAuction;
+    for (const status of [404, 410]) {
+        f.monitor.forumClient.fetchAuction = async () => { throw new AuctionForumRequestError('page missing', { status }); };
+        await f.monitor.runOnce();
+        assert.equal(warnings.length, 0);
+        assert.equal((await f.store.getAuctionRecord('11')).auction.sourceUnavailable, true);
+        now = f.monitor.itemFailures.get('refresh 11').nextAttemptAt;
+    }
+    assert.equal(f.edited.length, 1);
+    f.monitor.forumClient.fetchAuction = async () => { throw new Error('unexpected parsing failure'); };
+    await f.monitor.runOnce();
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0][0], /refresh 11 failed; retrying separately/u);
+    now = f.monitor.itemFailures.get('refresh 11').nextAttemptAt;
+    f.monitor.forumClient.fetchAuction = fetchAuction;
+    await f.monitor.runOnce();
+    assert.equal((await f.store.getAuctionRecord('11')).auction.status, 'Active');
+    assert.equal(f.monitor.itemFailures.has('refresh 11'), false);
+});
+
+test('missing pending auction pages retain their queue without hiding Discord delivery errors', async t => {
+    const f = fixture(t), warnings = [];
+    t.mock.method(console, 'warn', (...args) => warnings.push(args));
+    let now = Date.now();
+    f.monitor.clock = () => now;
+    await f.store.update(data => { data.pending['11'] = { id: '11' }; data.pendingOrder = ['11']; });
+    f.monitor.forumClient.fetchAuction = async () => { throw new AuctionForumRequestError('page missing', { status: 404 }); };
+    await f.monitor.deliverPending(new Set(), new Set());
+    assert.equal(warnings.length, 0);
+    assert.ok((await f.store.getState()).pending['11']);
+    now = f.monitor.itemFailures.get('delivery 11').nextAttemptAt;
+    f.monitor.forumClient.fetchAuction = async () => ({ id: '11', status: 'Active' });
+    f.monitor.notifier.send = async () => { throw Object.assign(new Error('Discord channel unavailable'), { status: 404, code: 10003 }); };
+    await f.monitor.deliverPending(new Set(), new Set());
+    assert.equal(warnings.length, 1);
+    assert.ok((await f.store.getState()).pending['11']);
+});
+
+test('auctions waiting for a retry do not consume healthy refresh slots', async t => {
+    const f = fixture(t), fetched = [];
+    f.monitor.refreshBatchSize = 2;
+    f.monitor.clock = () => 1000;
+    await f.store.update(data => {
+        for (const id of ['11', '12', '13', '14', '15']) {
+            data.tracked[id] = { messageId: `message-${id}`, auction: { id, status: 'Active' } };
+        }
+    });
+    f.monitor.forumClient.fetchAuction = async id => { fetched.push(id); return { id, status: 'Active' }; };
+    for (const id of ['11', '13']) f.monitor.itemFailures.set(`refresh ${id}`, { nextAttemptAt: 5000 });
+    await f.monitor.refreshTracked(new Set());
+    assert.deepEqual(fetched, ['12', '14']);
+    await f.monitor.refreshTracked(new Set());
+    assert.deepEqual(fetched, ['12', '14', '15', '12']);
+    for (const id of ['12', '14', '15']) f.monitor.itemFailures.set(`refresh ${id}`, { nextAttemptAt: 5000 });
+    await f.monitor.refreshTracked(new Set());
+    assert.equal(fetched.length, 4);
+});
+
 test('a listing created between the two page requests is not skipped by the checkpoint', async t => {
     const f = fixture(t);
     f.pages.set(1, ['10']);
@@ -282,7 +350,7 @@ test('a missing Discord message is handled when the forum page is also unavailab
     assert.equal(await f.monitor.runOnce(), true);
     const record = await f.store.getAuctionRecord('11');
     assert.equal(record.messageMissing, true);
-    assert.equal(record.auction.sourceUnavailable, undefined);
+    assert.equal(record.auction.sourceUnavailable, true);
     assert.equal(f.monitor.itemFailures.has('refresh 11'), false);
 });
 
@@ -626,4 +694,98 @@ test('simultaneous Follow and monitor reads share one current auction request', 
     assert.equal(calls, 1);
     await f.monitor.fetchAuction('11');
     assert.equal(calls, 2);
+});
+
+test('forum rate limits stop queued and interactive requests until the server wait expires', async t => {
+    const f = fixture(t);
+    let now = 1000, requests = 0, listings = 0;
+    f.monitor.clock = () => now;
+    f.monitor.forumClient.fetchAuction = async () => {
+        requests++;
+        throw new AuctionForumRequestError('rate limited', { status: 429, code: 'HTTP_429', retryAfterMs: 300000 });
+    };
+    f.monitor.forumClient.fetchListing = async () => { listings++; return { auctions: [], lastPage: 1 }; };
+    const results = await Promise.allSettled([f.monitor.fetchAuction('11'), f.monitor.fetchAuction('12'), f.monitor.listing(1)]);
+    for (const result of results) {
+        assert.equal(result.status, 'rejected');
+        assert.equal(result.reason.status, 429);
+        assert.equal(result.reason.retryAfterMs, 300000);
+    }
+    assert.equal(requests, 1);
+    assert.equal(listings, 0);
+    now += 299999;
+    await assert.rejects(f.monitor.fetchAuction('12'), error => error.status === 429 && error.retryAfterMs === 1);
+    assert.equal(requests, 1);
+    now++;
+    f.monitor.forumClient.fetchAuction = async id => { requests++; return { id, status: 'Active' }; };
+    assert.equal((await f.monitor.fetchAuction('12')).id, '12');
+    assert.equal(requests, 2);
+    assert.equal(f.monitor.forumRateLimit, null);
+    await f.monitor.stop();
+    await assert.rejects(f.monitor.fetchAuction('11'), error => error.code === 'BOT_SHUTTING_DOWN');
+    assert.equal(requests, 2);
+});
+
+test('repeated rate limits increase the shared wait and a late shutdown response cannot restart it', async t => {
+    const f = fixture(t);
+    let now = 1000;
+    f.monitor.clock = () => now;
+    f.monitor.forumClient.fetchAuction = async () => { throw new AuctionForumRequestError('rate limited', { status: 429 }); };
+    for (const delay of [90000, 180000]) {
+        await assert.rejects(f.monitor.fetchAuction('11'), error => error.status === 429);
+        assert.equal(f.monitor.forumRateLimit.retryAt, now + delay);
+        now += delay;
+    }
+    const entered = Promise.withResolvers(), release = Promise.withResolvers();
+    f.monitor.forumClient.fetchAuction = async () => {
+        entered.resolve();
+        await release.promise;
+        throw new AuctionForumRequestError('late response', { status: 429 });
+    };
+    const pending = assert.rejects(f.monitor.fetchAuction('11'), error => error.code === 'BOT_SHUTTING_DOWN');
+    await entered.promise;
+    const previousLimit = f.monitor.forumRateLimit;
+    const stopping = f.monitor.stop();
+    release.resolve();
+    await pending;
+    await stopping;
+    assert.equal(f.monitor.forumRateLimit, previousLimit);
+    assert.equal(f.monitor.timer, null);
+});
+
+test('an unavailable followed auction keeps its backoff after its Discord message disappears and recovers without duplicate DMs', async t => {
+    const f = await followedFixture(t);
+    let now = Date.now(), requests = 0, edits = 0;
+    f.monitor.clock = () => now;
+    f.auctions.set('11', { id: '11', status: 'Active', bids: [newBid('100')] });
+    await f.monitor.followService.observe('11', f.auctions.get('11'));
+    const fetchAuction = f.monitor.forumClient.fetchAuction;
+    f.monitor.forumClient.fetchAuction = async () => {
+        requests++;
+        throw new AuctionForumRequestError('page missing', { status: 404 });
+    };
+    f.monitor.notifier.edit = async () => { edits++; throw Object.assign(new Error('Unknown Message'), { code: 10008 }); };
+    assert.equal(await f.monitor.runOnce(), true);
+    let record = await f.store.getAuctionRecord('11');
+    assert.equal(record.messageMissing, true);
+    assert.equal(record.auction.sourceUnavailable, true);
+    assert.equal(Object.keys(record.follow.pending).length, 1);
+    assert.equal(f.dms.length, 0);
+    await f.monitor.runOnce();
+    assert.equal(requests, 1);
+    now = f.monitor.itemFailures.get('refresh 11').nextAttemptAt;
+    await f.monitor.runOnce();
+    assert.equal(requests, 2);
+    assert.equal(edits, 1);
+    now = f.monitor.itemFailures.get('refresh 11').nextAttemptAt;
+    f.monitor.forumClient.fetchAuction = fetchAuction;
+    f.auctions.set('11', { id: '11', status: 'Active', bids: [newBid('200'), newBid('100')] });
+    await f.monitor.runOnce();
+    record = await f.store.getAuctionRecord('11');
+    assert.equal(record.auction.sourceUnavailable, undefined);
+    assert.deepEqual(record.follow.pending, {});
+    assert.deepEqual(f.dms.map(item => item.job.bid.amount), ['100', '200']);
+    await f.monitor.runOnce();
+    assert.equal(f.dms.length, 2);
+    assert.deepEqual(f.sent, ['11']);
 });

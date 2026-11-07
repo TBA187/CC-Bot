@@ -10,6 +10,7 @@ const { AuctionStore } = require('../features/auctions/AuctionStore.js');
 const { AuctionMonitor } = require('../features/auctions/AuctionMonitor.js');
 const { projectOperation, conflict } = require('../features/auctions/AuctionSqlRepository.js');
 const { AuctionFollowService } = require('../features/auctions/AuctionFollowService.js');
+const { AuctionForumRequestError } = require('../features/auctions/AuctionForumClient.js');
 const { buildBidNotificationPayload, handleAuctionButton } = require('../features/auctions/AuctionDiscord.js');
 const { ComponentType, MessageFlags } = require('discord.js');
 
@@ -55,6 +56,37 @@ test('local pending changes replay to MySQL after an outage and restore on anoth
     await restored.initialize();
     assert.equal((await restored.getState()).initialized, true);
     assert.ok((await restored.getState()).pending['11']);
+});
+
+test('a subscription waiting for a forum baseline survives an outage, restart and host change', async t => {
+    const f = setup(t), store = f.make('local.json'), sent = [];
+    await store.initialize();
+    await store.update(data => { data.tracked['11'] = { messageId: '123', auction: { id: '11', status: 'Active' } }; });
+    const options = { notifier: { async sendBidUpdate(userId, key, job) { sent.push({ userId, job }); } },
+        fetchAuction: async () => { throw new AuctionForumRequestError('missing page', { status: 404 }); } };
+    f.server.down = true;
+    const service = new AuctionFollowService({ store, ...options });
+    assert.equal((await service.follow('11', '111', '123')).waitingForSource, true);
+    const restarted = f.make('local.json');
+    await restarted.initialize();
+    assert.deepEqual((await restarted.getAuctionRecord('11')).follow.baselinePendingUsers, ['111']);
+    f.server.down = false;
+    await restarted.reconcile();
+    const remote = f.make('remote.json');
+    await remote.initialize();
+    assert.deepEqual((await remote.getAuctionRecord('11')).follow.baselinePendingUsers, ['111']);
+    const restored = new AuctionFollowService({ store: remote, ...options });
+    const auction = { id: '11', status: 'Active', bids: [{ bidder: { name: 'Bidder' }, amount: '100', time: 'first' }] };
+    await restored.observe('11', auction);
+    await restored.drain(new Set(['11']));
+    assert.equal(sent.length, 0);
+    auction.bids.unshift({ bidder: { name: 'Bidder' }, amount: '200', time: 'second' });
+    await restored.observe('11', auction);
+    await restored.drain(new Set(['11']));
+    assert.deepEqual(sent.map(item => [item.userId, item.job.bid.amount]), [['111', '200']]);
+    const final = f.make('final.json');
+    await final.initialize();
+    assert.equal((await final.getAuctionRecord('11')).follow.baselinePendingUsers, undefined);
 });
 
 test('conflicting remote state does not overwrite unsynchronized local work', async t => {

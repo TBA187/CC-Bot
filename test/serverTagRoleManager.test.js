@@ -375,6 +375,24 @@ test('role formatting keeps IDs beside mentions, uses nested lists for batches, 
     assert.equal(payload.color, 0x5865F2);
 });
 
+test('deleted role definitions use the saved name while ordinary role removals keep mentions', () => {
+    const f = fixture();
+    const deletedRole = { id: '323456789012345678', name: 'Contributor' };
+
+    const deletedPayload = json(roleEvents.buildRoleAuditPayload(f.member, {
+        removedRoles: [deletedRole], entry: { executor: actor }, definitionDeleted: true
+    }));
+    assert.match(deletedPayload.description, /Role Removed:\*\* Contributor \(`323456789012345678`\)/u);
+    assert.match(deletedPayload.description, /Removal Context:\*\* The role itself was deleted from the server\./u);
+    assert.doesNotMatch(deletedPayload.description, /<@&323456789012345678>/u);
+
+    const ordinaryPayload = json(roleEvents.buildRoleAuditPayload(f.member, {
+        removedRoles: [deletedRole], entry: { executor: actor }
+    }));
+    assert.match(ordinaryPayload.description, /Role Removed:\*\* <@&323456789012345678> \(`323456789012345678`\)/u);
+    assert.doesNotMatch(ordinaryPayload.description, /Removal Context/u);
+});
+
 test('self role-panel changes show member intent and executing bot, while commands retain their source', () => {
     const f = fixture(), entry = { executor: f.client.user, reason: rolePanelReason({ user: f.user, channelId: PANEL }, 'Role selection button') };
     for (const added of [true, false]) {

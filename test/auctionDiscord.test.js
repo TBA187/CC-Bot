@@ -90,12 +90,12 @@ test('overflow controls depend on escaped length, not a literal ellipsis', () =>
 });
 
 test('announcement mentions only the configured role and links the channel', () => {
-    const payload = buildAuctionPayload(sample(), { proNotificationRoleID: '1537991574162640906', selfRoleChannelID: '1184121209609269409' });
+    const payload = buildAuctionPayload(sample(), { proAuctionsRoleID: '1537991574162640906', selfRoleChannelID: '1184121209609269409' });
     assert.match(payload.content, /\[\*\*PRO Trade Zone\*\*\]\(<https:\/\/pokemonrevolution.net\/forum\/trade\/>\)/);
     assert.match(payload.content, /<@&1537991574162640906>/);
     assert.match(payload.content, /<#1184121209609269409>/);
     assert.match(payload.content, /^<@&1537991574162640906> There's a new auction/);
-    assert.match(payload.content, /selecting the `@PRO Notifications 🔔` role in <#1184121209609269409>\n/);
+    assert.match(payload.content, /selecting the `@PRO Auctions 🔔` role in <#1184121209609269409>\n/);
     assert.match(payload.content, /Follow.*receive notifications for new bids/);
     assert.doesNotMatch(payload.content, /Coming soon/);
     assert.deepEqual(payload.allowedMentions, { parse: [], roles: ['1537991574162640906'] });
@@ -291,6 +291,21 @@ test('Follow acknowledges privately before persisting and returns an owned Unfol
     assert.deepEqual(calls[1][1].allowedMentions, { parse: [] });
 });
 
+test('an outage Follow confirms the saved subscription privately and keeps its Unfollow button', async () => {
+    const calls = [];
+    const interaction = { customId: 'auction:follow:14702:0', channelId: '123', guildId: '456', user: { id: '789' }, message: { id: '111' },
+        async deferReply(payload) { calls.push(payload); }, async editReply(payload) { calls.push(payload); } };
+    await handleAuctionButton(interaction, { channelId: '123', guildId: '456', followService: {
+        async follow() { return { auction: sample(), alreadyFollowing: false, waitingForSource: true }; }
+    } });
+    assert.equal(calls[0].flags, MessageFlags.Ephemeral);
+    assert.match(calls[1].content, /You're now following/u);
+    assert.match(calls[1].content, /Your subscription is saved\./u);
+    assert.match(calls[1].content, /check it again automatically, then notify you about new bids/u);
+    assert.doesNotMatch(calls[1].content, /cannot be followed|Please try again/u);
+    assert.equal(calls[1].components[0].toJSON().components[0].custom_id, 'auction:unfollow:14702:789');
+});
+
 test('subscription controls reject other guilds and another user’s Unfollow button', async () => {
     for (const change of [i => { i.guildId = 'other'; }, i => { i.channelId = 'other'; },
         i => { i.customId = 'auction:unfollow:14702:999'; }]) {
@@ -411,10 +426,10 @@ test('DM subscription controls toggle only the recipient’s subscription and ha
         }; } } }, message: { author: { id: '222' }, components: initial.components },
         async deferUpdate() { calls.push('defer'); }, async editReply(payload) { updates.push(payload); this.message.components = payload.components; },
         async followUp(payload) { calls.push(payload); }, async reply(payload) { calls.push(payload); } };
-    let ended = false;
+    let ended = false, waitingForSource = false;
     const options = { guildId: '444', channelId: '555', getAuctionRecord: async () => ({ messageId: '333' }), followService: {
         async unfollow(id, user) { calls.push(['unfollow', id, user]); },
-        async follow(id, user, messageId) { calls.push(['follow', id, user, messageId]); return ended ? { ended: true } : {}; }
+        async follow(id, user, messageId) { calls.push(['follow', id, user, messageId]); return ended ? { ended: true } : { waitingForSource }; }
     } };
     await handleAuctionButton(interaction, options);
     assert.deepEqual(calls.slice(0, 2), ['defer', ['unfollow', '14702', '111']]);
@@ -438,6 +453,10 @@ test('DM subscription controls toggle only the recipient’s subscription and ha
     assert.match(calls.at(-1).content, /ended/);
     assert.equal(updates.length, 2);
     ended = false;
+    waitingForSource = true;
+    await handleAuctionButton(interaction, options);
+    assert.match(calls.at(-1).content, /Your subscription is saved\./u);
+    assert.equal(updates.at(-1).components[0].toJSON().components[1].custom_id, 'auction:dm-unfollow:14702:111');
     interaction.client.guilds.fetch = async () => ({ members: { async fetch() { return {}; } },
         channels: { async fetch() { return { permissionsFor: () => ({ has: () => false }) }; } } });
     const followCalls = calls.filter(call => Array.isArray(call) && call[0] === 'follow').length;
@@ -752,7 +771,7 @@ test('new announcements notify only the configured role and subsequent edits do 
         return typeof query === 'string' ? message : new Collection();
     } }, async send(payload) { sent = payload; return { id: 'message' }; } };
     const notifier = new AuctionDiscordNotifier({ client: { user: { id: 'bot' }, channels: { cache: new Map([['123', channel]]) } },
-        channelId: '123', config: { proNotificationRoleID: '1537991574162640906', selfRoleChannelID: '1184121209609269409' } });
+        channelId: '123', config: { proAuctionsRoleID: '1537991574162640906', selfRoleChannelID: '1184121209609269409' } });
     await notifier.send(sample());
     assert.deepEqual(sent.allowedMentions, { parse: [], roles: ['1537991574162640906'] });
     await notifier.edit('message', sample());

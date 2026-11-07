@@ -10,6 +10,7 @@ const { Collection } = require('discord.js');
 const { AuctionStore } = require('../features/auctions/AuctionStore.js');
 const { AuctionFollowService, bidKey } = require('../features/auctions/AuctionFollowService.js');
 const { AuctionDiscordNotifier } = require('../features/auctions/AuctionDiscord.js');
+const { AuctionForumRequestError } = require('../features/auctions/AuctionForumClient.js');
 
 function bid(amount, time = amount, overrides = {}) {
     return { bidder: { name: 'Bidder', url: 'https://pokemonrevolution.net/forum/profile/2-bidder/' },
@@ -94,6 +95,63 @@ test('simultaneous subscriptions do not overwrite each other or listing updates'
     assert.equal(Object.keys((await f.record('101')).follow.users).length, 10);
     assert.equal((await f.record('101')).auction.title, 'Updated title');
     assert.ok((await f.record('202')).follow.users['111']);
+});
+
+test('Follow saves subscriptions during forum failures and starts new followers after a fresh baseline', async t => {
+    const f = await fixture(t);
+    await f.follow();
+    f.auctions.get('101').bids = [bid('200')];
+    await f.observe('101');
+    const before = await f.record('101');
+    const fetchAuction = f.service.fetchAuction;
+    for (const [index, status] of [404, 410, 429, 503].entries()) {
+        f.service.fetchAuction = async () => { throw new AuctionForumRequestError('page unavailable', { status }); };
+        const result = await f.follow('101', '222');
+        assert.equal(result.waitingForSource, true);
+        assert.equal(result.alreadyFollowing, index > 0);
+        const record = await f.record('101');
+        assert.deepEqual(record.follow.baselinePendingUsers, ['222']);
+        assert.deepEqual(record.follow.pending, before.follow.pending);
+        assert.equal(record.follow.currentAuction.status, 'Unavailable');
+    }
+    const unexpected = new Error('unexpected parser failure');
+    f.service.fetchAuction = async () => { throw unexpected; };
+    await assert.rejects(f.follow('101', '222'), error => error === unexpected);
+    f.service.fetchAuction = fetchAuction;
+    assert.equal((await f.follow('101', '222')).alreadyFollowing, true);
+    await f.service.drain(new Set(['101']));
+    assert.deepEqual(f.sent.map(item => item.userId), ['111']);
+    assert.equal((await f.record('101')).follow.baselinePendingUsers, undefined);
+    f.auctions.get('101').bids.unshift(bid('300'));
+    await f.observe('101');
+    await f.service.drain(new Set(['101']));
+    assert.deepEqual(f.sent.map(item => [item.userId, item.job.bid.amount]), [['111', '200'], ['111', '300'], ['222', '300']]);
+});
+
+test('a first follower can subscribe during an outage and unfollow before the page returns', async t => {
+    const f = await fixture(t);
+    f.service.fetchAuction = async () => { throw new AuctionForumRequestError('timeout', { code: 'ETIMEDOUT' }); };
+    assert.equal((await f.follow()).waitingForSource, true);
+    assert.deepEqual((await f.record('101')).follow.baselinePendingUsers, ['111']);
+    await f.follow('101', '222');
+    await f.service.unfollow('101', '111');
+    assert.deepEqual((await f.record('101')).follow.baselinePendingUsers, ['222']);
+    await f.service.unfollow('101', '222');
+    assert.equal((await f.record('101')).follow, undefined);
+    await f.follow();
+    f.auctions.get('101').status = 'Ended';
+    await f.observe('101');
+    assert.equal((await f.record('101')).follow, undefined);
+    f.service.fetchAuction = async () => f.auctions.get('101');
+    assert.equal((await f.follow()).ended, true);
+});
+
+test('an outage Follow is not confirmed when its subscription cannot be saved', async t => {
+    const f = await fixture(t);
+    f.service.fetchAuction = async () => { throw new AuctionForumRequestError('page missing', { status: 404 }); };
+    f.store.write = () => { throw Object.assign(new Error('disk full'), { auctionStorage: true }); };
+    await assert.rejects(f.follow(), error => error.auctionStorage && /disk full/u.test(error.message));
+    assert.equal((await f.record('101')).follow, undefined);
 });
 
 test('auction end removes its subscriptions and queued DMs while other auctions keep working', async t => {

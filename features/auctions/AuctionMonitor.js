@@ -47,6 +47,7 @@ class AuctionMonitor {
         this.needsStartupBaseline = true;
         this.requestQueue = Promise.resolve();
         this.auctionRequests = new Map();
+        this.forumRateLimit = null;
     }
 
     async start() {
@@ -182,9 +183,26 @@ class AuctionMonitor {
         const signal = this.controller.signal;
         const pending = this.requestQueue.then(async () => {
             if (signal.aborted || generation !== this.generation) throw shutdownError();
+            const remaining = (this.forumRateLimit?.retryAt || 0) - this.clock();
+            if (remaining > 0) {
+                throw new AuctionForumRequestError('PRO auction requests are waiting for the forum rate limit to expire.', {
+                    code: 'HTTP_429', status: 429, retryAfterMs: remaining
+                });
+            }
             await this.pace();
-            const result = await work(signal);
+            let result;
+            try { result = await work(signal); }
+            catch (error) {
+                if (signal.aborted || generation !== this.generation) throw shutdownError();
+                if (error instanceof AuctionForumRequestError && Number(error.status) === 429) {
+                    const count = (this.forumRateLimit?.count || 0) + 1;
+                    this.forumRateLimit = { count, retryAt: this.clock()
+                        + forumRetryDelay(this.intervalMs, count, MAX_BACKOFF_MS, error.retryAfterMs) };
+                } else this.forumRateLimit = null;
+                throw error;
+            }
             if (signal.aborted || generation !== this.generation) throw shutdownError();
+            this.forumRateLimit = null;
             return result;
         });
         this.requestQueue = pending.catch(() => {});
@@ -204,12 +222,15 @@ class AuctionMonitor {
         return this.clock() >= (this.itemFailures.get(key)?.nextAttemptAt || 0);
     }
 
-    itemFailed(key, error) {
+    itemFailed(key, error, { sourceUnavailable = false } = {}) {
         const previous = this.itemFailures.get(key);
         const count = (previous?.count || 0) + 1;
         const delay = forumRetryDelay(this.intervalMs, count, MAX_BACKOFF_MS, error.retryAfterMs);
-        this.itemFailures.set(key, { count, nextAttemptAt: this.clock() + delay });
-        if (!previous) console.warn(`[CC LOG] PRO auction ${key} failed; retrying separately:`, error.message);
+        this.itemFailures.set(key, { count, nextAttemptAt: this.clock() + delay, sourceUnavailable });
+        if (!previous || Boolean(previous.sourceUnavailable) !== sourceUnavailable) {
+            if (sourceUnavailable) console.log(`[CC LOG] PRO auction ${key} is unavailable (HTTP ${error.status || error.statusCode}); retrying separately.`);
+            else console.warn(`[CC LOG] PRO auction ${key} failed; retrying separately:`, error.message);
+        }
     }
 
     itemRestored(key) {
@@ -256,7 +277,8 @@ class AuctionMonitor {
                 if (!message?.id) throw new Error(`Auction ${id} delivery returned no Discord message ID.`);
             } catch (error) {
                 if (this.batchFailure(error)) throw error;
-                this.itemFailed(key, error);
+                this.itemFailed(key, error, { sourceUnavailable: error instanceof AuctionForumRequestError
+                    && [404, 410].includes(Number(error.status)) });
                 continue;
             }
             // Save completed delivery even when stop() occurred during the send.
@@ -329,14 +351,15 @@ class AuctionMonitor {
             this.refreshCursor = 0;
             return;
         }
-        const count = Math.min(ids.length, this.refreshBatchSize);
         const start = this.refreshCursor % ids.length;
+        let examined = 0, attempted = 0;
         const eligible = new Set();
-        for (let index = 0; index < count; index++) {
+        while (examined < ids.length && attempted < this.refreshBatchSize) {
             this.checkRunning();
-            const id = ids[(start + index) % ids.length];
+            const id = ids[(start + examined++) % ids.length];
             const key = `refresh ${id}`;
             if (!this.itemReady(key)) continue;
+            attempted++;
             const record = state.tracked[id];
             let auction;
             try {
@@ -351,20 +374,24 @@ class AuctionMonitor {
                     await this.followService?.pause(id);
                     if (!record.auction.sourceUnavailable) {
                         const unavailable = { ...record.auction, status: 'Unavailable', sourceUnavailable: true, endsAt: null, timeLeft: null };
-                        try {
-                            await this.notifier.edit(record.messageId, unavailable);
-                            await this.store.update(data => { data.tracked[id].auction = unavailable; });
-                        } catch (editError) {
-                            if (editError.auctionStorage || editError.code === 'AUCTION_STORE_CONFLICT' || this.batchFailure(editError)) throw editError;
-                            if (unknownMessage(editError)) {
-                                await this.markMessageMissing(id, record, key);
-                                continue;
+                        if (!record.messageMissing) {
+                            try { await this.notifier.edit(record.messageId, unavailable); }
+                            catch (editError) {
+                                if (editError.auctionStorage || editError.code === 'AUCTION_STORE_CONFLICT' || this.batchFailure(editError)) throw editError;
+                                if (unknownMessage(editError)) await this.markMessageMissing(id, record, key);
+                                else {
+                                    this.itemFailed(key, editError);
+                                    continue;
+                                }
                             }
-                            this.itemFailed(key, editError);
+                        }
+                        const updated = await this.store.update(data => { data.tracked[id].auction = unavailable; });
+                        if (updated.tracked[id].messageMissing && !Object.keys(updated.tracked[id].follow?.users || {}).length) {
+                            this.itemFailures.delete(key);
                             continue;
                         }
                     }
-                    this.itemFailed(key, error);
+                    this.itemFailed(key, error, { sourceUnavailable: true });
                     continue;
                 }
                 this.itemFailed(key, error);
@@ -395,7 +422,7 @@ class AuctionMonitor {
             await this.store.update(data => { data.tracked[id].auction = auction; });
             this.itemRestored(key);
         }
-        this.refreshCursor = (start + count) % ids.length;
+        this.refreshCursor = (start + examined) % ids.length;
         await this.followService?.drain(eligible);
     }
 }

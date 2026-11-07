@@ -4,6 +4,7 @@
 const { createHash } = require('node:crypto');
 const { active, ended } = require('./AuctionStatus.js');
 const { forumRetryDelay } = require('../../utils/forumRetry.js');
+const { AuctionForumRequestError } = require('./AuctionForumClient.js');
 
 const object = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const validId = value => typeof value === 'string' && /^\d+$/.test(value);
@@ -23,6 +24,9 @@ function validFollowState(value, auctionId) {
         && (value.currentAuction === undefined || object(value.currentAuction) && value.currentAuction.id === auctionId)
         && object(value.users) && Object.keys(value.users).length > 0
         && Object.entries(value.users).every(([id, user]) => validId(id) && object(user) && validDate(user.followedAt))
+        && (value.baselinePendingUsers === undefined || Array.isArray(value.baselinePendingUsers)
+            && new Set(value.baselinePendingUsers).size === value.baselinePendingUsers.length
+            && value.baselinePendingUsers.every(id => validId(id) && Object.hasOwn(value.users, id)))
         && object(value.pending) && Object.entries(value.pending).every(([key, job]) => validKey(key) && object(job)
             && object(job.bid) && object(job.bid.bidder) && typeof job.bid.bidder.name === 'string' && typeof job.bid.amount === 'string'
             && key === bidKey(job.bid) && object(job.auction) && job.auction.id === auctionId
@@ -40,18 +44,20 @@ function observeRecord(record, auction, now) {
     record.follow.currentAuction = snapshot(auction);
     if (!active(auction)) return;
     const seen = new Set(record.follow.seenBids);
+    const baselinePending = new Set(record.follow.baselinePendingUsers || []);
+    const recipients = Object.keys(record.follow.users).filter(id => !baselinePending.has(id));
     // Forum history is newest first; notifications retain the order bids were made.
     for (const bid of [...(auction.bids || [])].reverse()) {
         const key = bidKey(bid);
         if (bid.invalid) delete record.follow.pending[key];
         if (seen.has(key)) continue;
         seen.add(key);
-        const recipients = Object.keys(record.follow.users);
         if (!bid.invalid && recipients.length) {
-            record.follow.pending[key] = { bid, auction: snapshot(auction), recipients, queuedAt: new Date(now).toISOString() };
+            record.follow.pending[key] = { bid, auction: snapshot(auction), recipients: [...recipients], queuedAt: new Date(now).toISOString() };
         }
     }
     record.follow.seenBids = [...seen];
+    delete record.follow.baselinePendingUsers;
 }
 
 class AuctionFollowService {
@@ -72,22 +78,32 @@ class AuctionFollowService {
         const saved = await this.store.getAuctionRecord(id);
         if (!saved || saved.messageMissing || String(saved.messageId) !== String(messageId)) return { unavailable: true };
         if (ended(saved.auction)) return { ended: true, auction: saved.auction };
-        const auction = await this.fetchAuction(id);
+        let auction = null;
+        try { auction = await this.fetchAuction(id); }
+        catch (error) {
+            this.checkRunning();
+            if (!(error instanceof AuctionForumRequestError)) throw error;
+        }
         this.checkRunning();
         let result;
         await this.store.update(data => {
             this.checkRunning();
             const record = data.tracked[id];
             if (!record || record.messageMissing || String(record.messageId) !== String(messageId)) { result = { unavailable: true }; return; }
-            if (ended(record.auction) || ended(auction)) { delete record.follow; result = { ended: true, auction }; return; }
-            if (!active(auction)) { result = { unavailable: true }; return; }
+            if (ended(record.auction) || ended(auction)) { delete record.follow; result = { ended: true, auction: auction || record.auction }; return; }
             record.follow ||= { seenBids: (record.auction.bids || []).map(bidKey), users: {}, pending: {} };
             // Observe before adding a new follower, so existing bids only reach
             // members who were already subscribed when those bids were detected.
-            observeRecord(record, auction, this.clock());
+            if (active(auction)) observeRecord(record, auction, this.clock());
             const alreadyFollowing = Object.hasOwn(record.follow.users, userId);
             record.follow.users[userId] ||= { followedAt: new Date(this.clock()).toISOString() };
-            result = { alreadyFollowing, auction };
+            if (!active(auction)) {
+                // A new follower needs a fresh baseline before receiving bids that
+                // may have appeared before the subscription was saved.
+                if (!alreadyFollowing) (record.follow.baselinePendingUsers ||= []).push(userId);
+                record.follow.currentAuction = { ...snapshot(auction || record.auction), status: 'Unavailable' };
+            }
+            result = { alreadyFollowing, auction: auction || record.auction, ...(!active(auction) ? { waitingForSource: true } : {}) };
         });
         if (result.ended) this.clearFailures(id);
         return result;
@@ -100,6 +116,10 @@ class AuctionFollowService {
             if (!record?.follow?.users[String(userId)]) return;
             removed = true;
             delete record.follow.users[String(userId)];
+            if (record.follow.baselinePendingUsers) {
+                record.follow.baselinePendingUsers = record.follow.baselinePendingUsers.filter(id => id !== String(userId));
+                if (!record.follow.baselinePendingUsers.length) delete record.follow.baselinePendingUsers;
+            }
             for (const [key, job] of Object.entries(record.follow.pending)) {
                 job.recipients = job.recipients.filter(id => id !== String(userId));
                 if (!job.recipients.length) delete record.follow.pending[key];

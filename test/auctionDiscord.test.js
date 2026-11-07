@@ -37,7 +37,7 @@ test('auction embed includes requested details and private image control', () =>
         value: '-# **2** attached images. Click 🖼️ **More Images** to view all.', inline: false });
     assert.equal(embed.fields.find(field => field.name === 'Instant price').value, '*None*');
     assert.equal(embed.fields.find(field => field.name === 'Current offer').value, '*None*');
-    assert.equal(embed.fields.find(field => field.name === 'Bid history (0)').value, '*No bids yet..*');
+    assert.equal(embed.fields.find(field => field.name === 'Bid history (0)').value, '- *No bids yet..*');
     assert.match(embed.fields.find(field => field.name === 'Description').value, /Coin Capsule/);
     const components = payload.components[0].toJSON().components;
     assert.deepEqual(components.map(item => item.label), ['View Auction', 'Follow', 'More Images']);
@@ -184,7 +184,10 @@ test('bid history respects Discord limits without splitting a bid and links to t
     const lines = pages.flatMap(page => page.split('\n'));
     assert.equal(lines.length, 30);
     for (let i = 0; i < 30; i++) assert.match(lines[i], new RegExp(`bidder${i}x`));
-    assert.ok(lines.every(line => line.endsWith('2026-11-02 10:00:00')));
+    const timestamp = Math.floor(Date.parse('2026-11-02T10:00:00Z') / 1000);
+    assert.ok(lines.every(line => line.replace(/\*\*/gu, '').endsWith(`<t:${timestamp}:f>`)));
+    assert.ok(lines[0].startsWith('**') && lines[0].endsWith('**'));
+    assert.ok(lines.slice(1).every(line => !line.includes('**')));
 });
 
 test('one-page bid history has no navigation controls or footer page count', () => {
@@ -361,10 +364,10 @@ test('server re-follow uses the saved auction message and keeps its controls own
 test('empty bid history says None for terminal statuses and preserves the active empty label', () => {
     for (const status of ['Canceled', 'Cancelled', 'Closed', 'Inactive', 'Ended', 'Sold', 'Completed', 'Expired', 'Unavailable']) {
         const embed = buildAuctionPayload(sample({ status, bids: [] })).embeds[0].toJSON();
-        assert.equal(embed.fields.find(field => field.name === 'Bid history (0)').value, '*None*');
+        assert.equal(embed.fields.find(field => field.name === 'Bid history (0)').value, '- *None*');
     }
     const embed = buildAuctionPayload(sample({ status: 'Active', bids: [] })).embeds[0].toJSON();
-    assert.equal(embed.fields.find(field => field.name === 'Bid history (0)').value, '*No bids yet..*');
+    assert.equal(embed.fields.find(field => field.name === 'Bid history (0)').value, '- *No bids yet..*');
 });
 
 test('bid DMs identify their auction and include linked bidder, price, source time and end time', () => {
@@ -414,6 +417,118 @@ test('bid DMs distinguish delayed bids and price offers from the current offer',
     const offer = buildBidNotificationPayload({ auction: { ...auction, currentOffer: '200.000', highestBidder: bidder },
         bid: { bidder, amount: '200.000', time: '2026-11-04 00:30:00', labels: ['Price offer'] } }, '111');
     assert.ok(!offer.embeds[0].toJSON().fields.some(field => field.name === 'Current offer'));
+});
+
+test('burst DMs show the newest five bids with only the latest bold and history only for overflow', () => {
+    for (const count of [5, 7]) {
+        const bids = Array.from({ length: count }, (_, index) => ({ bidder: { name: `Bidder${count - index}`,
+            url: `https://pokemonrevolution.net/forum/profile/${count - index}-bidder/` },
+            amount: String((count - index) * 100), time: `2026-11-04 00:00:${String(count - index).padStart(2, '0')}` }));
+        const auction = sample({ bids });
+        const payload = buildBidNotificationPayload({ auction, bid: bids[0], bids }, '111');
+        const embed = payload.embeds[0].toJSON();
+        assert.equal(embed.fields[0].name, `New bids (${count})`);
+        const lines = embed.fields[0].value.split('\n').filter(line => !line.startsWith('-#'));
+        assert.equal(lines.length, 5);
+        assert.equal(lines[0], `- **${count * 100} by [Bidder${count}](<https://pokemonrevolution.net/forum/profile/${count}-bidder/>)**`);
+        assert.ok(lines.every(line => line.startsWith('- ') && /\[Bidder\d+\]\(<https:\/\/pokemonrevolution\.net\/forum\/profile\//u.test(line)));
+        assert.ok(lines.slice(1).every(line => !line.includes('**')));
+        assert.equal(embed.fields[1].name, 'Latest bid time (forum)');
+        const seconds = Date.parse(`2026-11-04T00:00:0${count}Z`) / 1000;
+        assert.equal(embed.fields[1].value, `<t:${seconds}:R> (<t:${seconds}:F>)`);
+        const history = payload.components[0].toJSON().components.find(control => control.label === 'Bid History');
+        if (count === 5) {
+            assert.equal(history, undefined);
+            assert.doesNotMatch(embed.fields[0].value, /Click 📋/u);
+        }
+        else {
+            assert.ok(embed.fields[0].value.endsWith('-# - Click 📋 **Bid History** to view all auction bids.'));
+            assert.equal(history.custom_id, 'auction:dm-bids:14702:111:0');
+            const publicHistory = buildAuctionPayload({ ...auction, bids: Array.from({ length: 30 }, () => bids[0]) })
+                .components[0].toJSON().components.find(control => control.label === 'Bid History');
+            assert.equal(history.style, publicHistory.style);
+            assert.deepEqual(history.emoji, publicHistory.emoji);
+        }
+        assert.deepEqual(payload.allowedMentions, { parse: [], users: ['111'] });
+    }
+    const huge = Array.from({ length: 7 }, () => ({ bidder: { name: '@everyone' + '*'.repeat(300), url: 'https://example.com/' + 'x'.repeat(600) },
+        amount: '9'.repeat(1000), time: 'Unknown' }));
+    const payload = buildBidNotificationPayload({ auction: sample(), bid: huge[0], bids: huge }, '111');
+    assert.ok(payload.embeds[0].data.fields.every(field => field.value.length <= 1024));
+    assert.ok(embedLength(payload.embeds[0].toJSON()) <= 6000);
+    const longProfiles = huge.map((bid, index) => ({ ...bid, bidder: { name: `Trainer${index}`,
+        url: `https://pokemonrevolution.net/forum/profile/${index + 1}-${'long-profile-name'.repeat(30)}/` } }));
+    const linked = buildBidNotificationPayload({ auction: sample(), bid: longProfiles[0], bids: longProfiles }, '111');
+    assert.ok(linked.embeds[0].data.fields[0].value.length <= 1024);
+    assert.equal((linked.embeds[0].data.fields[0].value.match(/\[Trainer\d+\]\(<https:\/\/pokemonrevolution\.net\/forum\/profile\/\d+\/>\)/gu) || []).length, 5);
+});
+
+test('channel bid history bullets the latest five and bolds only the latest complete line', () => {
+    const bids = Array.from({ length: 7 }, (_, index) => ({ bidder: { name: `Trainer${7 - index}`,
+        url: `https://pokemonrevolution.net/forum/profile/${7 - index}/` }, amount: String(700 - index * 100), time: '2026-11-07 00:00:00' }));
+    const field = buildAuctionPayload(sample({ bids })).embeds[0].data.fields.find(field => field.name === 'Bid history (7)');
+    const lines = field.value.split('\n');
+    assert.equal(lines.length, 6);
+    assert.match(lines[0], /^- \*\*\[Trainer7\].* · 700 · <t:\d+:f>\*\*$/u);
+    assert.ok(lines.slice(1, 5).every(line => line.startsWith('- ') && !line.includes('**')));
+    assert.equal(lines[5], '-# - Click 📋 **Bid History** to view all auction bids.');
+});
+
+test('channel and DM history convert forum UTC dates to Discord short date/time timestamps', () => {
+    const seconds = Math.floor(Date.parse('2026-11-07T01:07:02Z') / 1000);
+    for (const input of [{ time: '2026-11-07 01:07:02' }, { time: '2026-11-07 01:07:02 UTC' },
+        { timestamp: '2026-11-07T01:07:02Z' }]) {
+        const auction = sample({ bids: [{ bidder: { name: 'Trainer' }, amount: '200.000', ...input }] });
+        for (const value of [buildAuctionPayload(auction).embeds[0].data.fields.find(field => field.name === 'Bid history (1)').value,
+            privatePage('bids', auction, 0).embeds[0].data.description,
+            privatePage('bids', auction, 0, null, null, '111').embeds[0].data.description]) {
+            assert.ok(value.includes(`<t:${seconds}:f>`));
+            assert.doesNotMatch(value, /UTC|2026-11-07|:R>|:F>/u);
+        }
+    }
+    const localized = privatePage('bids', sample({ bids: [{ bidder: { name: 'Trainer' }, amount: '200.000',
+        time: '2026-11-07 01:07:02', timestamp: '2026-11-07T01:07:02Z' }] }), 0).embeds[0].data.description;
+    assert.match(localized, /<t:\d+:f>/u);
+    assert.doesNotMatch(localized, /UTC/u);
+});
+
+test('DM Bid History reuses the channel history layout and has owned pagination after restart', async t => {
+    t.mock.method(Date, 'now', () => Date.parse('2026-11-04T00:00:00Z'));
+    const auction = sample({ bids: Array.from({ length: 30 }, (_, index) => ({ bidder: { name: `Bidder${index}` }, amount: String(3000 - index), time: 'now' })) });
+    const calls = [], bot = { id: '222' };
+    const interaction = { customId: 'auction:dm-bids:14702:111:0', channel: null, channelId: '999', user: { id: '111' }, message: { id: '888', author: bot },
+        client: { user: bot, channels: { async fetch(id) { assert.equal(id, '999'); return { type: ChannelType.DM, async send(payload) { calls.push(['send', payload]); } }; } },
+            guilds: { async fetch() { return { members: { async fetch() { return {}; } },
+            channels: { async fetch() { return { permissionsFor: () => ({ has: () => true }) }; } } }; } } },
+        async deferReply(payload) { calls.push(['defer', payload]); }, async deferUpdate() { calls.push(['update']); },
+        async editReply(payload) { calls.push(['edit', payload]); }, async followUp(payload) { calls.push(['feedback', payload]); }, async reply(payload) { calls.push(['reply', payload]); } };
+    const options = { guildId: '444', channelId: '555', getAuctionRecord: async () => ({ messageId: '333', auction }) };
+    await handleAuctionButton(interaction, options);
+    assert.deepEqual(calls[0], ['update']);
+    const payload = calls.at(-1)[1];
+    assert.equal(calls.at(-1)[0], 'send');
+    assert.deepEqual(payload.reply, { messageReference: '888', failIfNotExists: false });
+    assert.deepEqual(payload.allowedMentions, { parse: [], repliedUser: false });
+    const channelPage = privatePage('bids', auction, 0, 'https://discord.com/channels/444/555/333', bot);
+    assert.equal(payload.embeds[0].data.description, channelPage.embeds[0].data.description);
+    assert.deepEqual(payload.embeds[0].data.fields[0], { name: 'Showing the latest 25 bids.',
+        value: `[**View all bids (30) ↗️**](<${auction.url}>)`, inline: false });
+    assert.deepEqual(payload.components[0].toJSON().components.map(control => control.custom_id),
+        ['auction:dm-bids:14702:111:0', 'auction:dm-bids:14702:111:1']);
+    interaction.message.embeds = payload.embeds;
+    interaction.customId = 'auction:dm-bids:14702:111:1';
+    await handleAuctionButton(interaction, options);
+    assert.deepEqual(calls.at(-2), ['update']);
+    assert.match(calls.at(-1)[1].embeds[0].data.title, /Page: 2\/2/u);
+    assert.equal(calls.filter(call => call[0] === 'send').length, 1);
+    interaction.user.id = '999';
+    await handleAuctionButton(interaction, options);
+    assert.equal(calls.at(-1)[0], 'reply');
+    interaction.user.id = '111';
+    interaction.client.guilds.fetch = async () => ({ members: { async fetch() { return {}; } },
+        channels: { async fetch() { return { permissionsFor: () => ({ has: () => false }) }; } } });
+    await handleAuctionButton(interaction, options);
+    assert.match(calls.at(-1)[1].content, /need access to the auction channel/u);
 });
 
 test('DM subscription controls toggle only the recipient’s subscription and handle ended auctions', async () => {

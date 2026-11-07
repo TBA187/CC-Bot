@@ -6,6 +6,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ContainerBuil
     MediaGalleryBuilder, MediaGalleryItemBuilder, MessageFlags, PermissionFlagsBits, TextDisplayBuilder, escapeMarkdown } = require('discord.js');
 const { messageSearchText } = require('../../utils/discordMessageHistory.js');
 const { SERVERS } = require('../pvp-scouting/ScoutServerSettings.js');
+const { bidTimestamp, notificationBids } = require('./AuctionBids.js');
 
 const BUTTON_PREFIX = 'auction:';
 const NONE = '*None*';
@@ -52,11 +53,15 @@ function url(value) {
     } catch { return null; }
 }
 
-function person(value) {
+function person(value, nameLimit = 120, linkLimit = 300) {
     if (!value?.name) return NONE;
-    const name = text(value.name, 120);
-    const candidate = url(value.url);
-    const link = candidate?.length <= 300 ? candidate : null;
+    const name = text(value.name, nameLimit);
+    let candidate = url(value.url);
+    if (candidate?.length > linkLimit) {
+        const profile = /^https?:\/\/pokemonrevolution\.net\/forum\/profile\/(\d+)(?:[-/]|$)/i.exec(candidate);
+        if (profile) candidate = `https://pokemonrevolution.net/forum/profile/${profile[1]}/`;
+    }
+    const link = candidate?.length <= linkLimit ? candidate : null;
     return link ? `[${name}](<${link}>)` : name;
 }
 
@@ -66,10 +71,11 @@ function jumpToMessage(messageUrl, label = '**Jump to message** ↗️') {
 }
 
 function bidLine(bid) {
-    const date = bid.timestamp && !Number.isNaN(Date.parse(bid.timestamp))
-        ? `<t:${Math.floor(Date.parse(bid.timestamp) / 1000)}:f>` : text(bid.time, 80);
+    const timestamp = bidTimestamp(bid);
+    const date = Number.isFinite(timestamp) ? `<t:${Math.floor(timestamp / 1000)}:f>` : text(bid.time, 80);
     const labels = [...(bid.labels || []), ...(bid.invalid ? ['Invalid'] : [])];
-    const line = `${person(bid.bidder)} · **${text(bid.amount, 80)}** · ${date}${labels.length ? ` · *${labels.map(label => text(label, 80)).join(', ').slice(0, 100)}*` : ''}`;
+    const amount = text(bid.amount, 80);
+    const line = `${person(bid.bidder)} · ${amount} · ${date}${labels.length ? ` · *${labels.map(label => text(label, 80)).join(', ').slice(0, 100)}*` : ''}`;
     return line.replace(/[\r\n]+/g, ' ');
 }
 
@@ -175,7 +181,10 @@ function buildAuctionPayload(auction, config = {}, botUser = null) {
     if (auction.description) embed.addFields({ name: 'Description', value: text(auction.description, 700) });
     if (auction.paymentMethods) embed.addFields({ name: 'Accepted payment methods', value: text(auction.paymentMethods, 700) });
     const bids = Array.isArray(auction.bids) ? auction.bids : [];
-    const lines = bids.map(bidLine);
+    const lines = bids.slice(0, 5).map((bid, index) => {
+        const line = bidLine(bid);
+        return `- ${index === 0 ? `**${line}**` : line}`;
+    });
     let history = '';
     for (const line of lines) {
         if ((history ? history.length + 1 : 0) + line.length > 600) break;
@@ -183,7 +192,7 @@ function buildAuctionPayload(auction, config = {}, botUser = null) {
     }
     const shown = history ? history.split('\n').length : 0;
     if (shown < bids.length) history += '\n-# - Click 📋 **Bid History** to view all auction bids.';
-    embed.addFields({ name: `Bid history (${bids.length})`, value: history || (isActive ? '*No bids yet..*' : NONE) });
+    embed.addFields({ name: `Bid history (${bids.length})`, value: history || `- ${isActive ? '*No bids yet..*' : NONE}` });
     const images = (auction.imageUrls || []).map(url).filter(Boolean);
     if (images.length) embed.setImage(images[0]);
     if (images.length > 1) embed.addFields({ name: '\u2002',
@@ -220,24 +229,35 @@ function followConfirmation(auction, alreadyFollowing = false, waitingForSource 
         + '-# If your privacy settings restrict DMs, you might not receive DM notifications. Make sure DMs from this server are enabled.';
 }
 
-function buildBidNotificationPayload(job, userId, botUser = null, auctionMessageUrl = null) {
+function dmSubscriptionButton(following, id, userId, deliveryId) {
+    const control = button(following ? 'dm-unfollow' : 'dm-follow', id, userId,
+        following ? 'Unfollow' : 'Follow', following ? '🔕' : '🔔', false, following ? ButtonStyle.Danger : ButtonStyle.Success);
+    if (deliveryId) control.setCustomId(`${control.data.custom_id}:${deliveryId}`);
+    return control;
+}
+
+function buildBidNotificationPayload(job, userId, botUser = null, auctionMessageUrl = null, deliveryId = null) {
     const auction = job.auction;
-    const bid = job.bid;
+    const bids = notificationBids(job), bid = bids[0], grouped = bids.length > 1;
     const isOffer = (bid.labels || []).some(label => /^price offer$/i.test(label));
-    const label = isOffer ? 'New price offer' : 'New bid';
+    const label = `${isOffer ? 'New price offer' : 'New bid'}${grouped ? 's' : ''}`;
     const link = url(auction.url);
     const recipient = /^\d{1,20}$/.test(String(userId || '')) ? String(userId) : null;
-    const lead = `${recipient ? `<@${recipient}> ` : ''}There's a new ${isOffer ? 'price offer' : 'bid'} for `;
+    const lead = `${recipient ? `<@${recipient}> ` : ''}${grouped ? `There are ${bids.length} new ${isOffer ? 'price offers' : 'bids'}` : `There's a new ${isOffer ? 'price offer' : 'bid'}`} for `;
     const title = text(auction.title || 'Auction', Math.min(250, 2000 - lead.length - (link ? link.length + 10 : 4)));
     const content = `**${lead}${link ? `[${title}](<${link}>)` : title}**`;
-    const forumTime = /^(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d)(?: UTC)?$/i.exec(String(bid.time || '').trim());
-    const bidTime = (forumTime && discordTime(`${forumTime[1]}T${forumTime[2]}Z`))
-        || discordTime(bid.timestamp) || text(bid.time, 100);
-    const embed = new EmbedBuilder().setColor(0x57F287)
+    const timestamp = bidTimestamp(bid);
+    const bidTime = (Number.isFinite(timestamp) && discordTime(new Date(timestamp).toISOString())) || text(bid.time, 100);
+    let newBids = grouped ? bids.slice(0, 5).map((item, index) => {
+        const line = `${text(item.amount, 45)} by ${person(item.bidder, 40, 80)}`;
+        return `- ${index === 0 ? `**${line}**` : line}`;
+    }).join('\n') : `**${text(bid.amount, 100)} by ${person(bid.bidder)}**`;
+    if (bids.length > 5) newBids += '\n-# - Click 📋 **Bid History** to view all auction bids.';
+    const embed = new EmbedBuilder().setColor(0x452366)
         .setTitle(text(`${label} — ${auction.title || 'Auction'}`, 256))
         .addFields(
-            { name: label, value: `**${text(bid.amount, 100)} by ${person(bid.bidder)}**`, inline: false },
-            { name: 'Bid time (forum)', value: bidTime, inline: false },
+            { name: grouped ? `${label} (${bids.length})` : label, value: newBids, inline: false },
+            { name: grouped ? 'Latest bid time (forum)' : 'Bid time (forum)', value: bidTime, inline: false },
             { name: 'Auction ends', value: discordTime(auction.endsAt) || text(auction.timeLeft, 300), inline: false },
             { name: 'Server', value: server(auction.server), inline: true },
             { name: 'Minimum bid', value: text(auction.minimumBid, 100), inline: true },
@@ -254,17 +274,18 @@ function buildBidNotificationPayload(job, userId, botUser = null, auctionMessage
     const components = [];
     const row = new ActionRowBuilder();
     if (link) row.addComponents(new ButtonBuilder().setLabel('View Auction').setEmoji('🔨').setStyle(ButtonStyle.Link).setURL(link));
-    if (recipient) row.addComponents(button('dm-unfollow', String(auction.id), recipient, 'Unfollow', '🔕', false, ButtonStyle.Danger));
+    if (recipient) row.addComponents(dmSubscriptionButton(true, String(auction.id), recipient, deliveryId));
+    if (bids.length > 5 && recipient) row.addComponents(button('dm-bids', `${auction.id}:${recipient}`, 0, 'Bid History', '📋', false, ButtonStyle.Primary));
     if (row.components.length) components.push(row);
     return { content, embeds: [embed], components, allowedMentions: { parse: [], ...(recipient ? { users: [recipient] } : {}) } };
 }
 
-function privatePage(kind, auction, requestedPage, auctionMessageUrl = null, botUser = null) {
+function privatePage(kind, auction, requestedPage, auctionMessageUrl = null, botUser = null, historyUserId = null) {
     if (kind === 'images') return imagePage(auction, requestedPage, auctionMessageUrl);
     const id = String(auction.id);
     let pages;
     if (kind === 'bids') {
-        const lines = (auction.bids || []).map(bidLine);
+        const lines = (auction.bids || []).map((bid, index) => index === 0 ? `**${bidLine(bid)}**` : bidLine(bid));
         pages = [];
         let page = [];
         let length = 0;
@@ -287,15 +308,64 @@ function privatePage(kind, auction, requestedPage, auctionMessageUrl = null, bot
     const content = kind === 'bids' ? pages[page].join('\n') || NONE : text(pages[page], 3900);
     const embeds = [new EmbedBuilder().setColor(0x452366).setTitle(title).setDescription(content)];
     if (kind === 'bids') {
-        embeds[0].addFields({ name: 'Auction message', value: jumpToMessage(auctionMessageUrl), inline: false });
+        embeds[0].addFields(historyUserId ? { name: `Showing the latest ${pages[page].length} bids.`,
+            value: url(auction.url) ? `[**View all bids (${auction.bids?.length || 0}) ↗️**](<${url(auction.url)}>)` : NONE, inline: false }
+            : { name: 'Auction message', value: jumpToMessage(auctionMessageUrl), inline: false });
     }
     embeds.forEach(embed => embed.setFooter(footer(kind === 'bids' && pages.length > 1 ? `${page + 1}/${pages.length}` : null, 'PRO Auctions', botUser)).setTimestamp());
-    const components = pageControls(kind, id, page, pages.length);
+    const components = kind === 'bids' && historyUserId ? pageControls('dm-bids', `${id}:${historyUserId}`, page, pages.length)
+        : pageControls(kind, id, page, pages.length);
     return { content: kind !== 'bids' && pages.length > 1 ? `Page ${page + 1} of ${pages.length}` : null, embeds, attachments: [], components, allowedMentions: { parse: [] } };
 }
 
 async function handleAuctionButton(interaction, options = {}) {
-    const dm = /^auction:dm-(follow|unfollow):(\d+):(\d+)$/.exec(String(interaction.customId || ''));
+    const history = /^auction:dm-bids:(\d+):(\d+):(\d+)$/.exec(String(interaction.customId || ''));
+    if (history) {
+        if (interaction.guildId || interaction.channel && interaction.channel.type !== ChannelType.DM
+            || String(interaction.user?.id) !== history[2]
+            || !interaction.client?.user?.id || String(interaction.message?.author?.id) !== String(interaction.client.user.id)) {
+            await interaction.reply({ content: 'This auction control is unavailable here.', flags: MessageFlags.Ephemeral });
+            return true;
+        }
+        const historyPage = (interaction.message.embeds || []).some(embed => /^Bid history — Page:/u.test((embed.data || embed).title || ''));
+        const privateHistory = interaction.message?.flags?.has?.(MessageFlags.Ephemeral);
+        await interaction.deferUpdate();
+        const historyFeedback = content => interaction.followUp({ content, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+        if (!/^\d+$/.test(String(options.guildId || '')) || !/^\d+$/.test(String(options.channelId || ''))) {
+            await historyFeedback('Auction history is temporarily unavailable. Please try again later.');
+            return true;
+        }
+        const guild = await interaction.client.guilds.fetch(String(options.guildId));
+        let member;
+        try { member = await guild.members.fetch(history[2]); }
+        catch (error) {
+            if (Number(error.code || error.rawError?.code) !== 10007) throw error;
+            await historyFeedback('Join the server and regain access to the auction channel before viewing bid history.');
+            return true;
+        }
+        const channel = await guild.channels.fetch(String(options.channelId));
+        if (!channel?.permissionsFor?.(member)?.has(PermissionFlagsBits.ViewChannel)) {
+            await historyFeedback('You need access to the auction channel to view bid history.');
+            return true;
+        }
+        const record = await options.getAuctionRecord(history[1]);
+        if (!record?.auction) {
+            await historyFeedback('This auction is no longer available. Open its forum page for details.');
+            return true;
+        }
+        const ids = [options.guildId, options.channelId, record.messageMissing ? null : record.messageId];
+        const messageUrl = ids.every(id => /^\d+$/.test(String(id || ''))) ? `https://discord.com/channels/${ids.join('/')}` : null;
+        const payload = privatePage('bids', record.auction, Number(history[3]), messageUrl, interaction.client.user, history[2]);
+        if (historyPage || privateHistory) await interaction.editReply(payload);
+        else {
+            const dmChannel = interaction.channel || await interaction.client.channels.fetch(interaction.channelId);
+            if (dmChannel?.type !== ChannelType.DM || typeof dmChannel.send !== 'function') throw new Error('Auction history DM channel is unavailable.');
+            await dmChannel.send({ ...payload, reply: { messageReference: interaction.message.id, failIfNotExists: false },
+                allowedMentions: { parse: [], repliedUser: false } });
+        }
+        return true;
+    }
+    const dm = /^auction:dm-(follow|unfollow):(\d+):(\d+)(?::([a-f0-9]{22}))?$/.exec(String(interaction.customId || ''));
     if (dm) {
         // Discord can deliver a valid DM interaction without a cached channel after restart.
         const channel = interaction.channel;
@@ -341,7 +411,7 @@ async function handleAuctionButton(interaction, options = {}) {
         }
         const rows = interaction.message.components.map(row => ActionRowBuilder.from(row));
         for (const row of rows) row.components = row.components.map(component => component.data.custom_id === interaction.customId
-            ? button(following ? 'dm-unfollow' : 'dm-follow', dm[2], dm[3], following ? 'Unfollow' : 'Follow', following ? '🔕' : '🔔', false, following ? ButtonStyle.Danger : ButtonStyle.Success) : component);
+            ? dmSubscriptionButton(following, dm[2], dm[3], dm[4]) : component);
         await interaction.editReply({ components: rows });
         const confirmation = following ? '**🔔 You\'re following this auction again and will receive new bid notifications ✅**'
             + (waitingForSource ? `\n${FOLLOW_PENDING_NOTICE}` : '') : '**🔕 You\'re no longer following this auction and won\'t receive new bid notifications.**';
@@ -463,11 +533,14 @@ class AuctionDiscordNotifier {
         const ids = [this.config.guildId, this.channelId, job.auctionMessageId];
         const messageUrl = ids.every(id => /^\d+$/.test(String(id || '')))
             ? `https://discord.com/channels/${ids.join('/')}` : null;
-        const payload = buildBidNotificationPayload(job, userId, this.client.user, messageUrl);
+        const deliveryId = createHash('sha256').update(`${job.auction.id}:${key}:${userId}`).digest('hex').slice(0, 22);
+        const payload = buildBidNotificationPayload(job, userId, this.client.user, messageUrl, deliveryId);
         const expected = payload.embeds[0].toJSON();
         const identityFields = expected.fields.slice(0, 2);
         const existing = await this.findExisting(channel, job.auction, { queuedAt: job.queuedAt,
-            matches: message => (message.embeds || []).some(raw => {
+            matches: message => (message.components || []).flatMap(row => row.components || []).some(control =>
+                [`auction:dm-unfollow:${job.auction.id}:${userId}:${deliveryId}`, `auction:dm-follow:${job.auction.id}:${userId}:${deliveryId}`]
+                    .includes(control.customId || control.custom_id || control.data?.custom_id)) || (message.embeds || []).some(raw => {
                 const embed = raw.data || raw;
                 const links = (message.components || []).flatMap(row => row.components || []).map(component => component.url || component.data?.url);
                 const normalize = value => String(value || '').replace(/\*\*/g, '').replace(/ UTC$/, '');
@@ -480,10 +553,10 @@ class AuctionDiscordNotifier {
                 };
                 return (embed.url === job.auction.url || links.includes(job.auction.url)) && identityFields.every(field =>
                     embed.fields?.some(other => other.name === field.name && (normalize(other.value) === normalize(field.value)
-                        || field.name === 'Bid time (forum)' && Number.isFinite(instant(field.value)) && instant(other.value) === instant(field.value))));
+                        || ['Bid time (forum)', 'Latest bid time (forum)'].includes(field.name) && Number.isFinite(instant(field.value)) && instant(other.value) === instant(field.value))));
             }) });
         if (existing) return existing;
-        const nonce = `af:${createHash('sha256').update(`${job.auction.id}:${key}:${userId}`).digest('hex').slice(0, 22)}`;
+        const nonce = `af:${deliveryId}`;
         const message = await channel.send({ ...payload, nonce, enforceNonce: true });
         if (!message?.id) throw new Error('Bid notification delivery returned no Discord message ID.');
         return message;

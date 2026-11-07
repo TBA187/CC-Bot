@@ -280,6 +280,34 @@ test('followers and partially delivered bids recover through JSON and MySQL on a
     assert.equal(JSON.parse(f.server.row.payload).tracked['101'].follow, undefined);
 });
 
+test('grouped bid notifications preserve their identity and recipients through MySQL outage recovery', async t => {
+    const f = setup(t), store = f.make('local.json');
+    await store.initialize();
+    const auction = { id: '101', status: 'Active', bids: [] };
+    await store.update(data => { data.tracked['101'] = { messageId: '123', auction }; });
+    const service = new AuctionFollowService({ store, fetchAuction: async () => auction, notifier: {} });
+    await service.follow('101', '111', '123');
+    f.server.down = true;
+    auction.bids = Array.from({ length: 7 }, (_, index) => ({ bidder: { name: 'Bidder' }, amount: String(700 - index * 100), time: 'Unknown' }));
+    await service.observe('101', auction);
+    const before = (await store.getAuctionRecord('101')).follow.pending;
+    const key = Object.keys(before)[0];
+    assert.equal(before[key].bids.length, 7);
+    f.server.down = false;
+    await store.reconcile();
+    const restored = f.make('remote.json');
+    await restored.initialize();
+    assert.deepEqual((await restored.getAuctionRecord('101')).follow.pending, before);
+    const sent = [];
+    const remoteService = new AuctionFollowService({ store: restored, fetchAuction: async () => auction,
+        notifier: { async sendBidUpdate(userId, sentKey, job) { sent.push({ userId, sentKey, job }); return { id: '555' }; } } });
+    await remoteService.drain(new Set(['101']));
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].sentKey, key);
+    assert.equal(sent[0].job.bids.length, 7);
+    assert.deepEqual(JSON.parse(f.server.row.payload).tracked['101'].follow.pending, {});
+});
+
 test('failed queued writes cannot overwrite later successful subscription changes', async t => {
     const f = setup(t);
     const store = f.make('local.json', { storageMode: 'json' });

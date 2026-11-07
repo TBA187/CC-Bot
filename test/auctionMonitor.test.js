@@ -275,6 +275,115 @@ test('auctions waiting for a retry do not consume healthy refresh slots', async 
     assert.equal(fetched.length, 4);
 });
 
+test('scheduled refresh batches update a large rotation without idle gaps or repeated discovery requests', async t => {
+    const f = fixture(t), timers = [], fetched = [];
+    let now = 1000, listings = 0;
+    f.monitor.clock = () => now;
+    const listing = f.monitor.forumClient.fetchListing;
+    f.monitor.forumClient.fetchListing = async (...args) => { listings++; now += 750; return listing(...args); };
+    f.monitor.forumClient.fetchAuction = async id => {
+        fetched.push(id); now += 750;
+        return { id, status: 'Active', bids: id === '70' ? [newBid('400'), newBid('300'), newBid('200'), newBid('100')] : [] };
+    };
+    f.pages.set(1, ['70']);
+    await f.store.update(data => {
+        for (let id = 1; id <= 70; id++) data.tracked[String(id)] = {
+            messageId: `message-${id}`, auction: { id: String(id), status: 'Active', bids: [] }
+        };
+    });
+    t.mock.method(globalThis, 'setTimeout', (callback, delay) => {
+        const timer = { callback, delay, unref() {} }; timers.push(timer); return timer;
+    });
+    t.mock.method(globalThis, 'clearTimeout', timer => { timer.cancelled = true; });
+    t.after(() => f.monitor.stop());
+    await f.monitor.start();
+    for (let batch = 0; batch < 7; batch++) {
+        const timer = timers.shift();
+        assert.equal(timer.delay, 0, 'due refreshes continue immediately, using the shared request pacing');
+        const before = fetched.length;
+        await timer.callback();
+        assert.equal(fetched.length - before, 10);
+    }
+    assert.equal(new Set(fetched).size, 70);
+    assert.equal(listings, 2, 'the active and inactive lists are each fetched once during the rotation');
+    assert.equal((await f.store.getAuctionRecord('70')).auction.bids.length, 4);
+    assert.equal(f.edited.at(-1)[0], 'message-70');
+    assert.ok(now - 1000 < 90000, 'the simulated paced rotation finishes within one discovery interval');
+    const next = timers.shift();
+    assert.ok(next.delay > 0, 'healthy auctions are not polled again before their next due time');
+    now += next.delay;
+    await next.callback();
+    assert.equal(listings, 4, 'discovery resumes when its independent deadline arrives');
+    const pending = timers.at(-1);
+    await f.monitor.stop();
+    assert.equal(pending.cancelled, true);
+    assert.equal(f.monitor.timer, null);
+});
+
+test('scheduled discovery does not immediately refetch newly announced auctions', async t => {
+    const f = fixture(t), fetched = [];
+    let now = 1000;
+    f.monitor.clock = () => now;
+    f.pages.set(1, ['10']);
+    await f.monitor.runOnce({ scheduled: true });
+    f.pages.set(1, ['11', '10']);
+    f.monitor.forumClient.fetchAuction = async id => { fetched.push(id); return { id, status: 'Active' }; };
+    now += f.monitor.intervalMs;
+    await f.monitor.runOnce({ scheduled: true });
+    assert.deepEqual(fetched, ['11']);
+    assert.deepEqual(f.sent, ['11']);
+    assert.equal(f.monitor.nextRefreshAttemptAt, now + f.monitor.intervalMs);
+    await f.monitor.runOnce({ scheduled: true });
+    assert.deepEqual(fetched, ['11']);
+});
+
+test('the scheduler preserves server retry waits while refresh work is due', async t => {
+    const f = fixture(t), timers = [];
+    let now = 1000;
+    f.monitor.clock = () => now;
+    f.pages.set(1, ['10']);
+    await f.store.update(data => { data.tracked['11'] = { messageId: 'message-11', auction: { id: '11', status: 'Active' } }; });
+    f.monitor.forumClient.fetchAuction = async () => { throw new AuctionForumRequestError('rate limited', { status: 429, retryAfterMs: 300000 }); };
+    t.mock.method(globalThis, 'setTimeout', (callback, delay) => {
+        const timer = { callback, delay, unref() {} }; timers.push(timer); return timer;
+    });
+    t.mock.method(globalThis, 'clearTimeout', () => {});
+    t.after(() => f.monitor.stop());
+    await f.monitor.start();
+    await timers.shift().callback();
+    const retry = timers.shift();
+    assert.equal(retry.delay, 300000);
+    now += retry.delay;
+    f.monitor.forumClient.fetchAuction = async id => ({ id, status: 'Active', bids: [] });
+    await retry.callback();
+    assert.equal(f.monitor.failureCount, 0);
+    assert.equal(timers[0].delay, f.monitor.intervalMs);
+});
+
+test('a scheduled tick waits for an overlapping direct run without repeatedly scheduling immediate ticks', async t => {
+    const f = fixture(t), timers = [];
+    const entered = Promise.withResolvers(), release = Promise.withResolvers();
+    f.monitor.clock = () => 1000;
+    f.monitor.scan = async () => { entered.resolve(); await release.promise; };
+    const direct = f.monitor.runOnce();
+    await entered.promise;
+    t.mock.method(globalThis, 'setTimeout', (callback, delay) => {
+        const timer = { callback, delay, unref() {} }; timers.push(timer); return timer;
+    });
+    t.mock.method(globalThis, 'clearTimeout', () => {});
+    t.after(() => f.monitor.stop());
+    f.monitor.started = true;
+    f.monitor.schedule(0);
+    const tick = timers.shift().callback();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(timers.length, 0);
+    release.resolve();
+    await direct;
+    await tick;
+    assert.equal(timers.length, 1);
+    assert.equal(timers[0].delay, f.monitor.intervalMs);
+});
+
 test('a listing created between the two page requests is not skipped by the checkpoint', async t => {
     const f = fixture(t);
     f.pages.set(1, ['10']);
@@ -643,17 +752,17 @@ async function followedFixture(t) {
 
 const newBid = amount => ({ bidder: { name: 'Bidder' }, amount, time: `bid-${amount}`, invalid: false });
 
-test('refreshing a followed auction queues and delivers each bid, then cleans up at auction end', async t => {
+test('refreshing a followed auction groups a bid burst and cleans up at auction end', async t => {
     const f = await followedFixture(t);
     f.auctions.set('11', { id: '11', status: 'Active', bids: [newBid('200'), newBid('100')] });
     assert.equal(await f.monitor.runOnce(), true);
-    assert.deepEqual(f.dms.map(item => item.job.bid.amount), ['100', '200']);
+    assert.deepEqual(f.dms.map(item => item.job.bids.map(bid => bid.amount)), [['200', '100']]);
     await f.monitor.runOnce();
-    assert.equal(f.dms.length, 2);
+    assert.equal(f.dms.length, 1);
     f.auctions.set('11', { id: '11', status: 'Ended', bids: [newBid('300'), newBid('200'), newBid('100')] });
     assert.equal(await f.monitor.runOnce(), true);
     assert.equal((await f.store.getAuctionRecord('11')).follow, undefined);
-    assert.equal(f.dms.length, 2);
+    assert.equal(f.dms.length, 1);
 });
 
 test('followers keep receiving bids if the original announcement is deleted', async t => {

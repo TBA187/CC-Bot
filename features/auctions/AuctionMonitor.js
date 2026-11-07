@@ -41,6 +41,9 @@ class AuctionMonitor {
         this.lastFailureWasForum = false;
         this.nextAttemptAt = 0;
         this.refreshCursor = 0;
+        this.refreshDueAt = new Map();
+        this.nextDiscoveryAt = 0;
+        this.nextRefreshAttemptAt = Infinity;
         this.itemFailures = new Map();
         this.runFinished = null;
         this.generation = 0;
@@ -63,6 +66,9 @@ class AuctionMonitor {
             await this.store.initialize();
             if (generation !== this.generation) return;
             this.needsStartupBaseline = true;
+            this.nextDiscoveryAt = 0;
+            this.nextRefreshAttemptAt = Infinity;
+            this.refreshDueAt.clear();
             if (this.enabled && !this.stopped && generation === this.generation) this.schedule(0);
         } catch (error) {
             if (generation === this.generation) this.started = false;
@@ -91,14 +97,18 @@ class AuctionMonitor {
         this.timer = setTimeout(async () => {
             this.timer = null;
             if (!this.started || this.stopped || generation !== this.generation) return;
-            await this.runOnce();
+            await this.runOnce({ scheduled: true });
+            if (this.running) await this.runFinished;
             if (!this.started || this.stopped || generation !== this.generation) return;
-            this.schedule(Math.max(this.intervalMs, this.nextAttemptAt - this.clock()));
+            const wakeAt = Math.max(this.nextAttemptAt, Math.min(this.nextDiscoveryAt, this.nextRefreshAttemptAt));
+            this.schedule(Math.max(0, wakeAt - this.clock()));
         }, Math.min(delay, 2_147_483_647));
         this.timer.unref?.();
     }
 
-    async runOnce() {
+    // Direct runs perform a full scan; scheduled runs continue due refreshes
+    // between discovery scans without repeating the listing requests.
+    async runOnce({ scheduled = false } = {}) {
         if (!this.enabled || this.stopped || this.running || this.clock() < this.nextAttemptAt) return false;
         this.running = true;
         let finishRun;
@@ -108,7 +118,10 @@ class AuctionMonitor {
             await this.store.reconcile?.();
             await this.followService?.cleanupEnded();
             this.checkRunning();
-            await this.scan();
+            if (!scheduled || this.needsStartupBaseline || this.clock() >= this.nextDiscoveryAt) {
+                this.nextDiscoveryAt = this.clock() + this.intervalMs;
+                await this.scan({ onlyDue: scheduled });
+            } else await this.refreshTracked(new Set(), { onlyDue: true });
             this.checkRunning();
             if (this.forumUnavailable) console.log('[CC LOG] PRO auction monitor connection restored.');
             else if (this.failureCount) console.log('[CC LOG] PRO auction monitor restored.');
@@ -287,12 +300,13 @@ class AuctionMonitor {
                 delete data.pending[id];
                 data.pendingOrder = (data.pendingOrder || []).filter(item => item !== id);
             });
+            this.refreshDueAt.set(id, this.clock() + this.intervalMs);
             this.itemRestored(key);
             delivered.add(id);
         }
     }
 
-    async scan() {
+    async scan({ onlyDue = false } = {}) {
         const state = await this.store.getState();
         this.checkRunning();
         const delivered = new Set();
@@ -318,7 +332,7 @@ class AuctionMonitor {
             this.needsStartupBaseline = false;
             for (const id of Object.keys(state.pending)) this.itemFailures.delete(`delivery ${id}`);
             console.log(`[CC LOG] PRO auction startup baseline recorded; existing listings and ${skipped} queued announcement${skipped === 1 ? '' : 's'} will not be posted.`);
-            return this.refreshTracked(delivered);
+            return this.refreshTracked(delivered, { onlyDue });
         }
 
         if (!/^\d+$/.test(String(state.inactiveWatermark))) throw new Error('Invalid auction recovery checkpoint.');
@@ -340,15 +354,18 @@ class AuctionMonitor {
             if (safeTop > watermark) data.inactiveWatermark = String(safeTop);
         });
         await this.deliverPending(delivered, attempted);
-        return this.refreshTracked(delivered);
+        return this.refreshTracked(delivered, { onlyDue });
     }
 
-    async refreshTracked(delivered) {
+    async refreshTracked(delivered, { onlyDue = false } = {}) {
         const state = await this.store.getState();
         const ids = Object.keys(state.tracked).filter(id => (!state.tracked[id].messageMissing || Object.keys(state.tracked[id].follow?.users || {}).length)
-            && !ended(state.tracked[id].auction) && !delivered.has(id));
+            && !ended(state.tracked[id].auction));
+        const candidates = new Set(ids);
+        for (const id of this.refreshDueAt.keys()) if (!candidates.has(id)) this.refreshDueAt.delete(id);
         if (!ids.length) {
             this.refreshCursor = 0;
+            this.nextRefreshAttemptAt = Infinity;
             return;
         }
         const start = this.refreshCursor % ids.length;
@@ -358,8 +375,9 @@ class AuctionMonitor {
             this.checkRunning();
             const id = ids[(start + examined++) % ids.length];
             const key = `refresh ${id}`;
-            if (!this.itemReady(key)) continue;
+            if (delivered.has(id) || !this.itemReady(key) || onlyDue && this.clock() < (this.refreshDueAt.get(id) || 0)) continue;
             attempted++;
+            this.refreshDueAt.set(id, this.clock() + this.intervalMs);
             const record = state.tracked[id];
             let auction;
             try {
@@ -423,6 +441,8 @@ class AuctionMonitor {
             this.itemRestored(key);
         }
         this.refreshCursor = (start + examined) % ids.length;
+        this.nextRefreshAttemptAt = ids.reduce((next, id) => Math.min(next,
+            Math.max(this.refreshDueAt.get(id) || 0, this.itemFailures.get(`refresh ${id}`)?.nextAttemptAt || 0)), Infinity);
         await this.followService?.drain(eligible);
     }
 }

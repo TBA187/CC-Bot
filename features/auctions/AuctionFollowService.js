@@ -1,23 +1,17 @@
 // Manages auction subscriptions and durable bid notification delivery.
 'use strict';
 
-const { createHash } = require('node:crypto');
 const { active, ended } = require('./AuctionStatus.js');
 const { forumRetryDelay } = require('../../utils/forumRetry.js');
 const { AuctionForumRequestError } = require('./AuctionForumClient.js');
+const { bidKey, notificationBids, notificationKey, burstGroups } = require('./AuctionBids.js');
 
 const object = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 const validId = value => typeof value === 'string' && /^\d+$/.test(value);
 const validKey = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const validDate = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
 
-function bidKey(bid) {
-    return createHash('sha256').update(JSON.stringify([
-        bid.bidder?.url || String(bid.bidder?.name || '').toLowerCase(),
-        String(bid.amount || '').replace(/[.,\s]/g, ''), bid.timestamp || bid.time || '',
-        (bid.labels || []).some(label => /^price offer$/i.test(label)) ? 'offer' : 'bid'
-    ])).digest('hex');
-}
+const validBid = bid => object(bid) && object(bid.bidder) && typeof bid.bidder.name === 'string' && typeof bid.amount === 'string';
 
 function validFollowState(value, auctionId) {
     return object(value) && Array.isArray(value.seenBids) && value.seenBids.every(validKey)
@@ -28,8 +22,13 @@ function validFollowState(value, auctionId) {
             && new Set(value.baselinePendingUsers).size === value.baselinePendingUsers.length
             && value.baselinePendingUsers.every(id => validId(id) && Object.hasOwn(value.users, id)))
         && object(value.pending) && Object.entries(value.pending).every(([key, job]) => validKey(key) && object(job)
-            && object(job.bid) && object(job.bid.bidder) && typeof job.bid.bidder.name === 'string' && typeof job.bid.amount === 'string'
-            && key === bidKey(job.bid) && object(job.auction) && job.auction.id === auctionId
+            && validBid(job.bid) && (job.bids === undefined ? key === bidKey(job.bid)
+                : Array.isArray(job.bids) && job.bids.length > 0 && job.bids.every(validBid)
+                    && new Set(job.bids.map(bidKey)).size === job.bids.length
+                    && Array.isArray(job.bidKeys) && job.bidKeys.length > 1 && job.bidKeys.every(validKey)
+                    && new Set(job.bidKeys).size === job.bidKeys.length && key === notificationKey(job.bidKeys)
+                    && bidKey(job.bid) === bidKey(job.bids[0]) && job.bids.every(bid => job.bidKeys.includes(bidKey(bid))))
+            && object(job.auction) && job.auction.id === auctionId
             && validDate(job.queuedAt) && Array.isArray(job.recipients) && job.recipients.every(id => validId(id) && Object.hasOwn(value.users, id)));
 }
 
@@ -46,15 +45,29 @@ function observeRecord(record, auction, now) {
     const seen = new Set(record.follow.seenBids);
     const baselinePending = new Set(record.follow.baselinePendingUsers || []);
     const recipients = Object.keys(record.follow.users).filter(id => !baselinePending.has(id));
+    const invalid = new Set((auction.bids || []).filter(bid => bid.invalid).map(bidKey));
+    for (const [key, job] of Object.entries(record.follow.pending)) {
+        const remaining = notificationBids(job).filter(bid => !invalid.has(bidKey(bid)));
+        if (!remaining.length) delete record.follow.pending[key];
+        else if (job.bids && remaining.length !== job.bids.length) {
+            // Keep the original bidKeys so an uncertain send can still be
+            // recovered after a bid is invalidated.
+            job.bids = remaining;
+            job.bid = remaining[0];
+        }
+    }
+    const fresh = [];
     // Forum history is newest first; notifications retain the order bids were made.
     for (const bid of [...(auction.bids || [])].reverse()) {
         const key = bidKey(bid);
-        if (bid.invalid) delete record.follow.pending[key];
         if (seen.has(key)) continue;
         seen.add(key);
-        if (!bid.invalid && recipients.length) {
-            record.follow.pending[key] = { bid, auction: snapshot(auction), recipients: [...recipients], queuedAt: new Date(now).toISOString() };
-        }
+        if (!bid.invalid) fresh.push(bid);
+    }
+    if (recipients.length) for (const bids of burstGroups(fresh, now)) {
+        const keys = bids.map(bidKey);
+        record.follow.pending[notificationKey(keys)] = { bid: bids[0], ...(bids.length > 1 ? { bids, bidKeys: keys } : {}),
+            auction: snapshot(auction), recipients: [...recipients], queuedAt: new Date(now).toISOString() };
     }
     record.follow.seenBids = [...seen];
     delete record.follow.baselinePendingUsers;

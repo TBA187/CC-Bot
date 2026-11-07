@@ -39,7 +39,7 @@ async function fixture(t, options = {}) {
     return { store, auctions, sent, notifier, service, make, follow, observe, record, advance: ms => { now += ms; } };
 }
 
-test('multiple auctions and followers receive every new bid once, oldest first', async t => {
+test('rapid bid bursts send one notification per auction and follower without losing any bids', async t => {
     const f = await fixture(t);
     await f.follow();
     assert.equal((await f.follow()).alreadyFollowing, true);
@@ -50,9 +50,55 @@ test('multiple auctions and followers receive every new bid once, oldest first',
     await f.observe('101'); await f.observe('202');
     await f.service.drain(new Set(['101', '202']));
     assert.deepEqual(f.sent.map(item => [item.userId, item.job.auction.id, item.job.bid.amount]),
-        [['111', '101', '200'], ['222', '101', '200'], ['111', '101', '300'], ['222', '101', '300'], ['111', '202', '900']]);
+        [['111', '101', '300'], ['222', '101', '300'], ['111', '202', '900']]);
+    assert.deepEqual(f.sent[0].job.bids.map(bid => bid.amount), ['300', '200']);
+    assert.deepEqual(f.sent[1].job.bids.map(bid => bid.amount), ['300', '200']);
     await f.observe('101'); await f.service.drain(new Set(['101', '202']));
-    assert.equal(f.sent.length, 5);
+    assert.equal(f.sent.length, 3);
+});
+
+test('bids outside the burst window stay separate and price offers keep their own notification', async t => {
+    const f = await fixture(t);
+    await f.follow();
+    f.auctions.get('101').bids = [bid('500', '2026-11-04 00:05:40', { labels: ['Price offer'] }),
+        bid('400', '2026-11-04 00:05:30'), bid('300', '2026-11-04 00:05:00'),
+        bid('200', '2026-11-04 00:00:45'), bid('100', '2026-11-04 00:00:00')];
+    await f.observe('101');
+    await f.service.drain(new Set(['101']));
+    assert.deepEqual(f.sent.map(item => (item.job.bids || [item.job.bid]).map(bid => bid.amount)), [['200', '100'], ['400', '300'], ['500']]);
+});
+
+test('a grouped DM recovers after a failed receipt even when a bid is invalidated and newer bids arrive', async t => {
+    const f = await fixture(t);
+    await f.follow();
+    const bids = Array.from({ length: 7 }, (_, index) => bid(String(700 - index * 100)));
+    f.auctions.get('101').bids = bids;
+    await f.observe('101');
+    const originalKey = Object.keys((await f.record('101')).follow.pending)[0];
+    const history = new Collection(), payloads = [];
+    const write = f.store.write.bind(f.store);
+    const channel = { messages: { async fetch() { return history; } }, async send(payload) {
+        payloads.push(payload);
+        const message = { id: String(payloads.length), author: { id: 'bot' }, embeds: payload.embeds.map(embed => embed.toJSON()),
+            components: payload.components.map(row => row.toJSON()) };
+        history.set(message.id, message);
+        if (payloads.length === 1) f.store.write = () => { throw Object.assign(new Error('disk full'), { auctionStorage: true }); };
+        return message;
+    } };
+    f.service.notifier = new AuctionDiscordNotifier({ client: { user: { id: 'bot' }, users: { cache: new Map([['111', { dmChannel: channel }]]) } } });
+    await assert.rejects(f.service.drain(new Set(['101'])), { auctionStorage: true });
+    f.store.write = write;
+    bids[0].invalid = true;
+    f.auctions.get('101').bids.unshift(bid('800'));
+    await f.observe('101');
+    assert.equal((await f.record('101')).follow.pending[originalKey].bids.length, 6);
+    const restored = f.make();
+    restored.notifier = f.service.notifier;
+    await restored.drain(new Set(['101']));
+    assert.equal(payloads.length, 2);
+    assert.match(payloads[0].embeds[0].data.fields[0].name, /New bids/u);
+    assert.equal(payloads[1].embeds[0].data.fields[0].value, '**800 by [Bidder](<https://pokemonrevolution.net/forum/profile/2-bidder/>)**');
+    assert.deepEqual((await f.record('101')).follow.pending, {});
 });
 
 test('bid DMs retain their auction image and link to the stored announcement after restart', async t => {

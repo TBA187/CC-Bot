@@ -100,6 +100,12 @@ Use the Node.js versions documented in `README.md` (Node.js 22 or later, with No
 - Put change-specific implementation details, fix summaries, task history, test results, deployment reassurances, and compatibility notes requiring no operator action in the task response or pull request. Do not create documents solely to record an edit. These restrictions apply to all repository documentation and code comments.
 - Preserve user edits and removals throughout documentation. Do not restore user-removed details unless explicitly requested.
 
+### Agent skills
+
+- `.agents/skills/<name>/SKILL.md` holds the shared skill text for all AI coding agents. Each `.claude/skills/<name>/SKILL.md` is a pointer to that file with identical `name` and `description` frontmatter; keep the frontmatter in sync and edit only the shared copy's body.
+- When a change alters behavior, file locations, commands, tests, configuration, or invariants that a skill describes, update that skill in the same change, even when user documentation stays unchanged. Correct or remove statements that no longer hold, and describe current behavior rather than change history.
+- Add a skill, with its pointer, only for a substantial new feature or a recurring multi-step workflow whose details are not evident from the code or this file. Small features and one-off procedures do not need one, and skills must not repeat guidance already in this file or `docs/operations.md`.
+
 ## Tests and validation
 
 - Start with the smallest relevant existing tests. Expand when shared behavior, impact, or unresolved risk warrants it; run the full suite before committing code. Do not rerun passing checks without a reason.

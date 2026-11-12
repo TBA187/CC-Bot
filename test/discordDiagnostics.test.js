@@ -208,8 +208,12 @@ test('Discord copies remove configured secrets, REST tokens, SQL and request bod
     const text = f.sent[0].message;
     assert.doesNotMatch(text, /private-token|private-db|private-sql|private-body|interaction-secret/u);
     assert.match(text, /redacted/u);
-    assert.doesNotMatch(redactDiagnostic('mysql://user:password@host Bot abc123 https://discord.com/api/webhooks/123/secret'),
-        /user:password|abc123|123\/secret/u);
+    // Long enough to look like a token to the redaction rule, without matching a real Discord token format.
+    const token = `fake-test-token-${'abcdefghijklmnop'.repeat(2)}`;
+    assert.doesNotMatch(redactDiagnostic(`mysql://user:password@host Bot ${token} Bearer ${token} https://discord.com/api/webhooks/123/secret`),
+        /user:password|abcdefghijklmnop|123\/secret/u);
+    assert.equal(redactDiagnostic('bot RSS 242.3 MiB; the bot could not send; bearer of bad news'),
+        'bot RSS 242.3 MiB; the bot could not send; bearer of bad news', 'ordinary words after bot or bearer stay readable');
     f.logger.stop();
 });
 
@@ -490,11 +494,13 @@ test('urgent data loss and unexpected failures alert immediately and corruption 
     assert.equal(f.sent.length, 4);
 });
 
-test('local JSON write retries and memory pressure alert immediately but do not repeatedly ping', async t => {
+test('local JSON write retries alert immediately, memory pressure after one minute, and neither repeatedly pings', async t => {
     const f = fixture(); t.after(() => f.logger.stop()); f.logger.start();
     const json = '[CC LOG] Guild Application local JSON storage cannot write: EACCES';
     const memory = '[RUNTIME MEMORY] WARNING: 420.0/512.0 MiB (82.0%; container).';
     f.consoleObject.warn(json); f.consoleObject.warn(memory); await settle();
+    assert.equal(f.sent.length, 1);
+    await f.clock.advance(60_000);
     assert.equal(f.sent.length, 2);
     await f.clock.advance(30 * 60_000);
     f.consoleObject.warn(json); f.consoleObject.warn(memory);
@@ -505,21 +511,21 @@ test('local JSON write retries and memory pressure alert immediately but do not 
     assert.equal(f.sent.length, 4);
 });
 
-for (const label of ['WARNING', 'CRITICAL']) test(`startup ${label.toLowerCase()} memory pressure alerts immediately and recovers normally`, async t => {
+for (const label of ['WARNING', 'CRITICAL']) test(`${label.toLowerCase()} memory pressure that lasts a minute alerts once and recovers normally`, async t => {
     const f = fixture();
     t.after(() => f.logger.stop()); f.logger.start();
     f.consoleObject.warn(`[RUNTIME MEMORY] ${label}: 470.0/512.0 MiB (91.8%; container).`);
-    await settle();
+    await f.clock.advance(59_999);
+    assert.equal(f.sent.length, 0, 'the console logs it at once, Discord waits one minute');
+    await f.clock.advance(1);
     assert.equal(f.sent.length, 1);
     assert.equal(f.sent[0].timestamp, new Date(1000).toISOString());
     assert.equal(f.sent[0].statusKey, 'runtime:memory-pressure');
     assert.ok(f.sent[0].message.includes(label));
-    assert.equal(f.clock.timers.size, 0);
-    f.logger.start();
     f.consoleObject.warn(`[RUNTIME MEMORY] ${label}: 470.0/512.0 MiB (91.8%; container).`);
     await settle();
     assert.equal(f.sent.length, 1);
-    await f.clock.advance(80_000);
+    await f.clock.advance(20_000);
     f.consoleObject.log('[RUNTIME MEMORY] Recovered below 75%: 370.0/512.0 MiB (container).');
     await settle();
     assert.equal(f.sent.length, 2);
@@ -528,18 +534,30 @@ for (const label of ['WARNING', 'CRITICAL']) test(`startup ${label.toLowerCase()
     assert.equal(f.sent[1].durationMs, 80_000);
 });
 
-test('pre-login memory warnings deliver as soon as Discord is ready', async t => {
+test('a memory spike that recovers within a minute stays in the console', async t => {
+    const f = fixture();
+    t.after(() => f.logger.stop()); f.logger.start();
+    f.consoleObject.warn('[RUNTIME MEMORY] WARNING: 443.7/512.0 MiB (86.7%; container working set).');
+    f.consoleObject.warn('[RUNTIME MEMORY] CRITICAL: 472.7/512.0 MiB (92.3%; container working set).');
+    await f.clock.advance(3_000);
+    f.consoleObject.log('[RUNTIME MEMORY] Recovered below 75%: 254.1/512.0 MiB (49.6%; container working set).');
+    await f.clock.advance(5 * 60_000);
+    assert.equal(f.sent.length, 0);
+    assert.equal(f.clock.timers.size, 0);
+});
+
+test('pre-login memory warnings that last a minute deliver once Discord is ready', async t => {
     const f = fixture();
     t.after(() => f.logger.stop());
     f.consoleObject.warn('[RUNTIME MEMORY] WARNING: 420.0/512.0 MiB (82.0%; container).');
     await settle();
     assert.equal(f.sent.length, 0);
-    assert.equal(f.clock.timers.size, 0);
     f.logger.start(); f.logger.start(); await settle();
+    assert.equal(f.sent.length, 0);
+    await f.clock.advance(60_000);
     assert.equal(f.sent.length, 1);
     assert.equal(f.sent[0].statusKey, 'runtime:memory-pressure');
     assert.equal(f.sent[0].timestamp, new Date(1000).toISOString());
-    assert.equal(f.clock.timers.size, 0);
 });
 
 test('OCR pressure warnings deliver immediately after login, including buffered startup warnings', async t => {

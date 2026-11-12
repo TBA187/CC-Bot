@@ -28,12 +28,48 @@ test('listing uses date-added descending and parses all entries and pagination',
     assert.equal(url.searchParams.get('page'), '2');
     assert.equal(new URL(client.listingUrl(2, 'inactive')).searchParams.get('status'), 'inactive');
     assert.throws(() => client.listingUrl(1, 'unknown'), /Invalid listing status/);
-    assert.deepEqual(client.parseListing(listing, 2), { page: 2, lastPage: 3, auctions: [
+    const parsed = client.parseListing(listing, 2);
+    assert.deepEqual({ ...parsed, auctions: parsed.auctions.map(({ id, url }) => ({ id, url })) }, { page: 2, lastPage: 3, auctions: [
         { id: '14722', url: 'https://pokemonrevolution.net/forum/trade/14722/' },
         { id: '14720', url: 'https://pokemonrevolution.net/forum/trade/14720/' }
     ] });
-    assert.throws(() => client.parseListing('<html>maintenance</html>'), /not recognized/);
+    assert.ok(parsed.auctions.every(item => /^[a-f0-9]{16}$/.test(item.signature)));
+    assert.throws(() => client.parseListing('<html><title>Down for maintenance</title>maintenance</html>'),
+        /not recognized \(page title: "Down for maintenance"\)/);
+    assert.throws(() => client.parseListing('<html>maintenance</html>'), /not recognized \(page title: missing\)/);
     assert.throws(() => client.parseListing(listing.replace('/trade/14720/', '/topic/14720/')), /unreadable/);
+});
+
+function listingCard({ id = '15494', views = '600', bids = '3 bids', offer = '600.000', countdown = '1794662542', ticking = '2d 13:07:20',
+    titleHref = `https://pokemonrevolution.net/forum/trade/${id}/` } = {}) {
+    return `<li class="ipsData__item"><div class="ipsData__main"><a href="https://pokemonrevolution.net/forum/uploads/a.jpg" class="proAuctionListThumb"><img></a>
+<div class="proAuctionList__body"><h3 class="ipsData__title"><a href="${titleHref}">Christmas haxorus</a></h3>
+<div class="proAuctionListMeta__details">Active · <a href="https://pokemonrevolution.net/forum/index.php?app=proauctions&amp;server=silver"><span class="ipsBadge">Silver</span></a></div>
+<span class="proAuctionListMeta__views"><span class="proAuctionListViews"><i></i><span>${views} views</span></span><span class="proAuctionListBids"><i></i><span>${bids}</span></span></span></div></div>
+<ul class="ipsData__stats"><li><span class="ipsData__stats-label">Current offer: </span><span class="ipsData__stats-number">${offer}</span></li>
+<li><span class="ipsData__stats-label">Time left: </span><span class="ipsData__stats-number"><span class="proAuctionTimer" data-proauction-countdown="${countdown}">${ticking}</span></span></li></ul></li>`;
+}
+
+const cardListing = card => `<ol class="ipsData ipsData--table ipsData--entries proAuctionList">${card}</ol>`;
+
+test('listing signatures ignore view counts and the ticking countdown but change with bids, offers and end times', () => {
+    const client = new AuctionForumClient();
+    const signature = options => client.parseListing(cardListing(listingCard(options))).auctions[0].signature;
+    const base = signature();
+    assert.equal(signature({ views: '742', ticking: '2d 13:06:59' }), base, 'views and the ticking timer do not count as changes');
+    assert.notEqual(signature({ bids: '4 bids' }), base);
+    assert.notEqual(signature({ offer: '650.000' }), base);
+    assert.notEqual(signature({ countdown: '1794663000' }), base, 'an extended end time is a change');
+});
+
+test('listing cards accept a trade link outside the title and slugged trade URLs', () => {
+    const client = new AuctionForumClient();
+    const slugged = client.parseListing(cardListing(listingCard({ titleHref: 'https://pokemonrevolution.net/forum/trade/15494-christmas-haxorus/' })));
+    assert.equal(slugged.auctions[0].id, '15494');
+    assert.equal(slugged.auctions[0].url, 'https://pokemonrevolution.net/forum/trade/15494/');
+    const outside = cardListing(listingCard({ titleHref: '#' }).replace('<img></a>', '<img></a><a href="/forum/trade/15494/">Open</a>'));
+    assert.equal(client.parseListing(outside).auctions[0].id, '15494');
+    assert.throws(() => client.parseListing(cardListing(listingCard({ titleHref: 'https://example.com/forum/trade/15494/' }))), /unreadable/);
 });
 
 test('auction detail preserves prices, tags, images, description and all bids', () => {

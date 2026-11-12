@@ -67,6 +67,7 @@ Use the Node.js versions documented in `README.md` (Node.js 22 or later, with No
 
 ## Database and durable state
 
+- When a schema change is applied manually, do not add code that supports the old schema. Once the change is confirmed, remove any temporary compatibility or migration code so no unused legacy paths remain.
 - Change schemas only when required by the task. Never delete production data. Keep relevant `sql/` definitions, runtime schema setup, and store readers/writers compatible when a schema change is necessary.
 - Reuse `db/db-conn.js`, feature stores, transactions, and shared retry/backoff behavior. Parameterize SQL values; use existing validated mappings for dynamic table names. Release acquired connections and preserve rollback behavior.
 - Preserve `STORAGE_MODE` semantics: `auto` and `mysql` retain JSON recovery in features that support it; `json` does not synchronize those stores to MySQL. JSON mode is not a complete database replacement: scouting and some XP queries still require MySQL.
@@ -97,7 +98,7 @@ Use the Node.js versions documented in `README.md` (Node.js 22 or later, with No
 - Default to leaving repository documentation unchanged for bug fixes, refactors, tests, and presentation edits. Restoring intended behavior alone does not justify documentation. Update documentation only when explicitly requested or when users or operators need different instructions to use, configure, maintain, or recover the bot correctly.
 - Make the smallest necessary edit beside existing guidance, normally one to three sentences. Add a section only when a new capability or procedure requires it. Do not duplicate existing guidance or document minor UI wording, labels, spacing, or styling unless explicitly requested or needed to complete an operation correctly.
 - Keep `README.md` focused on the overview, setup, configuration, and essential usage. Keep command access, operations, recovery, maintenance, and manual-script guidance in `docs/operations.md`; there is no separate scripts guide. Keep `AGENTS.md` focused on development instructions.
-- Put change-specific implementation details, fix summaries, task history, test results, deployment reassurances, and compatibility notes requiring no operator action in the task response or pull request. Do not create documents solely to record an edit. These restrictions apply to all repository documentation and code comments.
+- Put change-specific implementation details, fix summaries, task history, test results, deployment reassurances, and compatibility notes requiring no operator action in the task response or pull request. One-time upgrade or migration steps for an existing installation, such as a database ALTER, also belong there, not in documentation. Do not create documents solely to record an edit. These restrictions apply to all repository documentation and code comments.
 - Preserve user edits and removals throughout documentation. Do not restore user-removed details unless explicitly requested.
 
 ### Agent skills

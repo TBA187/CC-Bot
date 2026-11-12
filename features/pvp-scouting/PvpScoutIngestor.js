@@ -221,7 +221,8 @@ class PvpScoutIngestor {
         this.channelId = String(options.channelId || '');
         this.server = options.server === 'silver' ? 'silver' : 'gold';
         this.officerChannelId = String(options.officerChannelId || '');
-        this.ocr = options.ocr || new PvpScoutOcr(options.ocrOptions);
+        this.ocr = options.ocr || new PvpScoutOcr({ ...options.ocrOptions,
+            activityLabel: `PvP Scout ${this.server === 'silver' ? 'Silver' : 'Gold'}` });
         this.stopped = false;
         this.started = false;
         this.queue = Promise.resolve();

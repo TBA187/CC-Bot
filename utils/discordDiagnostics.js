@@ -53,9 +53,10 @@ const STATUS_EVENTS = [
     { key: 'storage:guild-applications-json', component: 'Guild Applications',
         warning: /^\[CC LOG\] Guild Application local JSON storage (?:cannot write|failed)\b/u,
         recovery: /^\[CC LOG\] Guild Application local JSON storage restored\./u }
+// Memory pressure waits one minute because OCR helper spikes are released within seconds.
 ].map(status => ({ ...status, delayMs: status.key.startsWith('forum:') ? 10 * 60_000
-    : status.key === 'discord:gateway' ? 60_000
-        : status.key === 'runtime:memory-pressure' || status.key.startsWith('storage:') ? 0 : 5 * 60_000 }));
+    : status.key === 'discord:gateway' || status.key === 'runtime:memory-pressure' ? 60_000
+        : status.key.startsWith('storage:') ? 0 : 5 * 60_000 }));
 
 function incidentIdentity(status, text) {
     return { key: status.key.startsWith('database:') ? 'database:mysql' : status.key,
@@ -104,7 +105,8 @@ function redactDiagnostic(value, secrets = []) {
     return text
         .replace(/(\/interactions\/\d+\/)[^/\s?]+/giu, '$1[redacted]')
         .replace(/(\/webhooks\/\d+\/)[^/\s?]+/giu, '$1[redacted]')
-        .replace(/\b(Bot|Bearer)\s+[^\s,;]+/giu, '$1 [redacted]')
+        // Only token-shaped values follow Bot or Bearer here; ordinary words such as "bot RSS" stay readable.
+        .replace(/\b(Bot|Bearer)\s+[\w.~+/=-]{20,}/giu, '$1 [redacted]')
         .replace(/((?:password|token|secret|authorization)\s*[=:]\s*)[^\s,;]+/giu, '$1[redacted]')
         .replace(/(mysql(?:s)?:\/\/)[^@\s]+@/giu, '$1[redacted]@');
 }

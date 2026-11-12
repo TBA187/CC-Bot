@@ -92,6 +92,7 @@ class RuntimeHealth {
         containerPeak = readContainerPeak, processRss = readProcessRss, platform = process.platform,
         ocrSnapshot = () => null, activitySnapshot = () => runtimeActivity.snapshot(), now = Date.now,
         intervalMs = 30 * 60_000, sampleIntervalMs = 5000, activeSampleIntervalMs = 1000,
+        firstReportDelayMs = 15 * 60_000, reportIntervalMs = 6 * 60 * 60_000,
         schedule = setInterval, cancel = clearInterval } = {}) {
         this.client = client; this.console = consoleObject; this.memoryUsage = memoryUsage;
         this.heapLimit = heapLimit; this.containerMemory = containerMemory;
@@ -101,6 +102,8 @@ class RuntimeHealth {
         this.rssUsage = rssUsage; this.processPeak = processPeak; this.containerPeak = containerPeak; this.now = now;
         this.intervalMs = intervalMs; this.sampleIntervalMs = sampleIntervalMs; this.schedule = schedule; this.cancel = cancel;
         this.activeSampleIntervalMs = activeSampleIntervalMs;
+        // Periodic summaries go to the console and monthly log only, so slow memory growth can be compared over time.
+        this.firstReportDelayMs = firstReportDelayMs; this.reportIntervalMs = reportIntervalMs; this.nextReportAt = null;
         this.timer = null; this.started = false; this.stopped = false; this.sampling = false; this.peakRss = 0;
         this.lastSampleAt = null; this.lastReportAt = null; this.lastAlertAt = 0; this.alertLevel = 0;
         this.lastWindowAt = null; this.alertHadContainer = false;
@@ -152,6 +155,8 @@ class RuntimeHealth {
         const details = [...(container ? [`container total including cache ${(container.used / MIB).toFixed(1)} MiB`] : []),
             ...containerDetails(container), `bot RSS ${(memory.rss / MIB).toFixed(1)} MiB`,
             `main heap ${(memory.heapUsed / MIB).toFixed(1)}/${(memory.heapTotal / MIB).toFixed(1)} MiB`,
+            ...(Number.isFinite(memory.external) ? [`external ${(memory.external / MIB).toFixed(1)} MiB`] : []),
+            ...(Number.isFinite(memory.arrayBuffers) ? [`buffers ${(memory.arrayBuffers / MIB).toFixed(1)} MiB`] : []),
             ...(ocrRss !== null ? [`OCR helper RSS ${(ocrRss / MIB).toFixed(1)} MiB`] : []),
             `OCR ${ocr?.pending || 0} queued/active task(s)${ocr?.creating ? ', initializing' : ''}`,
             `sampled bot RSS peak ${(this.window.peakRss / MIB).toFixed(1)} MiB`,
@@ -173,7 +178,7 @@ class RuntimeHealth {
         try {
             const ocr = this.ocrSnapshot();
             const tickTime = this.now();
-            const reportDue = report;
+            const reportDue = report || this.nextReportAt !== null && tickTime >= this.nextReportAt;
             const sampleEvery = ocr?.pending || ocr?.creating || this.alertLevel
                 ? this.activeSampleIntervalMs : this.sampleIntervalMs;
             // Idle ticks only inspect in-memory OCR state and the clock. No file
@@ -207,6 +212,7 @@ class RuntimeHealth {
                     osPeakRss: this.processPeak(), containerPeak, window: this.window, activity,
                     sampleIntervalMs: this.sampleIntervalMs, activeSampleIntervalMs: this.activeSampleIntervalMs }));
                 this.lastReportAt = now;
+                if (this.nextReportAt !== null) this.nextReportAt = now + this.reportIntervalMs;
             }
             if (reportDue || this.lastWindowAt === null || now - this.lastWindowAt >= this.intervalMs) {
                 this.lastWindowAt = now;
@@ -220,6 +226,7 @@ class RuntimeHealth {
     start() {
         if (this.started || this.stopped) return;
         this.started = true;
+        this.nextReportAt = this.now() + this.firstReportDelayMs;
         void this.sample({ report: false });
         this.timer = this.schedule(() => { void this.sample({ report: false }); }, Math.min(this.sampleIntervalMs, this.activeSampleIntervalMs));
         this.timer.unref?.();

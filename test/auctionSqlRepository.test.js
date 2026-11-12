@@ -151,3 +151,29 @@ test('partial updates to a missing row roll back rather than acknowledging lost 
         changes: [{ name: 'records', keys: ['101'], columns: ['follow_details'], values: [null] }] }), { code: 'AUCTION_STORE_CONFLICT' });
     assert.equal(rolledBack, true);
 });
+
+function receiptConnection(calls) {
+    return { async beginTransaction() {}, async commit() {}, async rollback() {}, release() {}, async query(sql, values) {
+        calls.push({ sql, values });
+        if (sql.startsWith('SELECT revision FROM forum_auction_control')) return [[{ revision: 4 }]];
+        if (sql.startsWith('SELECT revision, operation_hash FROM forum_auction_control')) return [[]];
+        if (sql.startsWith('DELETE FROM forum_auction_control')) return [{ affectedRows: 7 }];
+        return [{ affectedRows: 1 }];
+    } };
+}
+
+const receiptOperation = { id: 'a', baseRevision: 4, revision: 5, metadata: { initialized: false, pendingOrder: [] }, changes: [] };
+
+test('receipts record their UTC time and pruning deletes only receipts older than the cutoff', async () => {
+    const calls = [];
+    const connection = receiptConnection(calls);
+    const repository = new AuctionSqlRepository({ async query() { return [[]]; }, async getConnection() { return connection; } });
+    await repository.apply(receiptOperation);
+    const receipt = calls.find(call => call.sql.startsWith('INSERT INTO forum_auction_control (entry_id, revision, operation_hash, applied_at)'));
+    assert.deepEqual(receipt.values.slice(0, 2), ['a', 5]);
+    assert.match(receipt.values[3], /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3}$/);
+    assert.equal(await repository.pruneReceipts(Date.UTC(2026, 9, 13, 12, 0, 0, 5)), 7);
+    const prune = calls.find(call => call.sql.startsWith('DELETE FROM forum_auction_control'));
+    assert.equal(prune.sql, 'DELETE FROM forum_auction_control WHERE entry_id <> ? AND applied_at < ?');
+    assert.deepEqual(prune.values, ['main', '2026-10-13 12:00:00.005']);
+});

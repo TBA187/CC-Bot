@@ -56,7 +56,7 @@ class GuildApplicationOcr {
     }
 
     enqueue(task) {
-        return this.workerPool.run(task);
+        return this.workerPool.run(task, { label: 'Guild application' });
     }
 
     async preprocessCrop(buffer) {

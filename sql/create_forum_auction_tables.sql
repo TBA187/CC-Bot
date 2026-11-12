@@ -4,7 +4,9 @@ CREATE TABLE IF NOT EXISTS forum_auction_control (
     revision BIGINT UNSIGNED NOT NULL,
     operation_hash CHAR(64) NULL,
     details LONGTEXT NULL,
-    INDEX (revision)
+    applied_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    INDEX (revision),
+    INDEX (applied_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS forum_auctions (

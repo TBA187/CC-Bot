@@ -3,6 +3,7 @@
 // Shares one OCR queue and recycles workers after idle periods, failures, or memory pressure.
 const { createOcrProcessWorker } = require('./ocrProcessWorker.js');
 const path = require('node:path');
+const { runtimeActivity } = require('./runtimeActivity.js');
 const { readContainerMemory, memoryPressureSample } = require('./runtimeHealth.js');
 const { readProcessRss } = require('./containerMemory.js');
 
@@ -39,6 +40,7 @@ class OcrWorkerPool {
         this.lastKnownMemoryLimit = null;
         this.pause = options.pause || (ms => new Promise(resolve => setTimeout(resolve, ms)));
         this.log = options.log || (message => console.warn(message));
+        this.activity = options.activity || runtimeActivity;
         this.maxBatchImages = options.maxBatchImages ?? 20;
         this.tasksStarted = 0;
         this.tasksCompleted = 0;
@@ -66,11 +68,13 @@ class OcrWorkerPool {
     // Serialize complete tasks, including their multiple recognize calls. All
     // production OCR users share this queue, so Gold, Silver and forum scans
     // never each allocate a Tesseract runtime at the same time.
-    run(task, { maintenance = false } = {}) {
+    // A label names the feature in memory reports while its task runs (for example "PvP Scout Gold").
+    run(task, { maintenance = false, label = null } = {}) {
         this.pending++;
         if (!maintenance) this.tasksStarted++;
         this.clearIdleTimer();
         const result = this.queue.then(async () => {
+            const finishActivity = label ? this.activity.begin(`OCR: ${label}`) : null;
             try {
                 const value = await task();
                 if (!maintenance) this.tasksCompleted++;
@@ -78,6 +82,8 @@ class OcrWorkerPool {
             } catch (error) {
                 if (!maintenance) this.tasksFailed++;
                 throw error;
+            } finally {
+                finishActivity?.();
             }
         });
         const settled = result.finally(() => {

@@ -45,7 +45,7 @@ New features touch several shared files. Missing one usually shows up only after
 `utils/discordDiagnostics.js` turns console output into staff alerts in `logChannelID`. Without these steps a new feature either pings staff for routine events or fails silently:
 
 - Every `console.warn` and `console.error` becomes an immediate alert (repeats grouped for 5 minutes). Use `console.log` for expected conditions such as a single unavailable item.
-- For outages that should alert only when they persist, log one fixed warning when the outage starts and one fixed `console.log` recovery when it ends, and add both patterns to `STATUS_EVENTS`. The key prefix sets the delay: `forum:` waits 10 minutes, `database:` 5 minutes (all `database:*` keys share one MySQL incident), `storage:` alerts immediately, and other keys 5 minutes, except `discord:gateway` (1 minute) and `runtime:memory-pressure` (immediate).
+- For outages that should alert only when they persist, log one fixed warning when the outage starts and one fixed `console.log` recovery when it ends, and add both patterns to `STATUS_EVENTS`. The key prefix sets the delay: `forum:` waits 10 minutes, `database:` 5 minutes (all `database:*` keys share one MySQL incident), `storage:` alerts immediately, and other keys 5 minutes, except `discord:gateway` and `runtime:memory-pressure` (1 minute).
 - Messages about corrupt data, or errors with `JSON_STORE_CORRUPT`, `ENOSPC`, `EROFS` or `EIO`, alert immediately even when they match a status event.
 - Use the `[CC LOG]` prefix and cover new status events in `test/discordDiagnostics.test.js`.
 

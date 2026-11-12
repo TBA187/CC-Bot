@@ -228,7 +228,7 @@ test('idle sampling is cheap, active OCR samples each second, and short OCR jobs
 test('normal startup and ongoing OCR sampling stay silent while pressure and recovery remain visible', async () => {
     let tick, used = 200 * MIB, now = 0;
     const lines = [];
-    const health = new RuntimeHealth({ now: () => now,
+    const health = new RuntimeHealth({ now: () => now, firstReportDelayMs: Infinity,
         consoleObject: { warn: text => lines.push(text), log: text => lines.push(text) },
         containerMemory: async () => ({ used, limit: 512 * MIB }),
         ocrSnapshot: () => ({ pending: 1, workers: 1 }),
@@ -244,6 +244,44 @@ test('normal startup and ongoing OCR sampling stay silent while pressure and rec
     now += 1000; used = 380 * MIB; tick(); await new Promise(resolve => setImmediate(resolve));
     assert.match(lines[1], /Recovered below 75%/);
     health.stop();
+});
+
+test('a memory summary is logged 15 minutes after start and then every 6 hours, never as a warning', async () => {
+    let tick, now = 0;
+    const logs = [], warnings = [];
+    const activity = new RuntimeActivity({ now: () => now });
+    const health = new RuntimeHealth({ now: () => now, activitySnapshot: () => activity.snapshot(),
+        consoleObject: { warn: text => warnings.push(text), log: text => logs.push(text) },
+        memoryUsage: () => ({ rss: 240 * MIB, heapUsed: 68 * MIB, heapTotal: 79 * MIB, external: 12 * MIB, arrayBuffers: 3 * MIB }),
+        rssUsage: () => 240 * MIB, heapLimit: () => 340 * MIB, containerPeak: async () => null, processPeak: () => 0,
+        containerMemory: async () => ({ used: 260 * MIB, limit: 512 * MIB, workingSet: 250 * MIB }),
+        schedule: callback => { tick = callback; return { unref() {} }; }, cancel() {} });
+    health.start();
+    const at = async time => { now = time; tick(); await new Promise(resolve => setImmediate(resolve)); };
+    await at(14 * 60_000);
+    assert.deepEqual(logs, []);
+    activity.begin('OCR: PvP Scout Gold');
+    await at(15 * 60_000);
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /^\[RUNTIME MEMORY\] RSS 240\.0 MiB/);
+    assert.match(logs[0], /external 12\.0 MiB; buffers 3\.0 MiB/);
+    assert.match(logs[0], /active jobs: OCR: PvP Scout Gold/);
+    await at(15 * 60_000 + 6 * 60 * 60_000 - 1000);
+    assert.equal(logs.length, 1);
+    await at(15 * 60_000 + 6 * 60 * 60_000);
+    assert.equal(logs.length, 2);
+    assert.deepEqual(warnings, []);
+    health.stop();
+});
+
+test('memory pressure lines include external and buffer memory', async () => {
+    const warnings = [];
+    const health = new RuntimeHealth({ now: () => 0, consoleObject: { warn: text => warnings.push(text), log() {} },
+        memoryUsage: () => ({ rss: 240 * MIB, heapUsed: 68 * MIB, heapTotal: 79 * MIB, external: 12 * MIB, arrayBuffers: 3 * MIB }),
+        rssUsage: () => 240 * MIB, containerMemory: async () => ({ used: 470 * MIB, limit: 512 * MIB, workingSet: 450 * MIB }) });
+    await health.sample({ report: false });
+    assert.match(warnings[0], /^\[RUNTIME MEMORY\] WARNING: 450\.0\/512\.0 MiB/);
+    assert.match(warnings[0], /main heap 68\.0\/79\.0 MiB; external 12\.0 MiB; buffers 3\.0 MiB/);
 });
 
 test('Linux accounting loss is reported once, includes live OCR RSS in protection, and does not falsely recover', async () => {

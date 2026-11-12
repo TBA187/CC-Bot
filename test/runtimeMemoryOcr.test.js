@@ -380,3 +380,20 @@ test('production scout pipeline sends only attachment metadata and keeps downloa
     assert.equal(request[2], 'message');
     assert.equal(request[3], 'Rega');
 });
+
+test('OCR tasks name their feature in the job list only while they run', async () => {
+    const { RuntimeActivity } = require('../utils/runtimeActivity.js');
+    const activity = new RuntimeActivity();
+    const pool = new OcrWorkerPool({ worker: { async recognize() { return {}; }, async terminate() {} }, activity });
+    const gate = deferred();
+    const first = pool.run(async () => { await gate.promise; }, { label: 'PvP Scout Silver' });
+    const second = pool.run(async () => {}, { label: 'Guild application' });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(activity.snapshot().active.map(job => job.name), ['OCR: PvP Scout Silver'], 'a queued task is not listed as running');
+    gate.resolve();
+    await first;
+    await second;
+    assert.deepEqual(activity.snapshot().active, []);
+    assert.deepEqual(activity.snapshot().recent.map(job => job.name), ['OCR: PvP Scout Silver', 'OCR: Guild application']);
+    await pool.close();
+});

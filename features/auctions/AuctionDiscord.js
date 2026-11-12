@@ -5,11 +5,30 @@ const { createHash } = require('node:crypto');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ContainerBuilder, EmbedBuilder,
     MediaGalleryBuilder, MediaGalleryItemBuilder, MessageFlags, PermissionFlagsBits, TextDisplayBuilder, escapeMarkdown } = require('discord.js');
 const { messageSearchText } = require('../../utils/discordMessageHistory.js');
+const { isTransientDiscordError } = require('../../utils/networkErrors.js');
 const { SERVERS } = require('../pvp-scouting/ScoutServerSettings.js');
 const { bidTimestamp, notificationBids } = require('./AuctionBids.js');
 
 const BUTTON_PREFIX = 'auction:';
 const NONE = '*None*';
+const AUCTION_REMOVED = 'This auction is no longer available. Open its forum page for details.';
+const TEMPORARY_FAILURE_CODES = /^(?:AUCTION_STORAGE_UNAVAILABLE|DATABASE_UNAVAILABLE|PROTOCOL_CONNECTION_LOST|ER_CON_COUNT_ERROR|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ECONNABORTED|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|EAI_AGAIN|EPIPE|UND_ERR_[A-Z_]+)$/;
+
+// Suggest another attempt only when the same control can succeed shortly; a retry cannot
+// fix conflicting or corrupt storage, a missing permission, or a bug.
+function temporaryAuctionFailure(error) {
+    const seen = new Set();
+    for (let current = error; current && typeof current === 'object' && !seen.has(current) && seen.size < 8; current = current.cause) {
+        seen.add(current);
+        if (current.code === 'AUCTION_STORE_CONFLICT' || current.code === 'JSON_STORE_CORRUPT' || current.auctionStorage) return false;
+        const status = Number(current.status);
+        if (status === 429 || status >= 500 && status <= 599) return true;
+        if (status >= 400 && status <= 499) return false;
+        if (TEMPORARY_FAILURE_CODES.test(String(current.code || '')) || ['AbortError', 'TimeoutError'].includes(current.name)) return true;
+        if (isTransientDiscordError(current)) return true;
+    }
+    return false;
+}
 const IMAGE_PAGE_SIZE = 10;
 const BID_PAGE_SIZE = 25;
 const BID_DESCRIPTION_LIMIT = 4096;
@@ -350,7 +369,7 @@ async function handleAuctionButton(interaction, options = {}) {
         }
         const record = await options.getAuctionRecord(history[1]);
         if (!record?.auction) {
-            await historyFeedback('This auction is no longer available. Open its forum page for details.');
+            await historyFeedback(AUCTION_REMOVED);
             return true;
         }
         const ids = [options.guildId, options.channelId, record.messageMissing ? null : record.messageId];
@@ -403,7 +422,7 @@ async function handleAuctionButton(interaction, options = {}) {
             const record = await options.getAuctionRecord(dm[2]);
             const result = await options.followService.follow(dm[2], dm[3], record?.messageId);
             if (result.ended || result.unavailable) {
-                await interaction.followUp({ content: result.ended ? 'This auction has ended and can no longer be followed.' : 'This auction is unavailable right now. Please try again later.', flags: MessageFlags.Ephemeral });
+                await interaction.followUp({ content: result.removed ? AUCTION_REMOVED : result.ended ? 'This auction has ended and can no longer be followed.' : 'This auction is unavailable right now. Please try again later.', flags: MessageFlags.Ephemeral });
                 return true;
             }
             waitingForSource = Boolean(result.waitingForSource);
@@ -448,7 +467,7 @@ async function handleAuctionButton(interaction, options = {}) {
         }
         const sourceId = match[1] === 'refollow' ? (await options.getAuctionRecord(match[2]))?.messageId : interaction.message?.id;
         const result = await options.followService.follow(match[2], String(interaction.user.id), sourceId);
-        const content = result.unavailable ? 'This auction is unavailable and cannot be followed right now. Please try again later.'
+        const content = result.removed ? AUCTION_REMOVED : result.unavailable ? 'This auction is unavailable and cannot be followed right now. Please try again later.'
             : result.ended ? 'This auction has ended, so it can no longer be followed.' : followConfirmation(result.auction, result.alreadyFollowing, result.waitingForSource);
         const components = result.unavailable || result.ended ? [] : [new ActionRowBuilder().addComponents(
             button('unfollow', match[2], String(interaction.user.id), 'Unfollow', '🔕', false, ButtonStyle.Danger))];
@@ -461,7 +480,7 @@ async function handleAuctionButton(interaction, options = {}) {
     const record = await options.getAuctionRecord(match[2]);
     const auction = record?.auction;
     if (!auction) {
-        const content = 'This auction is no longer available. Open its forum page for details.';
+        const content = AUCTION_REMOVED;
         await interaction.editReply(interaction.message?.flags?.has?.(MessageFlags.IsComponentsV2)
             ? componentPayload([new TextDisplayBuilder().setContent(content)])
             : { content, allowedMentions: { parse: [] } });
@@ -564,4 +583,4 @@ class AuctionDiscordNotifier {
 }
 
 module.exports = { AuctionDiscordNotifier, buildAuctionPayload, handleAuctionButton, privatePage,
-    followConfirmation, buildBidNotificationPayload };
+    followConfirmation, buildBidNotificationPayload, temporaryAuctionFailure };

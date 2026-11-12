@@ -89,7 +89,9 @@ class AuctionFollowService {
         if (!validId(id) || !validId(userId)) throw new Error('Invalid auction or subscriber.');
         this.checkRunning();
         const saved = await this.store.getAuctionRecord(id);
-        if (!saved || saved.messageMissing || String(saved.messageId) !== String(messageId)) return { unavailable: true };
+        // Records are removed 30 days after an auction ends; its Discord post stays.
+        if (!saved) return { unavailable: true, removed: true };
+        if (saved.messageMissing || String(saved.messageId) !== String(messageId)) return { unavailable: true };
         if (ended(saved.auction)) return { ended: true, auction: saved.auction };
         let auction = null;
         try { auction = await this.fetchAuction(id); }
@@ -163,20 +165,25 @@ class AuctionFollowService {
     }
 
     async cleanupEnded() {
-        const state = await this.store.update(data => {
-            for (const record of Object.values(data.tracked)) if (ended(record.auction)) delete record.follow;
-        });
+        const endedIds = await this.store.readTracked((record, id) => record.follow && ended(record.auction) ? id : undefined);
+        if (endedIds.length) {
+            await this.store.update(data => {
+                for (const id of endedIds) if (data.tracked[id] && ended(data.tracked[id].auction)) delete data.tracked[id].follow;
+            });
+        }
+        if (!this.failures.size) return;
+        const failureIds = new Set([...this.failures.keys()].map(key => key.split(':')[0]));
+        const pending = new Map(await this.store.readTracked((record, id) => failureIds.has(id) ? [id, record.follow?.pending] : undefined));
         for (const key of this.failures.keys()) {
             const [id, bid, userId] = key.split(':');
-            if (!state.tracked[id]?.follow?.pending[bid]?.recipients.includes(userId)) this.failures.delete(key);
+            if (!pending.get(id)?.[bid]?.recipients.includes(userId)) this.failures.delete(key);
         }
     }
 
     async drain(eligibleIds) {
-        const state = await this.store.getState();
         let attempts = 0;
         for (const id of eligibleIds) {
-            const pending = state.tracked[id]?.follow?.pending || {};
+            const pending = (await this.store.getAuctionRecord(id))?.follow?.pending || {};
             for (const [key, job] of Object.entries(pending)) for (const userId of job.recipients) {
                 if (attempts >= this.batchSize) return;
                 this.checkRunning();

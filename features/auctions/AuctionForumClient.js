@@ -2,6 +2,7 @@
 'use strict';
 
 const cheerio = require('cheerio');
+const { createHash } = require('node:crypto');
 const { readResponseBuffer, cancelResponseBody } = require('../../utils/readResponseBuffer.js');
 const { parseRetryAfter } = require('../../utils/forumRetry.js');
 const { shutdownError, throwIfAborted } = require('../../utils/abortable.js');
@@ -33,6 +34,25 @@ function safeUrl(value, base = TRADE_URL) {
     } catch {
         return null;
     }
+}
+
+function auctionId(value) {
+    const url = safeUrl(value);
+    if (!url) return null;
+    const parsed = new URL(url);
+    const match = parsed.origin === ORIGIN && /^\/forum\/trade\/(\d+)(?:-[^/]*)?\/?$/.exec(parsed.pathname);
+    return match ? match[1] : null;
+}
+
+// Identifies what a listing card shows (status, bids, offer, prices, end time) without the view
+// counter or the ticking countdown text, so an unchanged auction keeps the same signature.
+function cardSignature($, element) {
+    const card = $(element).clone();
+    card.find('.proAuctionListViews').remove();
+    card.find('[data-proauction-countdown]').each((_, node) => { $(node).text(` ends ${$(node).attr('data-proauction-countdown')} `); });
+    const text = (clean(card.text()) || '').replace(/\b[\d.,]+\s+views?\b/gi, '')
+        .replace(/(Time left:\s*)(?:\d+d\s*)?\d{1,2}:\d{2}(?::\d{2})?/gi, '$1');
+    return createHash('sha256').update(text).digest('hex').slice(0, 16);
 }
 
 function identity($, element) {
@@ -128,15 +148,18 @@ class AuctionForumClient {
     parseListing(html, page = 1) {
         const $ = cheerio.load(html);
         const list = $('.proAuctionList').first();
-        if (!list.length) throw new Error('PRO auction listing was not recognized.');
+        if (!list.length) {
+            // The page title identifies maintenance or challenge pages without logging the HTML.
+            const title = clean($('title').first().text());
+            throw new Error(`PRO auction listing was not recognized (page title: ${title ? `"${title.slice(0, 120)}"` : 'missing'}).`);
+        }
         const auctions = [];
         list.children('.ipsData__item').each((_, element) => {
-            const href = $(element).find('.ipsData__title a[href]').first().attr('href');
-            const url = safeUrl(href);
-            const parsed = url && new URL(url);
-            const match = parsed && parsed.origin === ORIGIN && parsed.pathname.match(/^\/forum\/trade\/(\d+)\/?$/);
-            if (!match) throw new Error('PRO auction listing contains an unreadable entry.');
-            auctions.push({ id: match[1], url: `${TRADE_URL}${match[1]}/` });
+            const card = $(element);
+            const links = [...card.find('.ipsData__title a[href]').toArray(), ...card.find('a[href]').toArray()];
+            const id = links.map(node => auctionId($(node).attr('href'))).find(Boolean);
+            if (!id) throw new Error('PRO auction listing contains an unreadable entry.');
+            auctions.push({ id, url: `${TRADE_URL}${id}/`, signature: cardSignature($, element) });
         });
         const rawPages = $('.ipsPagination[data-pages]').first().attr('data-pages');
         const lastPage = rawPages ? Number(rawPages) : 1;

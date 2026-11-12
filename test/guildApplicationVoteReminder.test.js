@@ -110,7 +110,8 @@ test('sends the 12-hour reminder when fewer than half of Officers have voted', a
     assert.match(fixture.sent[0].content, /application for \*\*ApplicantIGN\*\*/);
     assert.match(fixture.sent[0].content, /View Application: \[Click Here!\]/);
     assert.match(fixture.sent[0].content, /Cast your vote: \[Click Here!\]/);
-    assert.deepEqual(fixture.sent[0].allowedMentions, { parse: [], roles: ['officer-role'] });
+    assert.deepEqual(fixture.sent[0].allowedMentions, { parse: [], roles: ['officer-role'], repliedUser: false });
+    assert.deepEqual(fixture.sent[0].reply, { messageReference: 'poll-message' });
     assert.equal(fixture.saved[0].voteReminder12hMessageId, 'reminder-1');
     assert.equal(fixture.saved[0].voteReminder12hCheckedAt, '2026-07-13T12:00:00.000Z');
 });

@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { isDeepStrictEqual } = require('node:util');
 const { AuctionStore } = require('../features/auctions/AuctionStore.js');
 const { AuctionMonitor } = require('../features/auctions/AuctionMonitor.js');
 const { projectOperation, conflict } = require('../features/auctions/AuctionSqlRepository.js');
@@ -214,7 +215,7 @@ test('a lower shared revision after a reset replaces a clean stale host cache', 
     assert.equal((await local.getState()).initialized, false);
 });
 
-test('local to remote and back skips downtime auctions while preserving posted messages', async t => {
+test('switching hosts announces auctions posted in between once and keeps posted messages', async t => {
     const f = setup(t);
     let newest = '10';
     const sent = [];
@@ -234,20 +235,20 @@ test('local to remote and back skips downtime auctions while preserving posted m
     await remote.initialize();
     const remoteMonitor = monitor(remote);
     assert.equal(await remoteMonitor.runOnce(), true);
-    assert.deepEqual(sent, []);
+    assert.deepEqual(sent, ['20'], 'the auction posted during the switch is announced by the startup catch-up');
     newest = '21';
     assert.equal(await remoteMonitor.runOnce(), true);
-    assert.deepEqual(sent, ['21']);
+    assert.deepEqual(sent, ['20', '21']);
     await remoteMonitor.stop();
     newest = '30';
     await local.initialize();
     const localMonitor = monitor(local);
     assert.equal(await localMonitor.runOnce(), true);
-    assert.deepEqual(sent, ['21']);
+    assert.deepEqual(sent, ['20', '21', '30']);
     assert.equal((await local.getAuctionRecord('21')).messageId, 'message-21');
     newest = '31';
     assert.equal(await localMonitor.runOnce(), true);
-    assert.deepEqual(sent, ['21', '31']);
+    assert.deepEqual(sent, ['20', '21', '30', '31']);
 });
 
 test('followers and partially delivered bids recover through JSON and MySQL on another host', async t => {
@@ -494,4 +495,143 @@ test('old auction controls use durable subscriptions and auction details after s
         assert.match(response.embeds[0].toJSON().description, /Bidder.*100/);
         assert.match(response.embeds[0].toJSON().fields[0].value, /https:\/\/discord.com\/channels\/555\/444\/123/);
     });
+});
+
+function seededRandom(seed) {
+    let value = seed;
+    return () => (value = (value * 1103515245 + 12345) % 2147483648) / 2147483648;
+}
+
+function storedRecord(id, extra = {}) {
+    return { messageId: `9${id}`, auction: { id, status: 'Active', title: `Auction ${id}`, bids: [] }, ...extra };
+}
+
+test('an update copies and saves only the auctions it touches', async t => {
+    const f = setup(t), store = f.make('local.json');
+    await store.initialize();
+    await store.update(data => { for (const id of ['101', '102', '103']) data.tracked[id] = storedRecord(id); });
+    const untouched = store.state.tracked['102'];
+    assert.ok(Object.isFrozen(untouched) && Object.isFrozen(untouched.auction));
+    await store.update(data => { data.tracked['101'].auction.title = 'Changed'; });
+    assert.equal(store.state.tracked['102'], untouched, 'untouched records stay shared with the previous state');
+    assert.deepEqual(f.server.operations.at(-1).changes.map(change => [change.name, change.keys]), [['records', ['101']]]);
+    const calls = f.server.calls;
+    await store.update(data => { data.tracked['103'].auction.title = data.tracked['103'].auction.title; });
+    assert.equal(f.server.calls, calls, 'reading a record without changing it saves nothing');
+});
+
+test('an invalid touched record is rejected without changing stored state', async t => {
+    const f = setup(t), store = f.make('local.json');
+    await store.initialize();
+    await store.update(data => { data.tracked['101'] = storedRecord('101'); });
+    const before = await store.getState();
+    await assert.rejects(store.update(data => { data.tracked['101'].messageId = ''; }), { auctionStorage: true });
+    await assert.rejects(store.update(data => { data.tracked.abc = storedRecord('abc'); }), { auctionStorage: true });
+    assert.deepEqual(await store.getState(), before);
+});
+
+test('objects a caller still holds cannot change saved auctions, and stored records cannot be modified', async t => {
+    for (const mode of ['auto', 'json']) await t.test(mode, async t => {
+        const f = setup(t), store = f.make('local.json', { storageMode: mode });
+        await store.initialize();
+        const auction = { id: '101', status: 'Active', title: 'Original', bids: [] };
+        await store.update(data => { data.tracked['101'] = { messageId: '123', auction }; });
+        auction.title = 'Changed later';
+        assert.equal((await store.getAuctionRecord('101')).auction.title, 'Original');
+        const record = await store.getAuctionRecord('101');
+        record.auction.title = 'Local copy';
+        assert.equal((await store.getAuctionRecord('101')).auction.title, 'Original');
+        if (mode === 'auto') {
+            const [stored] = await store.readTracked(saved => saved);
+            assert.throws(() => { stored.auction.title = 'Mutated'; }, TypeError);
+        }
+        let retained;
+        await store.update(data => { retained = data.tracked; });
+        assert.throws(() => retained['101'], TypeError, 'a draft cannot be used after its update');
+    });
+});
+
+test('partial updates produce the same operations as a full comparison', async t => {
+    const { changesBetween } = require('../features/auctions/AuctionSqlRepository.js');
+    const f = setup(t), store = f.make('local.json');
+    await store.initialize();
+    const pickId = random => String(100 + Math.floor(random() * 8));
+    const followedAt = '2026-11-12T00:00:00.000Z';
+    const mutations = [
+        (data, random) => { const id = pickId(random); data.tracked[id] = storedRecord(id); },
+        (data, random) => {
+            const id = pickId(random);
+            if (data.tracked[id]) data.tracked[id].auction.currentOffer = String(Math.floor(random() * 1000));
+        },
+        (data, random) => { delete data.tracked[pickId(random)]; },
+        (data, random) => { const id = pickId(random); if (data.tracked[id]) data.tracked[id].messageMissing = random() > 0.5; },
+        (data, random) => {
+            const id = pickId(random);
+            if (!data.tracked[id]) return;
+            data.tracked[id].follow ||= { seenBids: [], users: {}, pending: {} };
+            data.tracked[id].follow.users[String(200 + Math.floor(random() * 3))] = { followedAt };
+        },
+        (data, random) => { const id = pickId(random); if (data.tracked[id]?.follow) delete data.tracked[id].follow; },
+        (data, random) => {
+            const id = pickId(random);
+            data.pending[id] = { id, url: `https://example.com/${id}`, queuedAt: followedAt };
+            data.pendingOrder.push(id);
+        },
+        (data, random) => {
+            const id = pickId(random);
+            delete data.pending[id];
+            data.pendingOrder = data.pendingOrder.filter(item => item !== id);
+        },
+        (data, random) => { data.initialized = true; data.inactiveWatermark = String(Math.floor(random() * 500)); },
+        (data, random) => { for (const record of Object.values(data.tracked)) record.auction.status = random() > 0.5 ? 'Active' : 'Ended'; },
+        (data, random) => { data.tracked = Object.fromEntries(Object.entries(data.tracked).filter(() => random() > 0.2)); }
+    ];
+    const steps = seededRandom(7);
+    let saved = 0;
+    for (let step = 0; step < 300; step++) {
+        const mutate = mutations[Math.floor(steps() * mutations.length)];
+        const seed = Math.floor(steps() * 2147483646) + 1;
+        const before = await store.getState();
+        const expected = structuredClone(before);
+        mutate(expected, seededRandom(seed));
+        const count = f.server.operations?.length || 0;
+        await store.update(data => mutate(data, seededRandom(seed)));
+        const operations = f.server.operations || [];
+        const beforePayload = store.payload(before), afterPayload = store.payload(expected);
+        if (isDeepStrictEqual(beforePayload, afterPayload)) {
+            assert.equal(operations.length, count, `step ${step}: an unchanged state saves nothing`);
+            continue;
+        }
+        saved++;
+        const full = changesBetween(beforePayload, afterPayload);
+        assert.equal(operations.length, count + 1, `step ${step}: one operation per change`);
+        assert.deepEqual(operations.at(-1).changes, full.changes, `step ${step}: same row changes`);
+        assert.deepEqual(operations.at(-1).metadata, full.metadata, `step ${step}: same metadata`);
+        assert.deepEqual(store.payload(await store.getState()), afterPayload, `step ${step}: same saved state`);
+    }
+    assert.ok(saved > 150, 'most random steps change something');
+});
+
+test('receipt pruning runs only with healthy shared storage and an empty journal', async t => {
+    const f = setup(t);
+    const calls = [];
+    f.repository.pruneReceipts = async cutoff => { calls.push(cutoff); return 2; };
+    assert.equal(await f.make('json.json', { storageMode: 'json' }).pruneReceipts(1000), 0, 'JSON mode has no shared receipts');
+    const store = f.make('local.json');
+    assert.equal(await store.pruneReceipts(1000), 0, 'not before the state is loaded');
+    await store.initialize();
+    assert.equal(await store.pruneReceipts(1000), 2);
+    f.server.down = true;
+    await store.update(data => { data.pending['101'] = { id: '101' }; });
+    assert.equal(await store.pruneReceipts(2000), 0, 'not during an outage while operations wait in the journal');
+    f.server.down = false;
+    await store.reconcile();
+    const warnings = [];
+    t.mock.method(console, 'warn', (...args) => warnings.push(args));
+    f.repository.pruneReceipts = async () => { throw Object.assign(new Error('lock wait timeout'), { code: 'ER_LOCK_WAIT_TIMEOUT' }); };
+    assert.equal(await store.pruneReceipts(3000), 0);
+    assert.match(warnings[0][0], /Old PRO auction change receipts could not be removed; retrying later:/);
+    assert.equal(warnings[0][1], 'ER_LOCK_WAIT_TIMEOUT');
+    assert.equal(store.mysqlOutage, false, 'a failed cleanup does not mark shared storage unavailable');
+    assert.deepEqual(calls, [1000]);
 });

@@ -87,10 +87,13 @@ function operationHash(operation) {
     return createHash('sha256').update(JSON.stringify(canonical(operation))).digest('hex');
 }
 
+const utcDatetime = ms => new Date(ms).toISOString().slice(0, 23).replace('T', ' ');
+
 function schemaStatements() {
     const result = [
         `CREATE TABLE IF NOT EXISTS forum_auction_control (entry_id VARCHAR(36) NOT NULL PRIMARY KEY,
-            revision BIGINT UNSIGNED NOT NULL, operation_hash CHAR(64) NULL, details LONGTEXT NULL, INDEX (revision)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+            revision BIGINT UNSIGNED NOT NULL, operation_hash CHAR(64) NULL, details LONGTEXT NULL,
+            applied_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), INDEX (revision), INDEX (applied_at)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
     ];
     for (const spec of Object.values(specs)) {
         const fields = [...spec.keys.map(key => `${key} ${key === 'bid_key' ? 'CHAR(64)' : 'VARCHAR(20)'} NOT NULL`),
@@ -107,6 +110,15 @@ class AuctionSqlRepository {
         if (this.ready) return;
         for (const sql of schemaStatements()) await this.db.query(sql);
         this.ready = true;
+    }
+
+    // A receipt only matters while its operation can still be retried from a local journal.
+    async pruneReceipts(cutoffMs) {
+        return this.transaction(async connection => {
+            const [result] = await connection.query('DELETE FROM forum_auction_control WHERE entry_id <> ? AND applied_at < ?',
+                ['main', utcDatetime(cutoffMs)]);
+            return Number(result?.affectedRows) || 0;
+        });
     }
 
     async transaction(work) {
@@ -168,7 +180,8 @@ class AuctionSqlRepository {
                 }
             }
             await connection.query('INSERT INTO forum_auction_control (entry_id, revision, details) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE revision = VALUES(revision), details = VALUES(details)', ['main', operation.revision, JSON.stringify(operation.metadata)]);
-            await connection.query('INSERT INTO forum_auction_control (entry_id, revision, operation_hash) VALUES (?, ?, ?)', [operation.id, operation.revision, digest]);
+            await connection.query('INSERT INTO forum_auction_control (entry_id, revision, operation_hash, applied_at) VALUES (?, ?, ?, ?)',
+                [operation.id, operation.revision, digest, utcDatetime(Date.now())]);
         });
     }
 }

@@ -79,8 +79,9 @@ Guild applications use `forumGuildApplicationPage` and are checked every ten min
 
 Forum shop notifications use `tbaProForumShop`, `tbaProDungeonShop` and `tbaProForumNotifications` (`1` enables delivery, `0` disables it). The monitors check every twelve minutes, establish a silent initial baseline and share processed-post checkpoints through MySQL. New replies are sent to `ownerID`.
 
-The PRO Auction Trade Zone monitor uses `auctionChannelID`, records a silent discovery baseline on every fresh start, and checks active and inactive auction listings about every 90 seconds. Auctions already present at startup and undelivered announcements from an earlier run are skipped; already-announced auctions keep receiving updates. Each discovery scan attempts up to five announcements. Announced active auctions are normally checked every 90 seconds in paced batches of up to ten; batches continue without an extra 90-second pause, while slow requests, large queues and rate-limit waits can extend update times.
-It keeps a local recovery file and synchronizes its state to MySQL unless `STORAGE_MODE=json`.
+The PRO Auction Trade Zone monitor uses `auctionChannelID` and checks the first active and inactive listing pages for new auctions about every 90 seconds; each scan attempts up to five announcements. The first start with empty storage records a silent baseline. After a restart, the ten newest auctions posted while the bot was offline are announced and older ones are skipped.
+Announcements follow the listing: the pages holding auctions announced in the last seven days are read every ten minutes and every active page once a day, and only auctions whose listing card changed or that left the listing are opened. Followed auctions are checked about every 90 seconds, auctions with a countdown shortly after it ends, and every auction at least every six hours (weekly once it is older than seven days).
+Auction records leave storage 30 days after the auction ends or its forum page disappears; the Discord posts stay, and their buttons then point to the forum page. The monitor keeps a local recovery file and synchronizes its state to MySQL unless `STORAGE_MODE=json`.
 
 Members can follow multiple auctions to receive DMs for new valid bids detected after subscribing. Rapid bids for the same auction within a 90-second burst are grouped into one DM showing the newest five, with a Bid History button when the group contains more than five bids; different auctions stay separate. DM Notifications stop when the auction ends or the user unfollows. Subscriptions in the database are removed when the auction ends, and are also removed for a member when Discord reports that their DMs are unavailable.
 
@@ -146,9 +147,9 @@ Console and monthly logs record failures immediately; Discord waits for persiste
 | MySQL outages and feature storage fallbacks, Discord REST warmup, CC tag verification, command registration, unavailable container memory accounting | After 5 minutes |
 | PRO forum outages, including application and shop scans | After 10 minutes |
 | Discord Gateway disconnection | After 1 minute |
-| Memory pressure | Immediately |
+| Memory pressure | After 1 minute |
 
-Memory monitoring logs only pressure, recovery, or changes in container accounting. Warning and critical thresholds are 80% and 90%; recovery is below 75%. Sustained pressure is logged at most every 10 minutes unless severity increases.
+Memory monitoring logs pressure, recovery and changes in container accounting, plus a memory summary 15 minutes after start and every 6 hours in the console and monthly log only. Warning and critical thresholds are 80% and 90%; recovery is below 75%. Sustained pressure is logged at most every 10 minutes unless severity increases.
 
 Alerts contain fixed summaries rather than raw exceptions, credentials, SQL or payment details. Alert delivery is separate from commands and uses bounded in-memory incident tracking with retry delays. Incident tracking resets when the process restarts; a stopped process cannot send an alert.
 Routine reconnects, successful operations and normal cleanup remain in console/file logs.

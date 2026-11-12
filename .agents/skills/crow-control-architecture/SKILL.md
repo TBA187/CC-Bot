@@ -35,8 +35,8 @@ description: Map of the Crow Control codebase and how its main flows fit togethe
 | Audit logs | Logging modules in `events/` (channels, threads, invites, integrations, roles, members, voice, boosts), `utils/memberAuditHistory.js`, `utils/memberAuditEmbeds.js`, `utils/logHelpers.js`, `utils/roleAuditSource.js`. |
 | Roles | `commands/auto_roles.js` and `events/auto_roles.js` (self-role panels), `utils/serverTagRoleManager.js` (Crow Control server-tag role). |
 | Dungeon recruitment | `commands/dungeon_recruitment.js` (recruitment state in `data/dungeon_runs.json`) and `events/dungeonRecruitmentReminder.js`. |
-| Runtime | `utils/runtimeLogging.js` and `utils/logFiles.js` (monthly logs), `utils/discordTransport.js` (REST requests and warm-up), `utils/interactionDiagnostics.js`, `utils/runtimeHealth.js` and `utils/containerMemory.js` (memory pressure), `utils/runtimeActivity.js`. |
-| OCR | `utils/runtimeMemoryOcr.js` (shared queue, `sharedOcrWorkerPool`, `ocrWorkerPoolFor`), `utils/ocrProcessWorker.js` and `utils/ocrProcessEntry.js` (helper process). Used by scouting and guild applications. |
+| Runtime | `utils/runtimeLogging.js` and `utils/logFiles.js` (monthly logs), `utils/discordTransport.js` (REST requests and warm-up), `utils/interactionDiagnostics.js`, `utils/runtimeHealth.js` and `utils/containerMemory.js` (memory pressure lines, plus a log-only summary 15 minutes after start and every 6 hours), `utils/runtimeActivity.js` (job names shown in memory reports). |
+| OCR | `utils/runtimeMemoryOcr.js` (shared queue, `sharedOcrWorkerPool`, `ocrWorkerPoolFor`; `run(task, { label })` names the running job, for example "OCR: PvP Scout Gold"), `utils/ocrProcessWorker.js` and `utils/ocrProcessEntry.js` (helper process). Used by scouting and guild applications. |
 | Forum helpers | `utils/forumRetry.js` (`forumRetryDelay`, `parseRetryAfter`), `utils/forumPagination.js`, `utils/readResponseBuffer.js` (size-capped bodies), `utils/networkErrors.js`, `utils/discordMessageHistory.js` (finds earlier bot messages so retries do not post twice). |
 
 ## Patterns
@@ -55,7 +55,7 @@ description: Map of the Crow Control codebase and how its main flows fit togethe
 `DiscordDiagnosticLogger` in `utils/discordDiagnostics.js` wraps `console.log`, `console.warn` and `console.error`, and posts alerts to `logChannelID` through `ScoutAuditLogger.diagnostic`, mentioning `ownerID`:
 
 - Every `console.warn` and `console.error` becomes an alert, with secrets redacted and repeats grouped for 5 minutes, unless it matches a status event or a console-only rule.
-- `STATUS_EVENTS` pairs a warning pattern with a recovery pattern for each subsystem (forum monitors, MySQL stores, gateway, command registration, memory). A matching warning opens an incident that alerts only after its delay (forum outages 10 minutes, gateway 1 minute, most others 5 minutes, storage failures and memory pressure immediately). A matching `console.log` recovery replies to the alert. All `database:*` keys share one MySQL incident.
+- `STATUS_EVENTS` pairs a warning pattern with a recovery pattern for each subsystem (forum monitors, MySQL stores, gateway, command registration, memory). A matching warning opens an incident that alerts only after its delay (forum outages 10 minutes, gateway and memory pressure 1 minute, most others 5 minutes, storage failures immediately). A matching `console.log` recovery replies to the alert. All `database:*` keys share one MySQL incident.
 - Corrupt-data messages, and errors with `JSON_STORE_CORRUPT`, `ENOSPC`, `EROFS` or `EIO`, alert immediately even when they match a status event.
 - Changing a monitored log message changes alerting. Update `STATUS_EVENTS` and `test/discordDiagnostics.test.js` together.
 

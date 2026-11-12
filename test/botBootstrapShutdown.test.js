@@ -70,7 +70,7 @@ for (const cleanupFailure of [false, true]) test(`actual index startup stops aft
         './features/guild-applications/index.js': { createGuildApplicationMonitor: () => monitor },
         './features/tba-forum-shops/index.js': { createTbaForumShopMonitor: () => monitor },
         './features/auctions/index.js': { createAuctionMonitor: () => monitor },
-        './features/auctions/AuctionDiscord.js': { handleAuctionButton: async () => false },
+        './features/auctions/AuctionDiscord.js': { handleAuctionButton: async () => false, temporaryAuctionFailure: () => false },
         './features/pvp-scouting/ScoutServerRegistry.js': { ScoutServerRegistry: class {
             get() { return { store: new FakeStore(), ingestor: new FakeIngestor() }; }
             async warmAutocomplete() {}

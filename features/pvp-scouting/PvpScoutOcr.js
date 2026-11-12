@@ -363,6 +363,7 @@ class PvpScoutOcr {
         this.fetch = options.fetch || globalThis.fetch;
         this.workerPool = ocrWorkerPoolFor(options);
         this.maxImageBytes = options.maxImageBytes || MAX_IMAGE_BYTES;
+        this.activityLabel = options.activityLabel || 'PvP Scout';
         this.isolatedPipeline = !options.workerPool && !options.worker && !options.workerFactory && !options.sharp && !options.fetch;
     }
 
@@ -422,14 +423,14 @@ class PvpScoutOcr {
                 // all happen in the helper, after this image reaches the queue head.
                 const source = { id: attachment.id, name: attachment.name, url: attachment.url };
                 return await this.workerPool.run(() => this.workerPool.processImage('analyzeScout',
-                    source, messageId, opponentIgn, context, { maxImageBytes: this.maxImageBytes }));
+                    source, messageId, opponentIgn, context, { maxImageBytes: this.maxImageBytes }), { label: this.activityLabel });
             } catch (error) {
                 return { attachmentId: String(attachment.id || attachment.name || 'image'), name: attachment.name || 'scout-image',
                     url: attachment.url, text: null, lines: [], teamLayoutStatus: 'uncertain',
                     error: error?.message || 'Image could not be processed.', teamLayoutReason: 'Image could not be confidently inspected.' };
             }
         }
-        return this.workerPool.run(() => this.analyzeAttachmentQueued(attachment, messageId, opponentIgn, context));
+        return this.workerPool.run(() => this.analyzeAttachmentQueued(attachment, messageId, opponentIgn, context), { label: this.activityLabel });
     }
 
     async analyzeAttachmentQueued(attachment, messageId, opponentIgn, context = {}) {

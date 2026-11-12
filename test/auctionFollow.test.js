@@ -381,3 +381,10 @@ test('a known end deadline pauses DMs and a confirmed extension can resume them'
     await f.observe('101'); await f.service.drain(new Set(['101']));
     assert.equal(f.sent.length, 1);
 });
+
+test('following an auction whose record was removed reports it as removed', async t => {
+    const f = await fixture(t);
+    await f.store.update(data => { delete data.tracked['101']; });
+    assert.deepEqual(await f.follow('101'), { unavailable: true, removed: true });
+    assert.deepEqual(await f.service.follow('202', '111', 'another-message'), { unavailable: true }, 'a different post is still only unavailable');
+});

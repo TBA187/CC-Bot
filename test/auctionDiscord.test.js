@@ -5,7 +5,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Client, ButtonInteraction, Collection, ChannelType, ComponentType, MessageFlags, MessageFlagsBitField, embedLength } = require('discord.js');
 const { AuctionDiscordNotifier, buildAuctionPayload, handleAuctionButton, privatePage,
-    followConfirmation, buildBidNotificationPayload } = require('../features/auctions/AuctionDiscord.js');
+    followConfirmation, buildBidNotificationPayload, temporaryAuctionFailure } = require('../features/auctions/AuctionDiscord.js');
 
 function sample(overrides = {}) {
     return { id: '14702', url: 'https://pokemonrevolution.net/forum/trade/14702/', title: 'Teddiursa',
@@ -892,4 +892,65 @@ test('new announcements notify only the configured role and subsequent edits do 
     await notifier.edit('message', sample());
     assert.deepEqual(edited.allowedMentions, { parse: [] });
     assert.match(edited.content, /^<@&1537991574162640906>/);
+});
+
+test('following an auction whose record was removed after it ended points to the forum page', async () => {
+    const replies = [];
+    const removed = { async follow() { return { unavailable: true, removed: true }; } };
+    const channel = { customId: 'auction:follow:14702:0', channelId: '555', guildId: '444', user: { id: '111' },
+        message: { id: '333', flags: { has: () => false } }, async deferReply() {}, async editReply(payload) { replies.push(payload); } };
+    await handleAuctionButton(channel, { channelId: '555', guildId: '444', getAuctionRecord: async () => null, followService: removed });
+    assert.equal(replies[0].content, 'This auction is no longer available. Open its forum page for details.');
+    assert.deepEqual(replies[0].components, []);
+    const followUps = [];
+    const dm = { customId: 'auction:dm-follow:14702:111', user: { id: '111' }, channel: { type: ChannelType.DM },
+        client: { user: { id: '222' }, guilds: { async fetch() { return {
+            members: { async fetch() { return { id: '111' }; } },
+            channels: { async fetch() { return { permissionsFor: () => ({ has: () => true }) }; } }
+        }; } } }, message: { author: { id: '222' }, components: [] },
+        async deferUpdate() {}, async editReply() { assert.fail('the DM controls stay unchanged'); }, async followUp(payload) { followUps.push(payload); } };
+    await handleAuctionButton(dm, { channelId: '555', guildId: '444', getAuctionRecord: async () => null, followService: removed });
+    assert.equal(followUps[0].content, 'This auction is no longer available. Open its forum page for details.');
+});
+
+test('auction button failures suggest another attempt only when the cause is temporary', () => {
+    const temporary = [
+        Object.assign(new Error('waiting for MySQL'), { code: 'AUCTION_STORAGE_UNAVAILABLE' }),
+        Object.assign(new Error('rate limited'), { status: 429 }),
+        Object.assign(new Error('Discord server error'), { status: 503 }),
+        Object.assign(new Error('socket'), { code: 'ECONNRESET' }),
+        new Error('wrapped', { cause: Object.assign(new Error('lost'), { code: 'PROTOCOL_CONNECTION_LOST' }) }),
+        Object.assign(new Error('request aborted'), { name: 'AbortError' })
+    ];
+    const permanent = [
+        Object.assign(new Error('conflict'), { code: 'AUCTION_STORE_CONFLICT' }),
+        Object.assign(new Error('corrupt'), { code: 'JSON_STORE_CORRUPT' }),
+        Object.assign(new Error('Invalid auction update.'), { auctionStorage: true }),
+        Object.assign(new Error('Missing Permissions'), { status: 403, code: 50013 }),
+        new Error('unexpected bug')
+    ];
+    for (const error of temporary) assert.equal(temporaryAuctionFailure(error), true, error.message);
+    for (const error of permanent) assert.equal(temporaryAuctionFailure(error), false, error.message);
+});
+
+test('the interaction router adds the retry hint only to temporary auction failures', async () => {
+    const { createInteractionHandler } = require('../app/interactionRouter.js');
+    const cases = [
+        [Object.assign(new Error('waiting for MySQL'), { code: 'AUCTION_STORAGE_UNAVAILABLE' }), '⚠️ Something went wrong! Please try again in a moment.'],
+        [Object.assign(new Error('conflict'), { code: 'AUCTION_STORE_CONFLICT' }), '⚠️ Something went wrong!']
+    ];
+    for (const [error, expected] of cases) {
+        const edits = [];
+        const handler = createInteractionHandler({ lifecycle: { stopping: false }, commandMap: new Map(), commandConfig: {},
+            interactionDiagnostics: { track() {}, describe: () => 'failed', errorReason: () => '', canAcknowledge: () => true },
+            auctionMonitor: { store: { getAuctionRecord: async () => null }, followService: { async follow() { throw error; } } },
+            botDiagnostics: { secrets: [] }, appConfig: { auctionChannelID: '555', guildId: '444' },
+            consoleObject: { error() {}, warn() {}, log() {} } });
+        const interaction = { customId: 'auction:follow:14702:0', channelId: '555', guildId: '444', user: { id: '111' }, id: '1',
+            message: { id: '333', flags: { has: () => false } }, deferred: false, replied: false,
+            isAutocomplete: () => false, isButton: () => true,
+            async deferReply() { this.deferred = true; }, async editReply(payload) { edits.push(payload); } };
+        await handler(interaction);
+        assert.equal(edits.at(-1).content, expected);
+    }
 });

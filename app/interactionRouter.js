@@ -5,7 +5,9 @@ const { MessageFlags, TextDisplayBuilder } = require('discord.js');
 const { redactDiagnostic } = require('../utils/discordDiagnostics.js');
 const { handleGiveawayButton } = require('../events/giveaways.js');
 const { handleGuildForumFeedbackButton } = require('../features/guild-applications/index.js');
-const { handleAuctionButton } = require('../features/auctions/AuctionDiscord.js');
+const { handleAuctionButton, temporaryAuctionFailure } = require('../features/auctions/AuctionDiscord.js');
+
+const SOMETHING_WENT_WRONG = '⚠️ Something went wrong!';
 
 function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMap, commandConfig, auctionMonitor,
     botDiagnostics, appConfig, consoleObject = console,
@@ -159,13 +161,16 @@ function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMa
             if (interaction.isAutocomplete()) {
                 return;
             }
+            // Auction controls suggest another attempt only when the cause is temporary.
+            const feedback = SOMETHING_WENT_WRONG + (interaction.customId?.startsWith('auction:')
+                && temporaryAuctionFailure?.(err) ? ' Please try again in a moment.' : '');
             if (interaction.deferred || interaction.replied) {
                 const errorPayload = interaction.message?.flags?.has?.(MessageFlags.IsComponentsV2)
-                    ? { components: [new TextDisplayBuilder().setContent('⚠️ Something went wrong!')], allowedMentions: { parse: [] } }
-                    : { content: '⚠️ Something went wrong!' };
+                    ? { components: [new TextDisplayBuilder().setContent(feedback)], allowedMentions: { parse: [] } }
+                    : { content: feedback };
                 interaction.editReply(errorPayload).catch(() => { });
             } else if (interactionDiagnostics.canAcknowledge(interaction)) {
-                interaction.reply({ content: '⚠️ Something went wrong!', flags: MessageFlags.Ephemeral }).catch(() => { });
+                interaction.reply({ content: feedback, flags: MessageFlags.Ephemeral }).catch(() => { });
             }
         }
     };

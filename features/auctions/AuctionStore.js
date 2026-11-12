@@ -309,7 +309,9 @@ class AuctionStore {
         } catch (error) {
             if (error.auctionStorage || error.code === 'AUCTION_STORE_CONFLICT') throw error;
             this.unavailable(error);
-            const fallback = { ...this.journal, snapshot: structuredClone(this.state) };
+            // A shallow copy is enough: stored records are frozen, metadata is replaced rather than
+            // changed in place, only syncedRevision is set on the state object, and write() serializes now.
+            const fallback = { ...this.journal, snapshot: { ...this.state } };
             this.write(fallback);
             this.journal = fallback;
         }

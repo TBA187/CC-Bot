@@ -1020,6 +1020,41 @@ test('the regular listing check stops at auctions older than seven days and the 
     assert.ok(f.monitor.nextFullSweepAt >= f.now() + DAY - 60 * 1000);
 });
 
+test('a listing check that spans several runs ignores auctions tracked after it started', async t => {
+    const now = Date.UTC(2026, 10, 12);
+    const f = scheduleFixture(t, now);
+    const record = id => ({ messageId: snowflakeAt(now - DAY), auction: { id, status: 'Active', bids: [], listingSignature: `card-${id}` } });
+    const records = {};
+    for (let id = 1; id <= 220; id++) records[id] = record(String(id));
+    await track(f, records);
+    for (let page = 1; page <= 11; page++) f.pages.set(page, Array.from({ length: 20 }, (_, index) => String(220 - (page - 1) * 20 - index)));
+    for (const id of Object.keys(records)) f.signatures.set(id, `card-${id}`);
+    await f.monitor.runOnce({ scheduled: true });
+    assert.ok(f.monitor.activeSweep, 'eleven pages take two runs');
+    assert.deepEqual(f.fetched, []);
+    await f.store.update(data => { data.tracked['300'] = record('300'); });
+    f.pages.set(1, ['300', ...f.pages.get(1).slice(0, 19)]);
+    f.signatures.set('300', 'card-300');
+    f.auctions.set('2', { id: '2', status: 'Ended', bids: [] });
+    f.pages.set(11, f.pages.get(11).filter(id => id !== '2'));
+    f.setNow(now + 90 * 1000);
+    await f.monitor.runOnce({ scheduled: true });
+    assert.equal(f.monitor.activeSweep, null);
+    assert.deepEqual(f.fetched, ['2'], 'only the auction that left the listing is checked, not the one posted during the check');
+});
+
+test('the newest tracked auction is checked when it leaves the listing', async t => {
+    const now = Date.UTC(2026, 10, 12);
+    const f = scheduleFixture(t, now);
+    const record = id => ({ messageId: snowflakeAt(now - DAY), auction: { id, status: 'Active', bids: [], listingSignature: `card-${id}` } });
+    await track(f, { 11: record('11'), 12: record('12') });
+    f.pages.set(1, ['11']);
+    f.signatures.set('11', 'card-11');
+    f.auctions.set('12', { id: '12', status: 'Ended', bids: [] });
+    await f.monitor.runOnce({ scheduled: true });
+    assert.deepEqual(f.fetched, ['12']);
+});
+
 test('followed auctions are checked every interval while unfollowed recent auctions wait for the listing check', async t => {
     const now = Date.UTC(2026, 10, 12);
     const f = scheduleFixture(t, now);
@@ -1241,6 +1276,18 @@ test('one connection reset is retried before the monitor pauses, while HTTP erro
     f.monitor.forumClient.fetchAuction = async () => { attempts++; throw new AuctionForumRequestError('busy', { status: 503, code: 'HTTP_503' }); };
     assert.equal(await f.monitor.runOnce(), false);
     assert.equal(attempts, 1);
+    const g = fixture(t);
+    g.pages.set(1, ['10']);
+    await g.monitor.runOnce();
+    g.pages.set(1, ['12', '10']);
+    attempts = 0;
+    g.monitor.forumClient.fetchAuction = async () => {
+        attempts++;
+        throw new AuctionForumRequestError('fetch failed (auction 12).', { code: 'UNKNOWN',
+            cause: Object.assign(new Error('fetch failed'), { cause: Object.assign(new Error('certificate'), { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' }) }) });
+    };
+    assert.equal(await g.monitor.runOnce(), false);
+    assert.equal(attempts, 1, 'a certificate failure is not retried');
 });
 
 test('a listing with more than 1,000 pages is scanned normally when the checkpoint is on its first page', async t => {

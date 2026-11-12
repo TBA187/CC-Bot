@@ -31,6 +31,7 @@ const UNAVAILABLE_RETRY_MS = 30 * MINUTE_MS;
 const DISCORD_EPOCH_MS = 1420070400000n;
 const EARLIEST_ANNOUNCEMENT_MS = Date.UTC(2020, 0, 1);
 const RETRYABLE_NETWORK_CODES = /^(?:ECONNRESET|ECONNREFUSED|EHOSTUNREACH|ENETUNREACH|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|UND_ERR_)/;
+const CERTIFICATE_CODES = /^(?:CERT_|ERR_TLS_|UNABLE_TO_VERIFY_LEAF_SIGNATURE$|SELF_SIGNED_CERT_IN_CHAIN$|DEPTH_ZERO_SELF_SIGNED_CERT$)|_CERT_/;
 
 function unknownMessage(error) {
     return Number(error?.code) === 10008 || Number(error?.rawError?.code) === 10008;
@@ -284,9 +285,13 @@ class AuctionMonitor {
     }
 
     // A single connection reset or timeout is common on the forum host; one retry after the
-    // normal spacing avoids pausing the whole monitor for it.
+    // normal spacing avoids pausing the whole monitor for it. A certificate failure does not
+    // clear up that quickly, so it is not retried.
     retryableNetworkError(error) {
         if (!(error instanceof AuctionForumRequestError) || error.status) return false;
+        for (let current = error, depth = 0; current && depth < 8; current = current.cause, depth++) {
+            if (CERTIFICATE_CODES.test(String(current.code || ''))) return false;
+        }
         return RETRYABLE_NETWORK_CODES.test(String(error.code || error.cause?.code || ''))
             || /fetch failed/i.test(String(error.message || ''));
     }
@@ -554,11 +559,18 @@ class AuctionMonitor {
 
     // The regular sweep reads active pages down to the oldest auction announced in the last
     // 7 days, so its size stays flat while old listings without bids accumulate further down.
-    async sweepBoundary() {
+    // The ceiling is the newest auction tracked when the sweep starts: auctions tracked later
+    // were posted after its first page was read, so the sweep cannot have covered them.
+    async sweepBounds() {
         const now = this.clock();
-        const ids = await this.store.readTracked((record, id) => !ended(record.auction) && !record.auction.sourceUnavailable
-            && this.isFresh(record, now) ? id : undefined);
-        return ids.length ? ids.reduce((low, id) => BigInt(id) < low ? BigInt(id) : low, BigInt(ids[0])) : null;
+        let boundary = null, ceiling = null;
+        await this.store.readTracked((record, id) => {
+            const value = BigInt(id);
+            if (ceiling === null || value > ceiling) ceiling = value;
+            if (!ended(record.auction) && !record.auction.sourceUnavailable && this.isFresh(record, now)
+                && (boundary === null || value < boundary)) boundary = value;
+        });
+        return { boundary, ceiling };
     }
 
     async listingPage(page) {
@@ -577,7 +589,7 @@ class AuctionMonitor {
         let sweep = this.activeSweep;
         if (!sweep) {
             if (!first || this.needsStartupBaseline || this.clock() < this.nextSweepAt) return;
-            sweep = this.activeSweep = { full: this.clock() >= this.nextFullSweepAt, boundary: await this.sweepBoundary(),
+            sweep = this.activeSweep = { full: this.clock() >= this.nextFullSweepAt, ...await this.sweepBounds(),
                 nextPage: 1, lastPage: Math.max(1, Number(first.lastPage) || 1), seen: new Set(), signatures: new Map(),
                 lowestSeen: null, covered: false, complete: false, startedAt: this.clock() };
         }
@@ -629,7 +641,9 @@ class AuctionMonitor {
         const floor = sweep.covered ? (sweep.full ? 0n : sweep.boundary) : sweep.lowestSeen;
         const flagged = await this.store.readTracked((record, id) => {
             if (ended(record.auction) || record.auction.sourceUnavailable) return undefined;
-            if (!sweep.seen.has(id)) return floor !== null && BigInt(id) >= floor ? id : undefined;
+            if (!sweep.seen.has(id)) {
+                return floor !== null && BigInt(id) >= floor && sweep.ceiling !== null && BigInt(id) <= sweep.ceiling ? id : undefined;
+            }
             const signature = sweep.signatures.get(id);
             if (!signature) return undefined;
             this.cardSignatures.set(id, signature);

@@ -559,8 +559,8 @@ class AuctionMonitor {
 
     // The regular sweep reads active pages down to the oldest auction announced in the last
     // 7 days, so its size stays flat while old listings without bids accumulate further down.
-    // The ceiling is the newest auction tracked when the sweep starts: auctions tracked later
-    // were posted after its first page was read, so the sweep cannot have covered them.
+    // The ceiling is the newest auction tracked when the sweep starts. Auctions tracked later
+    // can be newer than the pages the sweep read, so the sweep does not cover them.
     async sweepBounds() {
         const now = this.clock();
         let boundary = null, ceiling = null;

@@ -6,6 +6,7 @@ const { ScoutCorrectionWindow } = require('./ScoutCorrectionWindow.js');
 const { reviewFeedbackText } = require('./ScoutFeedbackText.js');
 const { hasImageEvidence } = require('./PvpScoutParser.js');
 const { teamLineSpecies } = require('./PokemonTeamParser.js');
+const { discordMessageId } = require('./PvpScoutStore.js');
 
 const UP = '👍';
 const DOWN = '👎';
@@ -248,6 +249,16 @@ class ScoutMessageFeedback {
                             author_username: source.author_username })) }).catch(error => {
                     console.warn(`[CC LOG] Could not prepare scout publication log for ${latest.message_id}: ${error.message}`);
                 });
+                // Each further report in the same message is published under its own opponent.
+                for (const section of await this.store.sectionRows?.(latest.message_id) || []) {
+                    if (section.is_deleted || feedbackOutcome(section, section)?.reaction !== UP) continue;
+                    await this.onPublished({ ign: section.opponent_ign, reportId: section.message_id, messageId: section.message_id,
+                        rating: section.rating, sourceUrl: section.source_url,
+                        sources: [{ message_id: section.message_id, author_id: section.author_id, author_username: section.author_username }]
+                    }).catch(error => {
+                        console.warn(`[CC LOG] Could not prepare scout publication log for ${section.message_id}: ${error.message}`);
+                    });
+                }
             }
             await this.clearRunFeedback(context.run.slice(0, -1));
             await this.synchronize(latest.message_id, message, true);
@@ -270,6 +281,15 @@ class ScoutMessageFeedback {
             if (outcome?.reaction === DOWN) return { ...outcome,
                 reviewMessageId: outcome.reviewMessageId || root?.message_id };
             if (outcome) result = outcome;
+        }
+        // Further reports in the same message share its reaction: one that needs review turns it into a thumbs-down.
+        for (const section of await this.store.sectionRows?.(latest.message_id) || []) {
+            if (section.is_deleted) continue;
+            const outcome = feedbackOutcome(section, section, await this.store.getEditReview(section.message_id));
+            if (outcome?.reaction === DOWN) {
+                return { ...outcome, reviewMessageId: section.message_id,
+                    reason: `Report for ${section.opponent_ign || 'an unnamed opponent'}: ${outcome.reason || 'The opponent or team could not be verified confidently.'}` };
+            }
         }
         return result;
     }
@@ -328,6 +348,8 @@ class ScoutMessageFeedback {
     }
 
     async synchronize(messageId, suppliedMessage = null, create = false) {
+        // Reactions belong to the Discord message, also for a further report it holds.
+        messageId = discordMessageId(messageId);
         const state = await this.state(messageId);
         if (!create && !state) return null;
         const row = await this.store.getMessage(messageId);
@@ -390,6 +412,7 @@ class ScoutMessageFeedback {
 
     async refreshReport(messageId, message = null, create = false) {
         if (message && (!message.author?.id || message.author.bot || message.webhookId)) return;
+        messageId = discordMessageId(messageId);
         let rootId = await this.enqueue(messageId, () => this.synchronize(messageId, message, create));
         if (!rootId && !create) {
             const row = await this.store.getMessage(messageId);

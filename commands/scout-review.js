@@ -103,6 +103,15 @@ function correctionSummary(before, after) {
     return changes.length ? changes.join('; ') + '.' : 'Existing scout details verified; no values needed changing.';
 }
 
+// Reports are reviewable before the author's correction window ends; officers are alerted only afterwards.
+function correctionWindowNotice(row, now = Date.now()) {
+    if (!row.correction_open) return [];
+    const dueAt = Number(row.correction_due_at_ms);
+    const deadline = Number.isFinite(dueAt) && dueAt > now ? ` It ends <t:${Math.floor(dueAt / 1000)}:R>.` : '';
+    return [`⚠️ **The member's correction window is still open.**${deadline}`,
+        '-# The member can still fix this report by editing the scout message, and officers are alerted only if it remains unresolved when the window ends. A decision made here closes the window.'];
+}
+
 function reviewPayload(row, page, total, userId, authorName = null) {
     const { rootSource, originalSources, replies, additionalSources } = partitionReportSources(row, row.linkedSources);
     const originalReport = mergeOriginalReport(originalSources, row.opponent_ign || rootSource.opponent_ign);
@@ -113,6 +122,7 @@ function reviewPayload(row, page, total, userId, authorName = null) {
     const author = authorName || rootSource.author_username || 'Unknown';
     const scoutedBy = author;
     const sourceLines = [
+        ...correctionWindowNotice(row),
         ...(row.pending_edit ? ['**Review type:** Recent member edit'] : []),
         ...originalSources.filter(source => source.source_url).slice(0, 1).map(source =>
             `**Scout Source:** [**Jump to message**  ↗️](${source.source_url})`),
@@ -282,7 +292,7 @@ class ScoutReview {
 
     scheduleReviewImageRefresh(interaction, payload) {
         const embed = payload?.embeds?.[0];
-        const messageId = String((embed?.toJSON?.() || embed)?.footer?.text || '').match(/Message (\d+)/u)?.[1];
+        const messageId = String((embed?.toJSON?.() || embed)?.footer?.text || '').match(/Message (\d+(?:_\d+)?)/u)?.[1];
         const row = messageId ? this.reviewRows.get(messageId) : null;
         if (!row) return;
         const imageSource = reviewImageSource(row);
@@ -362,7 +372,8 @@ class ScoutReview {
         if (!rows.length) return { content: 'There are no unresolved scout messages to export.', embeds: [], components: [] };
         const headers = [
             'message_id', 'server', 'source_url', 'created_at', 'author', 'classification', 'candidate_ign',
-            'rating', 'team_layout_status', 'team_text', 'notes', 'review_reason', 'ocr_text', 'attachment_urls'
+            'rating', 'team_layout_status', 'team_text', 'notes', 'review_reason', 'ocr_text', 'attachment_urls',
+            'correction_window'
         ];
         const lines = [headers.map(csvCell).join(',')];
         for (const row of rows) {
@@ -371,7 +382,9 @@ class ScoutReview {
                 row.classification, row.opponent_ign, row.rating, row.team_layout_status, row.team_text,
                 row.notes || row.message_content, row.review_reason,
                 (row.ocrResults || []).map(result => result.text || result.error || '').join('\n'),
-                (row.attachments || []).map(attachment => attachment.url).join('\n')
+                (row.attachments || []).map(attachment => attachment.url).join('\n'),
+                !row.correction_open ? '' : row.correction_due_at_ms
+                    ? `open until ${new Date(row.correction_due_at_ms).toISOString()}` : 'open'
             ];
             lines.push(values.map(csvCell).join(','));
         }
@@ -456,6 +469,8 @@ class ScoutReview {
                         requirePending: true, expectedRevision: this.reviewRows.get(String(messageId))?.edit_revision
                     });
                     if (!before || !after) throw new Error('The scout message is no longer available.');
+                    // An accepted edit can add or remove further reports in the same message.
+                    if (accept) await this.ingestor?.syncSections?.(messageId);
                     const title = `**${canonicalIgn(after.opponent_ign || before.opponent_ign) || 'Unknown opponent'}** (\`${messageId}\`)`;
                     return accept ? `✅ Accepted the edited scout report for ${title}.\n${correctionSummary(before, after)}`
                         + (after.review_status === 'pending' ? '\nThe updated report still needs an opponent IGN review.' : '')
@@ -507,12 +522,13 @@ class ScoutReview {
         await this.runReviewAction(interaction,
             action === 'confirm' ? 'Confirming scout...' : 'Removing scout...',
             async () => {
+                const options = { requirePending: true, expectedContentHash: this.reviewRows.get(String(messageId))?.content_hash };
                 if (action === 'confirm') {
-                    const saved = await this.store.confirmReview(messageId, interaction.user.id, { requirePending: true });
+                    const saved = await this.store.confirmReview(messageId, interaction.user.id, options);
                     return `✅ Approved scout report **${canonicalIgn(saved.opponent_ign) || 'Unknown opponent'}** (\`${messageId}\`). `
                         + 'The saved scout details were accepted and removed from the review queue.';
                 }
-                await this.store.markNotScout(messageId, interaction.user.id, { requirePending: true });
+                await this.store.markNotScout(messageId, interaction.user.id, options);
                 return `✅ Declined message \`${messageId}\` as **Not a scout**. This source is excluded from \`/scout\` and the review queue.`;
             }, Math.max(0, page), ownerId, messageId);
         return true;
@@ -554,7 +570,7 @@ class ScoutReview {
                 rating: ratingText ? rating : null,
                 teamText: interaction.fields.getTextInputValue('team').trim() || null,
                 notes: interaction.fields.getTextInputValue('notes').trim() || null
-            }, { requirePending: true });
+            }, { requirePending: true, expectedContentHash: this.reviewRows.get(String(messageId))?.content_hash });
             return `✅ Corrected scout report **${canonicalIgn(saved.opponent_ign)}** (\`${messageId}\`).\n`
                 + correctionSummary(existing, saved);
         }, Math.max(0, Number(pageValue) || 0), ownerId, messageId);

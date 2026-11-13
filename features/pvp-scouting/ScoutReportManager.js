@@ -7,6 +7,7 @@ const { randomBytes } = require('node:crypto');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, FileUploadBuilder, LabelBuilder, ModalBuilder,
     StringSelectMenuBuilder, MessageFlags } = require('discord.js');
 const { ScoutReportAdminStore, reportVersion } = require('./ScoutReportAdminStore.js');
+const { discordMessageId } = require('./PvpScoutStore.js');
 const { buildScoutEmbed, autocompleteWithinDeadline } = require('../../commands/scout.js');
 const { scoutPayload, scoutTextInput: input, withScoutLoading } = require('./ScoutPresentation.js');
 const { downloadImageAttachment, refreshImageAttachments } = require('./ScoutImageUrls.js');
@@ -36,6 +37,52 @@ function fitPreview(preview, info) {
         return [{ ...field, value }];
     });
     return new EmbedBuilder(json);
+}
+
+// Modal fields shared by the report editor and the deleted-report review.
+function reportEditFields(section, source, reportIgn = null) {
+    if (section === 'details') return [
+        input('ign', 'Opponent IGN (change on original source)', source.opponent_ign || reportIgn, false, true, 32),
+        input('rating', 'PvP rating (blank = none)', source.rating, false, false, 5),
+        input('team', 'Pokémon team / moves / items', source.team_text, true), input('notes', 'Additional notes', source.notes, true)];
+    if (section === 'images') return [
+        input('images', 'Screenshot URLs', source.attachments.map(item => item.url).join('\n'), true)
+            .setDescription('One HTTPS URL per line. Keep URLs to retain images; clear them to replace or remove images.'),
+        new LabelBuilder().setLabel('Upload screenshots (optional)')
+            .setDescription('Add images alongside the URLs above. Up to 10 screenshots total per source.')
+            .setFileUploadComponent(new FileUploadBuilder().setCustomId('screenshots')
+                .setMinValues(0).setMaxValues(10).setRequired(false))];
+    return [];
+}
+
+// A Discord text input holds at most 4000 characters. Opening an editor must not
+// silently erase the rest of a longer saved field.
+function fullModalText(interaction, name, original) {
+    const value = interaction.fields.getTextInputValue(name).trim();
+    const stored = String(original || '');
+    return stored.length > 4000 && value === stored.slice(0, 4000).trim() ? stored : value;
+}
+
+// Turns the screenshot form into saved attachments, keeping renewable references for retained images.
+function screenshotAttachments(interaction, source) {
+    const urls = [...new Set(fullModalText(interaction, 'images', source.attachments.map(item => item.url).join('\n'))
+        .split(/\r?\n/u).map(value => value.trim()).filter(Boolean))];
+    const uploads = [...(interaction.fields.getUploadedFiles('screenshots')?.values() || [])];
+    if (urls.length + uploads.length > 10) throw new Error('Use at most 10 screenshots per source, including URLs and uploads.');
+    if (uploads.some(item => !String(item.contentType || '').startsWith('image/'))) {
+        throw new Error('Each uploaded screenshot must be an image.');
+    }
+    const attachments = urls.map((url, index) => {
+        let parsed;
+        try { parsed = new URL(url); } catch { throw new Error('Each screenshot must be a valid HTTPS URL.'); }
+        if (parsed.protocol !== 'https:') throw new Error('Each screenshot must be a valid HTTPS URL.');
+        const original = source.attachments.find(item => item.url === url);
+        if (!original) return { id: '', name: `scout-${index + 1}.png`, url, contentType: 'image/png' };
+        return original.id ? { ...original,
+            sourceChannelId: original.sourceChannelId || source.channel_id,
+            sourceMessageId: original.sourceMessageId || source.message_id } : original;
+    });
+    return { attachments, uploads };
 }
 
 class ScoutReportManager {
@@ -140,20 +187,11 @@ class ScoutReportManager {
         const token = this.remember(owner, { ...session, kind: 'edit', section });
         const source = session.source;
         const modal = new ModalBuilder().setCustomId(`${PREFIX}reports-modal:${owner}:${token}${this.server ? `:${this.server}` : ''}`).setTitle(`Edit scout ${section}`);
-        if (section === 'details') modal.addLabelComponents(
-            input('ign', 'Opponent IGN (change on original source)', source.opponent_ign || session.report.root.opponent_ign, false, true, 32),
-            input('rating', 'PvP rating (blank = none)', source.rating, false, false, 5),
-            input('team', 'Pokémon team / moves / items', source.team_text, true), input('notes', 'Additional notes', source.notes, true));
+        if (section === 'details') modal.addLabelComponents(...reportEditFields('details', source, session.report.root.opponent_ign));
         if (section === 'source') modal.addLabelComponents(
             input('source_url', 'Original Discord message link', source.source_url, false, true, 512),
             input('content', 'Stored message text', source.message_content, true));
-        if (section === 'images') modal.addLabelComponents(
-            input('images', 'Screenshot URLs', source.attachments.map(item => item.url).join('\n'), true)
-                .setDescription('One HTTPS URL per line. Keep URLs to retain images; clear them to replace or remove images.'),
-            new LabelBuilder().setLabel('Upload screenshots (optional)')
-                .setDescription('Add images alongside the URLs above. Up to 10 screenshots total per source.')
-                .setFileUploadComponent(new FileUploadBuilder().setCustomId('screenshots')
-                    .setMinValues(0).setMaxValues(10).setRequired(false)));
+        if (section === 'images') modal.addLabelComponents(...reportEditFields('images', source));
         return modal;
     }
 
@@ -251,40 +289,18 @@ class ScoutReportManager {
                 await interaction.editReply(scoutPayload(await this.listPanel(owner, get('query'))));
             } else if (session.kind === 'edit') {
                 const patch = {};
-                // A Discord text input holds at most 4000 characters. Opening an
-                // editor must not silently erase the rest of a longer saved field.
-                const fullText = (name, original) => {
-                    const value = get(name);
-                    const stored = String(original || '');
-                    return stored.length > 4000 && value === stored.slice(0, 4000).trim() ? stored : value;
-                };
+                const fullText = (name, original) => fullModalText(interaction, name, original);
                 if (session.section === 'details') patch.details = { ign: get('ign'), rating: get('rating'),
                     teamText: fullText('team', session.source.team_text), notes: fullText('notes', session.source.notes) };
                 if (session.section === 'source') {
                     const sourceUrl = get('source_url');
-                    const sourceMessageId = session.source.staffOverrides?.splitFromMessageId || session.source.message_id;
+                    const sourceMessageId = discordMessageId(session.source.message_id);
                     if (!new RegExp(`^https://discord\\.com/channels/\\d+/\\d+/${sourceMessageId}$`, 'u').test(sourceUrl)) throw new Error('The Discord link must refer to this source message ID.');
                     patch.overrides = { source_url: sourceUrl,
                         message_content: fullText('content', session.source.message_content) };
                 }
                 if (session.section === 'images') {
-                    const urls = [...new Set(fullText('images', session.source.attachments.map(item => item.url).join('\n'))
-                        .split(/\r?\n/u).map(value => value.trim()).filter(Boolean))];
-                    const uploads = [...(interaction.fields.getUploadedFiles('screenshots')?.values() || [])];
-                    if (urls.length + uploads.length > 10) throw new Error('Use at most 10 screenshots per source, including URLs and uploads.');
-                    if (uploads.some(item => !String(item.contentType || '').startsWith('image/'))) {
-                        throw new Error('Each uploaded screenshot must be an image.');
-                    }
-                    const attachments = urls.map((url, index) => {
-                        let parsed;
-                        try { parsed = new URL(url); } catch { throw new Error('Each screenshot must be a valid HTTPS URL.'); }
-                        if (parsed.protocol !== 'https:') throw new Error('Each screenshot must be a valid HTTPS URL.');
-                        const original = session.source.attachments.find(item => item.url === url);
-                        if (!original) return { id: '', name: `scout-${index + 1}.png`, url, contentType: 'image/png' };
-                        return original.id ? { ...original,
-                            sourceChannelId: original.sourceChannelId || session.source.channel_id,
-                            sourceMessageId: original.sourceMessageId || session.source.message_id } : original;
-                    });
+                    const { attachments, uploads } = screenshotAttachments(interaction, session.source);
                     if (uploads.length) attachments.push(...await this.storeUploadedImages(interaction, session, uploads));
                     patch.overrides = { attachments };
                 }
@@ -350,4 +366,4 @@ class ScoutReportManagerRegistry {
     }
 }
 
-module.exports = { ScoutReportManager, ScoutReportManagerRegistry };
+module.exports = { ScoutReportManager, ScoutReportManagerRegistry, fullModalText, reportEditFields, screenshotAttachments };

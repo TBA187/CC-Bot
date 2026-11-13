@@ -7,10 +7,12 @@ const { hasKnownTeamDetail, isPokemonDetailNote, matchKnownTermHeading, matchSpe
     reportContextSpecies, resolveNoteShorthand, sameTeamSpecies, splitScoutText } = require('./PokemonTeamParser.js');
 const { setImmediate: yieldToEvents } = require('node:timers/promises');
 const { ScoutMessageFeedback, feedbackOutcome } = require('./ScoutMessageFeedback.js');
-const { contentHash, scoutVersion } = require('./PvpScoutStore.js');
+const { contentHash, discordMessageId, scoutVersion } = require('./PvpScoutStore.js');
 const { runtimeActivity } = require('../../utils/runtimeActivity.js');
+const { ScoutDeletionReview } = require('./ScoutDeletionReview.js');
 
-const { canAutoApplyScoutEdit } = require('./ScoutEditPolicy.js');
+const { canAutoApplyScoutEdit, comparisonParse, hasOfficerDecision, mergeReviewedEdit,
+    spamEditReason } = require('./ScoutEditPolicy.js');
 
 const EDIT_REVIEW_WINDOW_MS = 24 * 60 * 60 * 1000;
 const HISTORY_PAGE_SIZE = 100;
@@ -249,6 +251,14 @@ class PvpScoutIngestor {
             } });
     }
 
+    // Created on first use so a store replaced after construction is still the one consulted.
+    get deletions() {
+        this.deletionReview ||= new ScoutDeletionReview({ client: this.client, store: this.store, server: this.server,
+            channelId: this.channelId, officerChannelId: this.officerChannelId, guildId: this.guildId,
+            regroup: () => this.enqueue(() => this.rebuildGroups()), stopped: () => this.stopped });
+        return this.deletionReview;
+    }
+
     get logPrefix() {
         return `[CC LOG] [PvP Scout] ${this.server === 'silver' ? 'Silver' : 'Gold'}:`;
     }
@@ -442,8 +452,23 @@ class PvpScoutIngestor {
         record.deferReview = deferReview && !message.author?.bot && !message.webhookId;
         if (this.stopped) return null;
         const saved = await this.store.saveMessage(record);
+        // Further reports in the same message become their own records.
+        await this.store.syncSections?.(saved, record.extraSections || [], { deferReview: record.deferReview });
         if (!regroup) await this.assignLiveGroup(saved);
         return saved;
+    }
+
+    // Re-reads the saved text of a message after an officer accepted its held edit.
+    async syncSections(messageId) {
+        if (!this.store.syncSections) return;
+        const row = await this.store.getMessage(discordMessageId(messageId));
+        if (!row || row.is_deleted) return;
+        const parsed = extractScoutData({ content: row.archive_message_content, attachments: row.archive_attachments },
+            { ocrResults: row.ocrResults });
+        await this.enqueue(async () => {
+            await this.store.syncSections(row, parsed.extraSections || []);
+            await this.rebuildGroups();
+        });
     }
 
     async rootForMessage(messageId) {
@@ -591,19 +616,28 @@ class PvpScoutIngestor {
     }
 
     async recheckCorrection(messageId) {
-        const row = await this.store.getMessage(messageId);
+        // A further report of a multi-report message is checked through the message that holds it.
+        const sourceId = discordMessageId(messageId);
+        const row = await this.store.getMessage(sourceId);
         if (!row || row.is_deleted) return;
         let message;
-        try { message = await (await this.getChannel()).messages.fetch(messageId); }
+        try { message = await (await this.getChannel()).messages.fetch(sourceId); }
         catch (error) {
             if (Number(error.code) !== 10008) throw error;
-            await this.store.markDeleted(messageId, this.channelId);
+            // A deleted report an officer chose to keep stays in the archive without its Discord message.
+            for (const id of [sourceId, ...await this.liveSectionIds(sourceId)]) {
+                if (!await this.deletions.store.isKept(id)) await this.store.markDeleted(id, this.channelId);
+            }
             return;
         }
         const attachments = [...(message.attachments?.values?.() || [])].map(attachmentRecord);
         const savedHash = contentHash({ content: row.archive_message_content ?? row.message_content,
             attachments: row.archive_attachments ?? row.attachments });
         if (savedHash !== contentHash({ content: message.content, attachments })) await this.handleUpdate(message);
+    }
+
+    async liveSectionIds(messageId) {
+        return (await this.store.sectionRows?.(messageId) || []).filter(row => !row.is_deleted).map(row => row.message_id);
     }
 
     editSnapshot(message) {
@@ -666,19 +700,25 @@ class PvpScoutIngestor {
                 const root = latest?.root_message_id && String(latest.root_message_id) !== String(current.id)
                     ? await this.store.getMessage(latest.root_message_id) : null;
                 const rootEdit = root?.review_status === 'pending' ? await this.store.getEditReview(root.message_id) : null;
+                const comparison = comparisonParse(latest || previous, proposal);
                 const editable = canAutoApplyScoutEdit(latest || previous, proposal,
-                    { root, pendingEdit: existingEdit, rootEdit, now: receivedAt });
-                if (editable) {
-                    const saved = await this.store.saveMessage({ ...proposal,
+                    { root, pendingEdit: existingEdit, rootEdit, now: receivedAt, comparison });
+                const spamReason = editable ? spamEditReason(latest || previous, proposal) : null;
+                // Small updates to old reports apply automatically, so the bulk safeguard is checked first.
+                const burst = await this.store.isHistoricalEditBurst?.(latest || previous, proposal) || false;
+                if (editable && !spamReason && !burst) {
+                    const record = hasOfficerDecision(latest || previous)
+                        ? mergeReviewedEdit(latest || previous, proposal, comparison) : proposal;
+                    const saved = await this.store.saveMessage({ ...record,
                         createdAt: scoutVersion(latest || previous).createdAt, deferReview: true });
+                    await this.store.syncSections?.(saved, proposal.extraSections || [], { deferReview: true });
                     await this.rebuildGroups();
                     return this.logMemberEdit({ saved, message: current, stagedEdit: false, autoApproved: true,
-                        logBefore, logAfter: proposal });
+                        logBefore, logAfter: record });
                 }
-                const burst = await this.store.isHistoricalEditBurst?.(latest || previous, proposal) || false;
                 const edit = await this.store.stageEditReview(latest || previous, proposal);
                 return this.logMemberEdit({ saved: latest || previous, message: current, edit, stagedEdit: Boolean(edit),
-                    safetyReason: burst ? 'Bulk edit safeguard: this member edited at least three reports older than one week within ten minutes.' : null,
+                    safetyReason: spamReason || (burst ? 'Bulk edit safeguard: this member edited at least three reports older than one week within ten minutes.' : null),
                     logBefore, logAfter: proposal });
             }
             if (previous) await this.store.expirePendingEditReview?.(previous.message_id);
@@ -712,11 +752,20 @@ class PvpScoutIngestor {
             && canArchiveMessage(message, this.client.user?.id));
         if (!eligible.length) return;
         const errors = [];
+        const reported = [];
         const deleted = await this.enqueue(async () => {
             const saved = [];
             for (const message of eligible) {
                 try {
-                    await this.store.markDeleted(message.id, this.channelId);
+                    // Every report held by the message is deleted with it. Each is recorded before its row
+                    // is marked, so an interrupted officer alert is sent after a restart.
+                    const sections = await this.liveSectionIds(message.id);
+                    for (const id of [String(message.id), ...sections]) {
+                        const captured = await this.deletions.capture(id);
+                        await this.store.markDeleted(id, this.channelId);
+                        if (captured) reported.push({ id, message });
+                    }
+                    for (const id of sections) await this.store.resolveCorrectionWindow?.(id);
                     saved.push(message);
                 } catch (error) {
                     errors.push(error);
@@ -732,6 +781,18 @@ class PvpScoutIngestor {
             } catch (error) {
                 errors.push(error);
             }
+        }
+        // Discord's audit log names a moderator only for single deletions. Reports from one message
+        // share the result of one lookup.
+        const deleters = new Map();
+        for (const { id, message } of reported) {
+            const known = deleters.has(message.id);
+            await this.deletions.announce(id, message, known
+                ? { lookupDeleter: false, deletedById: deleters.get(message.id) }
+                : { lookupDeleter: eligible.length === 1 }).catch(error => {
+                console.warn(`${this.logPrefix} Deleted scout alert failed for ${id}: ${error.message}; retry on restart.`);
+            });
+            if (!known) deleters.set(message.id, (await this.deletions.store.get(id).catch(() => null))?.deleted_by_id || null);
         }
         if (errors.length) throw new AggregateError(errors, 'Some deleted scouting messages could not be updated.');
     }
@@ -780,6 +841,8 @@ class PvpScoutIngestor {
             if (this.stopped) return;
             try { await this.feedback.restorePending?.(); }
             catch (error) { console.warn(`${this.logPrefix} Pending feedback restore failed: ${error.message}`); }
+            try { await this.deletions.restorePending(); }
+            catch (error) { console.warn(`${this.logPrefix} Deleted scout alert restore failed: ${error.message}`); }
         }).catch(error => {
             this.catchupReady = false;
             if (!this.stopped) console.warn(`${this.logPrefix} Catch-up paused: ${error.message}; retry on restart.`);

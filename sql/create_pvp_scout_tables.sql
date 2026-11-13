@@ -168,3 +168,24 @@ CREATE TABLE IF NOT EXISTS `pvp_scout_correction_windows` (
   PRIMARY KEY (`message_id`,`channel_id`),
   KEY `idx_scout_correction_due` (`channel_id`,`status`,`due_at_ms`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Member-deleted scout messages awaiting an officer decision (keep, repost or remove).
+CREATE TABLE IF NOT EXISTS `pvp_scout_deletions` (
+  `message_id` varchar(32) NOT NULL,
+  `channel_id` varchar(32) NOT NULL,
+  `report_id` varchar(32) NOT NULL,
+  `previous_status` enum('not_required','pending','confirmed','corrected','not_scout') NOT NULL,
+  `restore_status` enum('not_required','pending','confirmed','corrected','not_scout') NOT NULL,
+  `deleted_by_id` varchar(32) DEFAULT NULL,
+  `status` enum('pending','kept','reposted','removed') NOT NULL DEFAULT 'pending',
+  `alert_channel_id` varchar(32) DEFAULT NULL,
+  `alert_message_id` varchar(32) DEFAULT NULL,
+  `images_json` longtext CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL CHECK (`images_json` IS NULL OR json_valid(`images_json`)),
+  `repost_message_id` varchar(32) DEFAULT NULL,
+  `decided_by_id` varchar(32) DEFAULT NULL,
+  `decided_at` datetime(3) DEFAULT NULL,
+  `created_at` datetime(3) NOT NULL DEFAULT current_timestamp(3),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp(),
+  PRIMARY KEY (`message_id`,`channel_id`),
+  KEY `idx_scout_deletion_status` (`channel_id`,`status`,`alert_message_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -64,7 +64,8 @@ class ScoutArchiveView {
             refreshMessageFeedback: async id => {
                 const context = await this.owner(id);
                 return context.ingestor?.refreshMessageFeedback?.(id);
-            }
+            },
+            syncSections: async id => (await this.owner(id)).ingestor?.syncSections?.(id)
         };
     }
 

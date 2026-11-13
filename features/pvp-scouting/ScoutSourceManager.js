@@ -17,7 +17,7 @@ const safe = (value, max = 100) => String(value || '').replace(/[\r\n]/gu, ' ').
 const row = (...components) => new ActionRowBuilder().addComponents(...components);
 const btn = (label, action, owner, token, style = ButtonStyle.Secondary, disabled = false) =>
     new ButtonBuilder().setLabel(label).setCustomId(`${PREFIX}${action}:${owner}:${token}`).setStyle(style).setDisabled(disabled);
-const idFrom = text => String(text || '').trim().match(/^(?:https:\/\/discord\.com\/channels\/\d+\/\d+\/)?(\d{17,20}|manual_[a-f0-9]{20})$/u)?.[1];
+const idFrom = text => String(text || '').trim().match(/^(?:https:\/\/discord\.com\/channels\/\d+\/\d+\/)?(\d{17,20}(?:_\d{1,3})?|manual_[a-f0-9]{20})$/u)?.[1];
 
 class ScoutSourceManager {
     constructor(config) {

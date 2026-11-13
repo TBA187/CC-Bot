@@ -102,9 +102,12 @@ function memberEditPayload(event, logoPath = path.join(__dirname, '../../images/
     const before = event.before || {}, after = event.after || {};
     const ignored = ['ignored', 'not_scout'].includes(after.classification) || after.reviewStatus === 'not_scout';
     const failed = Boolean(event.failed) || after.reviewStatus === 'pending';
-    const status = failed ? '❌ Failed validation' : ignored ? 'Not a scout report'
-        : event.awaitingApproval ? '⏳ Parsed successfully • awaiting officer approval' : event.autoApproved ? '✅ Automatically approved • updated and published' : '✅ Successfully validated';
-    const color = failed ? 0xED4245 : ignored ? 0x95A5A6 : event.awaitingApproval ? 0xFEE75C : 0x57F287;
+    // An edit held by a safeguard stays visible as pending, even when the new text is no longer a scout.
+    const status = failed ? '❌ Failed validation'
+        : event.awaitingApproval ? (ignored ? '⏳ Held for officer review' : '⏳ Parsed successfully • awaiting officer approval')
+            : ignored ? 'Not a scout report'
+                : event.autoApproved ? '✅ Automatically approved • updated and published' : '✅ Successfully validated';
+    const color = failed ? 0xED4245 : event.awaitingApproval ? 0xFEE75C : ignored ? 0x95A5A6 : 0x57F287;
     const diff = scoutTextDiff(before.content, after.content);
     const attachmentNames = value => (value.attachments || []).map(a => `${a.id}: ${a.name || 'image'}`);
     const attachmentsChanged = !sameValue('attachments', before.attachments, after.attachments);

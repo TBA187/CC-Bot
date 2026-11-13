@@ -19,10 +19,17 @@ function raw(id = ROOT) {
 
 function fixture(rows = [raw(), raw(CHILD)], { failCommit = false } = {}) {
     const state = { rows: new Map(rows.map(item => [item.message_id, structuredClone(item)])), events: [], audits: [],
-        calls: [], commits: 0, rollbacks: 0, cancelled: [] };
+        calls: [], commits: 0, rollbacks: 0, cancelled: [], windows: new Map() };
     let backup;
     async function query(sql, params = []) {
         const q = sql.trim().replace(/\s+/gu, ' '); state.calls.push({ q, params });
+        if (q.startsWith('SELECT status FROM pvp_scout_correction_windows')) {
+            return [state.windows.has(params[0]) ? [{ status: state.windows.get(params[0]) }] : []];
+        }
+        if (q.startsWith("UPDATE pvp_scout_correction_windows SET status = 'resolved'")) {
+            if (state.windows.get(params[0]) === 'waiting') state.windows.set(params[0], 'resolved');
+            return [{ affectedRows: 1 }];
+        }
         if (q.startsWith('SELECT * FROM pvp_scout_messages')) {
             let found = [...state.rows.values()];
             if (q.includes('root_message_id = ?')) found = found.filter(item => item.channel_id === params[0] && item.root_message_id === params[1] && !item.is_deleted);
@@ -231,6 +238,32 @@ for (const [method, action] of [['confirmReview', 'confirmed'], ['correctReview'
         assert.equal(f.state.audits.length, 1);
     });
 }
+
+test('officers can decide a report during its open correction window, which the decision closes', async () => {
+    const options = { requirePending: true, expectedContentHash: 'seen' };
+    for (const [method, status] of [['confirmReview', 'confirmed'], ['correctReview', 'corrected'], ['markNotScout', 'not_scout']]) {
+        const f = fixture([{ ...raw(), review_status: 'pending', content_hash: 'seen' }]);
+        f.state.windows.set(ROOT, 'waiting');
+        await f.store[method](ROOT, OFFICER, ...(method === 'correctReview'
+            ? [{ ign: 'Godredeye', ignNormalized: 'godredeye', rating: 309 }, options] : [options]));
+        assert.equal(f.state.rows.get(ROOT).review_status, status);
+        assert.equal(f.state.windows.get(ROOT), 'resolved');
+        assert.equal(f.state.audits.length, 1);
+    }
+});
+
+test('a review decision is refused when the member edited the message after the panel opened', async () => {
+    const f = fixture([{ ...raw(), review_status: 'pending', content_hash: 'edited' }]);
+    f.state.windows.set(ROOT, 'waiting');
+    await assert.rejects(f.store.confirmReview(ROOT, OFFICER, { requirePending: true, expectedContentHash: 'seen' }),
+        { code: 'SCOUT_REVIEW_STALE', message: /edited this scout message/u });
+    assert.equal(f.state.rows.get(ROOT).review_status, 'pending');
+    assert.equal(f.state.windows.get(ROOT), 'waiting');
+    assert.equal(f.state.events.length, 0); assert.equal(f.state.audits.length, 0);
+    // Controls created before the hash was tracked still work.
+    await f.store.confirmReview(ROOT, OFFICER, { requirePending: true });
+    assert.equal(f.state.rows.get(ROOT).review_status, 'confirmed');
+});
 
 test('historical maintenance corrections do not post action logs', async () => {
     const f = fixture();

@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { AUTHOR_EDIT_WINDOW_MS, canAutoApplyScoutEdit } = require('../features/pvp-scouting/ScoutEditPolicy');
+const { AUTHOR_EDIT_WINDOW_MS, CLOCK_SKEW_TOLERANCE_MS, canAutoApplyScoutEdit, isSmallEdit, mergeReviewedEdit,
+    spamEditReason } = require('../features/pvp-scouting/ScoutEditPolicy');
 const { PvpScoutStore } = require('../features/pvp-scouting/PvpScoutStore');
 const { auditPayload, memberEditPayload, publishedPayload, diagnosticPayload } = require('../features/pvp-scouting/ScoutAuditLogger');
 const oldText = 'Vegeta111\n[Hoppowdon Rocky Helmet] Earthquake, Toxic';
@@ -9,36 +10,97 @@ const base = { content: oldText, ign: 'Vegeta111', rating: 300, authorId: 'membe
     messageId: '123', channelId: 'channel', createdAt: '2026-11-01T12:00:00.000Z',
     classification: 'scout', reviewStatus: 'not_required', teamText: '[Hippowdon Rocky Helmet] Earthquake, Toxic',
     attachments: [{ id: 'image', name: 'image.jpg', url: 'https://cdn/image?old' }] };
+// A different opponent and team: far more than a small update.
+const rewrite = { ign: 'OtherPlayer', content: 'OtherPlayer\nGarchomp: Outrage, Earthquake, Stealth Rock\nZapdos: Roost, Defog, Hurricane',
+    teamText: '- Garchomp: Outrage, Earthquake, Stealth Rock\n- Zapdos: Roost, Defog, Hurricane' };
 
-test('authors can change all scout details before the exact 24-hour cutoff', () => {
+test('authors can change all scout details before the exact 48-hour cutoff, and only small updates afterwards', () => {
+    assert.equal(AUTHOR_EDIT_WINDOW_MS, 48 * 60 * 60 * 1000);
     const now = Date.parse(base.createdAt) + AUTHOR_EDIT_WINDOW_MS - 1;
     for (const patch of [{ ign: 'Vegeta112' }, { rating: 301 }, { attachments: [] },
-        { notes: 'Choice Scarf confirmed' }, { content: newText.replace('Toxic', 'Taunt') }]) {
-        const proposal = { ...base, ...patch };
-        assert.equal(canAutoApplyScoutEdit(base, proposal, { now }), true);
-        assert.equal(canAutoApplyScoutEdit(base, proposal, { now: now + 1 }), false);
+        { notes: 'Choice Scarf confirmed' }, { content: newText.replace('Toxic', 'Taunt') }, rewrite]) {
+        assert.equal(canAutoApplyScoutEdit(base, { ...base, ...patch }, { now }), true);
     }
+    // A spelling fix, an added move or rating, or an extra screenshot is a small update at any age.
+    for (const patch of [{ content: newText }, { content: `${oldText}, Stealth Rock` }, { rating: 301 },
+        { content: oldText.replace('Vegeta111', 'Vegeta112'), ign: 'Vegeta112' },
+        { attachments: [...base.attachments, { id: 'second', name: 'second.jpg' }] }]) {
+        assert.equal(canAutoApplyScoutEdit(base, { ...base, ...patch }, { now: now + 1 }), true, JSON.stringify(patch));
+    }
+    // A rewrite, a different opponent or a removed screenshot waits for an officer after the window.
+    for (const patch of [rewrite, { content: oldText.replace('Vegeta111', 'Brandnew9'), ign: 'Brandnew9' }, { attachments: [] }]) {
+        assert.equal(canAutoApplyScoutEdit(base, { ...base, ...patch }, { now: now + 1 }), false, JSON.stringify(patch));
+    }
+});
+
+test('small updates are measured against the archived text and limited to half of a longer message', () => {
+    const long = { ...base, content: `Vegeta111\n${['Garchomp', 'Gliscor', 'Hippowdon', 'Landorus', 'Mamoswine']
+        .map(name => `${name}: Earthquake, Toxic, Protect, Roost`).join('\n')}` };
+    assert.equal(isSmallEdit(long, { ...long, content: `${long.content}\nZapdos: Roost, Defog, Hurricane, Volt Switch` }), true);
+    assert.equal(isSmallEdit(long, { ...long, content: `${long.content}\n${'Extra line of text. '.repeat(7)}` }), false);
+    // An officer's display override never makes the author's own change look larger.
+    const overridden = { ...base, content: 'Officer wording', archive_message_content: oldText };
+    assert.equal(isSmallEdit(overridden, { ...base, content: newText }), true);
 });
 
 test('the original posting time and Discord edit timestamp govern queued edits and invalid dates fail closed', () => {
     const postedAt = Date.parse(base.createdAt), now = postedAt + 2 * AUTHOR_EDIT_WINDOW_MS;
-    assert.equal(canAutoApplyScoutEdit(base, { ...base, editedAt: new Date(postedAt + AUTHOR_EDIT_WINDOW_MS - 1) }, { now }), true);
-    assert.equal(canAutoApplyScoutEdit(base, { ...base, editedAt: new Date(postedAt + AUTHOR_EDIT_WINDOW_MS) }, { now }), false);
-    for (const patch of [{ createdAt: null }, { createdAt: 'invalid' }, { createdAt: new Date(now + 1) }]) {
+    const edited = { ...base, ...rewrite };
+    assert.equal(canAutoApplyScoutEdit(base, { ...edited, editedAt: new Date(postedAt + AUTHOR_EDIT_WINDOW_MS - 1) }, { now }), true);
+    assert.equal(canAutoApplyScoutEdit(base, { ...edited, editedAt: new Date(postedAt + AUTHOR_EDIT_WINDOW_MS) }, { now }), false);
+    for (const patch of [{ createdAt: null }, { createdAt: 'invalid' }, { createdAt: new Date(now + CLOCK_SKEW_TOLERANCE_MS + 1) }]) {
         assert.equal(canAutoApplyScoutEdit({ ...base, ...patch }, base, { now }), false);
     }
-    for (const editedAt of ['invalid', new Date(postedAt - 1), new Date(now + 1)]) {
+    for (const editedAt of ['invalid', new Date(postedAt - 1), new Date(now + CLOCK_SKEW_TOLERANCE_MS + 1)]) {
         assert.equal(canAutoApplyScoutEdit(base, { ...base, editedAt }, { now }), false);
     }
-    assert.equal(canAutoApplyScoutEdit(base, { ...base, createdAt: new Date(now) }, { now }), false);
+    assert.equal(canAutoApplyScoutEdit(base, edited, { now }), false);
 });
 
-test('officer decisions, pending proposals, source ownership and archive boundaries remain protected', () => {
+test('a host clock behind Discord does not send a fresh edit to review', () => {
+    const postedAt = Date.parse(base.createdAt);
+    const edited = { ...base, ign: 'Vegeta112', editedAt: new Date(postedAt + 60_000) };
+    // Discord stamped the edit two seconds after the host's current time.
+    assert.equal(canAutoApplyScoutEdit(base, edited, { now: postedAt + 58_000 }), true);
+    // Without an edit timestamp, a host clock behind the posting time still counts as a fresh edit.
+    assert.equal(canAutoApplyScoutEdit(base, { ...base, ign: 'Vegeta112' }, { now: postedAt - 2000 }), true);
+    // Timestamps further ahead than the tolerance stay protected.
+    assert.equal(canAutoApplyScoutEdit(base, edited, { now: postedAt + 60_000 - CLOCK_SKEW_TOLERANCE_MS - 1 }), false);
+});
+
+test('corrections to the opponent, rating, team and screenshots are not spam, while replaced or wiped reports are held', () => {
+    const published = { ...base, content: 'Vegeta111\nHippowdon: Earthquake\nZapdos: Roost',
+        teamText: '- Hippowdon: Earthquake\n- Zapdos: Roost', attachments: [] };
+    const wiped = { ign: null, teamText: null, classification: 'ignored' };
+    for (const patch of [{ ign: 'Vegeta112' }, { rating: 301 }, { teamText: '- Hippowdon: Toxic\n- Zapdos: Defog' },
+        // A different opponent with a team, or a screenshot on its own, is still a scout report.
+        { ign: 'OtherPlayer', content: 'OtherPlayer\nGarchomp: Outrage', teamText: '- Garchomp: Outrage' },
+        { ...wiped, content: '', attachments: [{ id: 'battle', name: 'battle.png', contentType: 'image/png' }] }]) {
+        assert.equal(spamEditReason(published, { ...published, ...patch }), null);
+    }
+    for (const content of ['lol', '😂😂', 'fuck this guy']) {
+        assert.match(spamEditReason(published, { ...published, ...wiped, content }), /off-topic text/u, content);
+    }
+    assert.match(spamEditReason(published, { ...published, ...wiped, content: 'nvm wrong player' }), /removed the opponent and every Pokémon/u);
+    // A failed report or a message that was never a scout has nothing to protect.
+    assert.equal(spamEditReason({ ...published, reviewStatus: 'pending' }, { ...published, ...wiped, content: 'lol' }), null);
+    assert.equal(spamEditReason({ ...published, ...wiped, content: 'hello' }, { ...published, ...wiped, content: 'lol' }), null);
+    // A linked follow-up has no IGN of its own: rewording it is fine, replacing it with chatter is not.
+    const followUp = { ...published, ign: null, content: 'Zapdos: Roost', teamText: '- Zapdos: Roost' };
+    assert.equal(spamEditReason(followUp, { ...followUp, teamText: null, content: 'he also carries a scarf' }), null);
+    assert.match(spamEditReason(followUp, { ...followUp, teamText: null, content: 'lol' }), /off-topic text/u);
+});
+
+test('declined, locked, hidden and deleted reports, pending proposals and archive boundaries remain protected', () => {
     const now = Date.parse(base.createdAt) + 1000;
-    for (const patch of [{ reviewed_by_id: 'officer' }, { reviewStatus: 'confirmed' }, { reviewStatus: 'corrected' },
-        { reviewStatus: 'not_scout' }, { staffOverrides: { locked: true } }, { staffOverrides: { hidden: true } }, { is_deleted: true }]) {
+    for (const patch of [{ reviewStatus: 'not_scout' }, { staffOverrides: { locked: true } }, { staffOverrides: { hidden: true } }, { is_deleted: true }]) {
         assert.equal(canAutoApplyScoutEdit({ ...base, ...patch }, base, { now }), false);
         assert.equal(canAutoApplyScoutEdit(base, base, { now, root: { ...base, ...patch } }), false);
+    }
+    // A confirmed or corrected report still accepts its author's additions.
+    for (const patch of [{ reviewed_by_id: 'officer' }, { reviewStatus: 'confirmed' }, { reviewStatus: 'corrected' }]) {
+        assert.equal(canAutoApplyScoutEdit({ ...base, ...patch }, base, { now }), true);
+        assert.equal(canAutoApplyScoutEdit(base, base, { now, root: { ...base, ...patch } }), true);
     }
     for (const patch of [{ authorId: 'other' }, { messageId: 'other' }, { channelId: 'other' }]) {
         assert.equal(canAutoApplyScoutEdit(base, { ...base, ...patch }, { now }), false);
@@ -48,14 +110,46 @@ test('officer decisions, pending proposals, source ownership and archive boundar
     assert.equal(canAutoApplyScoutEdit(base, base, { now, root: { ...base, channelId: 'silver-channel', server: 'silver' } }), false);
 });
 
-test('linked follow-ups have their own 24-hour window without bypassing officer decisions', () => {
+test('linked follow-ups have their own 48-hour window', () => {
     const now = Date.parse(base.createdAt) + AUTHOR_EDIT_WINDOW_MS - 1;
-    const source = { ...base, root_message_id: 'root' };
+    const source = { ...base, root_message_id: 'root' }, edited = { ...base, ...rewrite };
     const root = { ...base, messageId: 'root', createdAt: '2026-10-01T12:00:00Z' };
-    assert.equal(canAutoApplyScoutEdit(source, base, { now, root }), true);
-    assert.equal(canAutoApplyScoutEdit(source, base, { now: now + 1, root }), false);
-    assert.equal(canAutoApplyScoutEdit(source, base, { now }), false);
-    assert.equal(canAutoApplyScoutEdit(source, base, { now, root: { ...root, reviewed_by_id: 'officer' } }), false);
+    assert.equal(canAutoApplyScoutEdit(source, edited, { now, root }), true);
+    assert.equal(canAutoApplyScoutEdit(source, edited, { now: now + 1, root }), false);
+    assert.equal(canAutoApplyScoutEdit(source, edited, { now }), false);
+    assert.equal(canAutoApplyScoutEdit(source, edited, { now, root: { ...root, reviewed_by_id: 'officer' } }), true);
+});
+
+test('an author edit to an officer-reviewed report keeps the officer values it did not change', () => {
+    const content = 'Vegeta111\nHippowdon: Earthquake\nZapdos: Roost';
+    const saved = { ...base, content, attachments: [], ign: 'OfficerName', ignNormalized: 'officername', ignSource: 'human_corrected',
+        ignConfidence: 1, rating: 450, teamText: '- Hippowdon: Earthquake\n- Zapdos: Roost', notes: 'Officer note',
+        reviewStatus: 'corrected', reviewedById: 'officer' };
+    const parsed = { ...base, attachments: [], ign: 'Vegeta111', ignNormalized: 'vegeta111', ignSource: 'first_line', ignConfidence: 0.86,
+        rating: null, notes: null, reviewStatus: 'not_required' };
+    // The author remembers one more move: only the team changes.
+    const added = mergeReviewedEdit(saved, { ...parsed, content: `${content}, Defog`, teamText: '- Hippowdon: Earthquake\n- Zapdos: Roost, Defog' });
+    assert.deepEqual([added.ign, added.ignSource, added.rating, added.notes, added.reviewStatus, added.preserveReviewDecision],
+        ['OfficerName', 'human_corrected', 450, 'Officer note', 'corrected', true]);
+    assert.equal(added.teamText, '- Hippowdon: Earthquake\n- Zapdos: Roost, Defog');
+    // Naming another opponent replaces the officer's name and returns the report to normal validation.
+    const renamed = mergeReviewedEdit(saved, { ...parsed, content: content.replace('Vegeta111', 'Brandnew9'), ign: 'Brandnew9',
+        ignNormalized: 'brandnew9', teamText: saved.teamText });
+    assert.deepEqual([renamed.ign, renamed.reviewStatus, renamed.preserveReviewDecision], ['Brandnew9', 'not_required', undefined]);
+    assert.equal(renamed.teamText, saved.teamText); assert.equal(renamed.rating, 450);
+});
+
+test('saving a merged author edit keeps the officer decision columns and replaces the report details', async () => {
+    const inserts = [];
+    const store = new PvpScoutStore({ channelId: 'channel', db: { async query(sql, params) {
+        if (/^\s*INSERT INTO pvp_scout_messages/u.test(sql)) inserts.push(params);
+        return [/^\s*SELECT/u.test(sql) ? [] : { affectedRows: 1 }];
+    } } });
+    store.schemaReady = true;
+    await store.saveMessage({ ...base, preserveReviewDecision: true });
+    await store.saveMessage(base);
+    assert.deepEqual(inserts[0].slice(-13), [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1]);
+    assert.deepEqual(inserts[1].slice(-13), Array(13).fill(0));
 });
 
 test('audit ignores refreshed screenshots, equal dates, numeric types and supplied false changes', () => {
@@ -104,7 +198,7 @@ test('historical edit guard counts two other distinct old reports using durable 
     assert.equal(calls.length, 0);
 });
 
-test('Gold and Silver apply recent edits and log each change while older or protected edits require review', async () => {
+test('Gold and Silver apply recent, small and reviewed-report edits and log each change while rewrites of old or protected reports require review', async () => {
     const { PvpScoutIngestor } = require('../features/pvp-scouting/PvpScoutIngestor');
     const cases = [
         ['team', {}, { content: newText.replace('Toxic', 'Taunt'), teamText: 'Hippowdon: Taunt' }, true],
@@ -112,14 +206,20 @@ test('Gold and Silver apply recent edits and log each change while older or prot
         ['notes', {}, { notes: 'Choice Scarf confirmed' }, true], ['screenshots', {}, { attachments: [] }, true],
         ['failed retry', { review_status: 'pending' }, {}, true],
         ['failed validation', {}, { reviewStatus: 'pending', reviewReason: 'Unclear IGN' }, true],
-        ['old typo', { age: 8 * 86400000 }, {}, false],
-        ['old failed retry', { age: 25 * 3600000, review_status: 'pending' }, {}, false],
+        ['different opponent', {}, { ign: 'OtherPlayer', content: 'OtherPlayer\nGarchomp: Outrage', teamText: '- Garchomp: Outrage' }, true],
+        ['spam', {}, { content: 'lol', ign: null, teamText: null, classification: 'ignored' }, false],
+        ['old small update', { age: 8 * 86400000 }, {}, true],
+        ['old rewrite', { age: 8 * 86400000 }, rewrite, false],
+        ['old failed rewrite', { age: 49 * 3600000, review_status: 'pending' }, rewrite, false],
         ['burst', { age: 8 * 86400000 }, {}, false], ['pending', {}, {}, false],
-        ['officer', { review_status: 'confirmed', reviewed_by_id: 'officer' }, {}, false],
+        ['officer confirmed', { review_status: 'confirmed', reviewed_by_id: 'officer' }, {}, true],
+        ['officer declined', { review_status: 'not_scout', reviewed_by_id: 'officer' }, {}, false],
+        ['locked', { staffOverrides: { locked: true } }, {}, false],
         ['linked recent source', { root_message_id: 'root' }, {}, true],
-        ['linked old source', { root_message_id: 'root', age: 25 * 3600000 }, {}, false],
-        ['linked officer decision', { root_message_id: 'root' }, {}, false],
-        ['queued edit', { age: 25 * 3600000 }, { editAge: 23 * 3600000 }, true]
+        ['linked old rewrite', { root_message_id: 'root', age: 49 * 3600000 }, rewrite, false],
+        ['linked officer decision', { root_message_id: 'root' }, {}, true],
+        ['linked locked report', { root_message_id: 'root' }, {}, false],
+        ['queued edit', { age: 49 * 3600000 }, { ...rewrite, editAge: 47 * 3600000 }, true]
     ];
     for (const server of ['gold', 'silver']) for (const [scenario, patch, changed, allowed] of cases) {
         const createdAt = new Date(Date.now() - (patch.age || 3600000));
@@ -128,14 +228,15 @@ test('Gold and Silver apply recent edits and log each change while older or prot
             classification: 'scout', review_status: 'not_required', opponent_ign: base.ign, ign_normalized: 'vegeta111', rating: base.rating,
             team_text: base.teamText, created_at: createdAt, server, ...patch };
         const root = { ...row, message_id: 'root', root_message_id: 'root', created_at: new Date(Date.now() - 8 * 86400000),
-            reviewed_by_id: scenario === 'linked officer decision' ? 'officer' : null };
-        const logs = [], calls = [];
+            reviewed_by_id: scenario === 'linked officer decision' ? 'officer' : null,
+            staffOverrides: scenario === 'linked locked report' ? { locked: true } : {} };
+        const logs = [], calls = [], saves = [];
         const pending = scenario === 'pending' ? { status: 'pending', after: { ...base, content: oldText } } : null;
         const store = { async getMessage(id) { return id === 'root' ? root : row; }, async getEditReview() { return pending; },
             async isHistoricalEditBurst() { return scenario === 'burst'; },
             async sourcesForRoots() { return [row]; },
             async saveMessage(proposal) {
-                calls.push('save'); assert.equal(proposal.createdAt, createdAt);
+                calls.push('save'); saves.push(proposal); assert.equal(proposal.createdAt, createdAt);
                 row = { ...row, message_content: proposal.content, review_status: proposal.reviewStatus,
                     review_reason: proposal.reviewReason, opponent_ign: proposal.ign, rating: proposal.rating,
                     team_text: proposal.teamText, attachments: proposal.attachments };
@@ -156,6 +257,11 @@ test('Gold and Silver apply recent edits and log each change while older or prot
         assert.equal(logs[0].autoApproved, allowed ? true : undefined, scenario);
         assert.equal(logs[0].failed, scenario === 'failed validation', scenario);
         assert.equal(logs[0].server, server);
+        if (scenario === 'officer confirmed') {
+            assert.deepEqual([saves[0].reviewStatus, saves[0].preserveReviewDecision], ['confirmed', true]);
+        }
+        if (scenario === 'spam') assert.match(logs[0].safetyReason, /^Spam safeguard/u);
+        else if (scenario !== 'burst') assert.equal(logs[0].safetyReason ?? null, null, scenario);
     }
 });
 

@@ -150,3 +150,55 @@ test('short parsed item and ability continuations retain all four original Macha
     assert.deepEqual(buildGroupLinks([root, details, ability, item, filler]).links,
         [details, ability, item].map(row => ({ messageId: row.message_id, rootMessageId: root.message_id })));
 });
+
+test('a "name :" field names the opponent and divider rows are not scout details', () => {
+    const parsed = extractScoutData({ content: [
+        'name  : magikarpsh', ' ',
+        ' - samurott (focus sash) : sword dance- aqua cutter - ceseasser - sucker punch',
+        ' -  rillaboom (choice scarf) : wood - knock off - grass move - ?',
+        ' -  gliscor :  taunt - sand tomb - protect - toxic',
+        ' -  corviknight : iron head - uturn - roost - iron defense', '',
+        '---------------------------------------------------------------------------------',
+        '---------------------------------------------------------------------------------'
+    ].join('\n'), attachments: [] });
+
+    assert.equal(parsed.ign, 'magikarpsh');
+    assert.equal(parsed.ignSource, 'labelled_text');
+    assert.equal(parsed.classification, 'scout');
+    assert.equal(parsed.reviewStatus, 'not_required');
+    assert.equal(parsed.notes, null);
+    assert.doesNotMatch(parsed.teamText, /--/u);
+    // "Sand Tomb" is a move, so the line stays one Pokémon instead of adding Spiritomb.
+    assert.deepEqual(parsed.teamText.split('\n').map(line => line.split(/[ :]/u)[1]),
+        ['Samurott', 'Rillaboom', 'Gliscor', 'Corviknight']);
+    assert.match(parsed.teamText, /Gliscor: Taunt, Sand Tomb, Protect, Toxic/u);
+});
+
+test('name field variants are recognised only as a line label, and the label is never the IGN', () => {
+    const team = '\n- Garchomp: Earthquake, Outrage\n- Zapdos: Roost, Defog';
+    for (const heading of ['name: Foobar12', 'Name - Foobar12', '**Name:** Foobar12', 'player name : Foobar12',
+        'opponent name = Foobar12', '> - nickname: Foobar12', 'IGN: Foobar12', 'Opponent IGN: Foobar12']) {
+        const parsed = extractScoutData({ content: heading + team, attachments: [] });
+        assert.equal(parsed.ign, 'Foobar12', heading);
+        assert.equal(parsed.notes, null, heading);
+        assert.equal(parsed.teamText.split('\n').length, 2, heading);
+    }
+    // Text after the name is kept; a hyphenated IGN is not split at its dash.
+    assert.equal(extractScoutData({ content: `name: Foobar12 (300) rain team${team}`, attachments: [] }).notes, 'rain team');
+    assert.equal(extractScoutData({ content: `Player-123${team}`, attachments: [] }).ign, 'Player-123');
+    for (const heading of ['name : unknown', 'name', 'i forgot his name: he had', 'name: name']) {
+        const parsed = extractScoutData({ content: heading + team, attachments: [] });
+        assert.equal(parsed.ign, null, heading);
+        assert.equal(parsed.reviewStatus, 'pending', heading);
+    }
+});
+
+test('several name fields in one message are separate reports, and a profile "Name:" row in OCR is unchanged', () => {
+    const { candidateFromOcr } = require('../features/pvp-scouting/PvpScoutParser.js');
+    const parsed = extractScoutData({ content: 'name : aaa111\n- Garchomp: Earthquake\n- Zapdos: Roost\n------\nname : bbb222\n- Scizor: Roost\n- Rotom: Volt Switch',
+        attachments: [] });
+    assert.deepEqual([parsed.ign, parsed.reviewStatus, parsed.teamText.split('\n').length], ['aaa111', 'not_required', 2]);
+    assert.deepEqual(parsed.extraSections.map(section => [section.ign, section.reviewStatus]), [['bbb222', 'not_required']]);
+    assert.equal(extractScoutData({ content: 'name: Foobar12 Garchomp, Zapdos, Scizor, Rotom', attachments: [] }).ign, 'Foobar12');
+    assert.equal(candidateFromOcr('Name: Foobar12\nSome text\nmore'), null);
+});

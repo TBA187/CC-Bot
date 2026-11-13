@@ -13,7 +13,10 @@ function reviewSuggestions(outcome) {
             suggestions.push('Put the opponent’s exact IGN on the first line, for example `Opponent IGN: PlayerName`.');
         }
         if (/different|multiple|spell.*differ/iu.test(rawReason)) {
-            suggestions.push('Make sure the text and screenshots identify the same opponent. Use a separate scout for each opponent.');
+            suggestions.push('Make sure the text and screenshots identify the same opponent.');
+        }
+        if (/multiple opponents/iu.test(rawReason)) {
+            suggestions.push('To report several opponents in one message, start each report with the opponent’s IGN on its own line after an empty line.');
         }
         if (/author|guild member/iu.test(rawReason)) {
             suggestions.push('Identify which name is the opponent, especially when the screenshot also shows your own IGN.');

@@ -161,6 +161,23 @@ test('combined SQL review filters bind both channels and keep newest-first order
     assert.ok(queries.slice(0, 2).every(query => /ORDER BY created_at DESC, message_id DESC/u.test(query.sql)));
 });
 
+test('the review queue keeps reports inside an open correction window and reports its deadline', async () => {
+    const queries = [], row = { message_id: '1', channel_id: 'gold-channel', review_status: 'pending',
+        pending_edit: 0, correction_open: 1, correction_due_at_ms: '1794212049857' };
+    const store = new PvpScoutStore({ channelId: 'gold-channel', db: { async query(sql) {
+        queries.push(sql); return [/COUNT\(\*\)/u.test(sql) ? [{ total: 1 }] : [row, { ...row, message_id: '2', correction_open: 0, correction_due_at_ms: null }]];
+    } } });
+    store.schemaReady = true;
+    const [open, escalated] = await store.pendingReviews(2, 0);
+    assert.deepEqual([open.correction_open, open.correction_due_at_ms], [true, 1794212049857]);
+    assert.deepEqual([escalated.correction_open, escalated.correction_due_at_ms], [false, null]);
+    assert.equal((await store.exportPendingReviews())[0].correction_open, true);
+    await store.pendingReviewCount();
+    // A waiting window is joined for display only; it no longer hides the report from officers.
+    for (const sql of queries) assert.doesNotMatch(sql, /NOT EXISTS \(\s*SELECT 1 FROM pvp_scout_correction_windows/u);
+    assert.match(queries[0], /LEFT JOIN pvp_scout_correction_windows c\s+ON c\.message_id = m\.message_id AND c\.channel_id = m\.channel_id AND c\.status = 'waiting'/u);
+});
+
 test('UTC summary dates do not shift around midnight under different host timezones', () => {
     const script = `const Scout=require('./commands/scout.js');
         const {utcDate}=require('./features/pvp-scouting/ScoutArchiveView.js');

@@ -240,7 +240,7 @@ for (const [label, Store, table, column] of [
     const normalizeSql = sql => sql.trim().replace(/\s+/gu, ' ');
     const definitions = [...setupSql.matchAll(/CREATE TABLE IF NOT EXISTS[\s\S]*?;/gu)].map(match => normalizeSql(match[0]));
     assert.ok(statements.every(sql => definitions.includes(normalizeSql(sql))), 'runtime table definitions must match database setup');
-    assert.equal(statements.length, label === 'report' ? 8 : 3);
+    assert.equal(statements.length, label === 'report' ? 9 : 3);
     const queries = statements.length;
     await store.ensureSchema();
     assert.equal(statements.length, queries, 'schema work is shared and completed only once');

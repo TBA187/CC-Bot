@@ -6,6 +6,7 @@ const { redactDiagnostic } = require('../utils/discordDiagnostics.js');
 const { handleGiveawayButton } = require('../events/giveaways.js');
 const { handleGuildForumFeedbackButton } = require('../features/guild-applications/index.js');
 const { handleAuctionButton, temporaryAuctionFailure } = require('../features/auctions/AuctionDiscord.js');
+const { handleScoutDeletionInteraction } = require('../features/pvp-scouting/ScoutDeletionReview.js');
 
 const SOMETHING_WENT_WRONG = '⚠️ Something went wrong!';
 
@@ -30,6 +31,11 @@ function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMa
             if (interaction.customId?.startsWith('scout-sources:')) {
                 const manager = commandMap.get('scout-review')?.sourceManager || commandMap.get('scout-settings')?.sourceManager;
                 if (manager && await manager.handleInteraction(interaction)) return true;
+            }
+            // Deleted-report alerts in the officer channel: buttons and their edit forms.
+            if (interaction.customId?.startsWith('scout-deleted:')
+                && (interaction.isButton() || interaction.isModalSubmit())) {
+                if (await handleScoutDeletionInteraction(interaction, commandConfig)) return true;
             }
             if (interaction.isButton()) {
                 if (interaction.customId?.startsWith('auction:') && auctionMonitor) {

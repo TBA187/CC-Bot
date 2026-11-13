@@ -340,6 +340,13 @@ test('success is green while successfully parsed edits requiring approval are ye
     const pending = memberEditPayload({ ...base, awaitingApproval: true }).embeds[0].toJSON();
     assert.equal(pending.color, 0xFEE75C); assert.match(pending.description, /awaiting officer approval/u);
     assert.match(pending.fields.find(f => f.name === 'Bot suggestions').value, /officer must approve/u);
+    // An edit held by the spam safeguard stays visibly pending although its new text is not a scout.
+    const held = memberEditPayload({ ...base, awaitingApproval: true, safetyReason: 'Spam safeguard: the edit replaced the scout details with off-topic text.',
+        after: { content: 'lol', classification: 'ignored', reviewStatus: 'not_required' } }).embeds[0].toJSON();
+    assert.equal(held.color, 0xFEE75C); assert.match(held.description, /Held for officer review/u);
+    assert.match(held.fields.find(f => f.name === 'Review safeguard').value, /Spam safeguard/u);
+    const ignored = memberEditPayload({ ...base, after: { content: 'lol', classification: 'ignored', reviewStatus: 'not_required' } }).embeds[0].toJSON();
+    assert.equal(ignored.color, 0x95A5A6); assert.match(ignored.description, /Not a scout report/u);
 });
 
 test('large edit diffs fit Discord embeds and keep the complete diff and data attached', () => {

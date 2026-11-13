@@ -1,11 +1,20 @@
 // Turns message text and OCR into an opponent IGN, rating, scout details, and review decision.
 'use strict';
 
-const { commaRosterEntries, hasKnownTeamDetail, inlineSeparatedEntries, matchKnownTermHeading, matchSpeciesHeading, mergePreviewTeam,
-    splitScoutText, teamFromPreview } = require('./PokemonTeamParser.js');
+const { IGN_LABEL, IGN_LABEL_SEPARATOR, commaRosterEntries, hasKnownTeamDetail, inlineSeparatedEntries, isSeparatorLine, matchKnownTermHeading,
+    matchSpeciesHeading, mergePreviewTeam, splitScoutText, teamFromPreview } = require('./PokemonTeamParser.js');
 const { reviewedTextKey, reviewPatternKey } = require('./ScoutReviewLearning.js');
 
 const IGN_PATTERN = '[\\p{L}\\p{N}_.-]{2,32}';
+// A typed line such as "name : PlayerName" states the opponent. The label must start the line,
+// so the word "name" inside a sentence does not turn the next word into an IGN.
+const FIELD_LABELLED_IGN = `(?:^|\\n)[ \\t]*(?:>+[ \\t]*)?(?:[-*•][ \\t]+)?\\*{0,2}${IGN_LABEL}\\*{0,2}${IGN_LABEL_SEPARATOR}\\*{0,2}[ \\t]*(${IGN_PATTERN})`;
+const IGN_FIELD_LABEL = new RegExp(`^${IGN_LABEL}$`, 'iu');
+// Label words and placeholders are never the opponent's name.
+const IGN_LABEL_WORD = /^(?:name|player|username|nick(?:name)?|trainer|enemy|opp)$/iu;
+const PLACEHOLDER_IGN = /^(?:unknown|unsure|idk|none|forgot|n\.?a)$/iu;
+// Words members use as sub-headings inside one report; they never start another opponent's report.
+const REPORT_SECTION_WORD = /^(?:teams?|notes?|scouts?|opponent|pokemon|pok[eé]mon|ign|rating|pvp|ranked|moves?|movesets?|items?|info|details|leads?|sweepers?|walls?|tanks?|core|bench|backup|backline|others?|rest|pivots?|support|hazards|setup|offen[cs]e|defen[cs]e|stall|megas?|also|and|or|vs)$/iu;
 // Keep names whose spelling has confirmed consistent across reports.
 const IGN_DISPLAY_NAMES = new Map([
     ['90skid', '90skid'],
@@ -46,7 +55,8 @@ function extractRating(text, ign = null, { fromOcr = false } = {}) {
     const patterns = [
         new RegExp(`ranked\\s+opponent\\s+found\\s*:\\s*${ign ? escapeRegExp(ign) : '[^\\s(]{2,32}'}\\s*\\(\\s*(\\d{1,4})\\s*\\)`, 'iu'),
         /\bopponent\s+(?:pvp\s+)?rating\s*[:=]?\s*(?![+-])(\d{1,4})/iu,
-        ign ? new RegExp(`${escapeRegExp(ign)}\\s*\\(\\s*(\\d{1,4})\\s*(?:(?:pvp\\s*)?(?:rating|rtg|rt))?\\s*\\)`, 'iu') : null
+        // Bold markers may sit between a heading's name and its rating: "**Name** (312)".
+        ign ? new RegExp(`${escapeRegExp(ign)}\\*{0,2}\\s*\\(\\s*(\\d{1,4})\\s*(?:(?:pvp\\s*)?(?:rating|rtg|rt))?\\s*\\)`, 'iu') : null
     ].filter(Boolean);
     // Result screens show Rating:+16 for the scout's rating change, not the opponent's rating.
     if (!fromOcr) {
@@ -204,9 +214,17 @@ function withoutMatchmakingStatus(value) {
     return separated ? separated[1].trim() : null;
 }
 
-function candidateFromText(text) {
+function fieldLabelledIgns(text) {
+    return [...String(text || '').replace(/\r/g, '').matchAll(new RegExp(FIELD_LABELLED_IGN, 'giu'))]
+        .map(match => cleanIgn(match[1]))
+        .filter(ign => ign && !genericInferredIgn(ign) && !IGN_LABEL_WORD.test(ign) && !PLACEHOLDER_IGN.test(ign));
+}
+
+// OCR text passes fieldLabels: false. A "Name:" row in a screenshot is a profile field,
+// which candidateFromOcr accepts only alongside other profile evidence.
+function candidateFromText(text, { fieldLabels = true } = {}) {
     const source = String(text || '').replace(/\r/g, '');
-    const sectionHeading = /^(?:team|notes?|scout|opponent|pokemon|pok[eé]mon|ign|rating|pvp|moves?|info|details)$/iu;
+    const sectionHeading = /^(?:team|notes?|scout|opponent|pokemon|pok[eé]mon|ign|rating|pvp|moves?|info|details|name|player|username|nick(?:name)?|trainer|enemy|opp)$/iu;
     const ratingInFront = source.match(new RegExp(`^\\s*(?:\\d{2,4}|[1-9]xx)\\s*(?:rtg|rating|rt)\\s*\\(\\s*(${IGN_PATTERN})\\s*\\)`, 'iu'));
     if (ratingInFront) {
         const ign = cleanIgn(ratingInFront[1]);
@@ -232,13 +250,16 @@ function candidateFromText(text) {
         new RegExp(`\\bvs\\.?\\s+(${IGN_PATTERN})`, 'iu')
     ];
     for (const [index, pattern] of strongPatterns.entries()) {
+        const versus = index === strongPatterns.length - 1;
+        // An explicit name field outranks a "vs" mention elsewhere in the message.
+        const fieldIgn = versus && fieldLabels ? fieldLabelledIgns(source)[0] : null;
+        if (fieldIgn) return { ign: fieldIgn, confidence: 0.96, source: 'labelled_text' };
         const match = source.match(pattern);
         if (match) {
             const value = cleanIgn(match[1]);
-            if (index === strongPatterns.length - 1
-                && /^(?:eachother|everyone|anyone|someone|you|me|him|her|them|us)$/iu.test(value || '')) continue;
+            if (versus && /^(?:eachother|everyone|anyone|someone|you|me|him|her|them|us)$/iu.test(value || '')) continue;
             if (value && !genericInferredIgn(value)) return { ign: value, confidence: 0.96,
-                source: index === strongPatterns.length - 1 ? 'versus_text' : 'labelled_text' };
+                source: versus ? 'versus_text' : 'labelled_text' };
         }
     }
 
@@ -324,7 +345,7 @@ function candidateFromText(text) {
         const details = lines.slice(1).join('\n');
         const detailTeamRows = splitScoutText(details, ign).teamText?.split('\n').filter(Boolean).length || 0;
         if (ign && !genericInferredIgn(ign) && !(pokemonHeading?.species && pokemonHeading.end === ign.length)
-            && !joinedSpeciesDetail(ign)
+            && !joinedSpeciesDetail(ign) && !IGN_LABEL_WORD.test(ign)
             && !/^(?:team|notes?|scout|opponent|ranked|pvp|vs|ign)$/i.test(ign)) {
             // A heading followed by numbered Pokémon notes identifies the opponent.
             const numberedRows = lines.slice(1).map(line => line.match(/^>?\s*(\d{1,2})[.)]\s+\S/u)?.[1]);
@@ -493,7 +514,7 @@ function candidateFromOcr(ocrText, ocrLines = [], imageInfo = {}) {
         return { ign: namedIgn || inspectedIgn, confidence: 0.85, source: 'inspect_profile_ocr' };
     }
 
-    const explicit = candidateFromText(source);
+    const explicit = candidateFromText(source, { fieldLabels: false });
     if (explicit?.source === 'labelled_text') {
         return { ...explicit, confidence: Math.min(explicit.confidence, 0.88), source: 'labelled_ocr' };
     }
@@ -623,30 +644,122 @@ function isClearlySpamTeam(text) {
             && /\b(?:fuck|fucking|shit|bullshit|bitch|asshole|dick|cunt)\b/iu.test(value);
 }
 
+function sectionIgn(value) {
+    const ign = cleanIgn(value);
+    if (!ign || genericInferredIgn(ign) || IGN_LABEL_WORD.test(ign) || REPORT_SECTION_WORD.test(ign) || PLACEHOLDER_IGN.test(ign)) return null;
+    const pokemon = matchSpeciesHeading(ign, { allowTypo: true, allowBroadAlias: true });
+    if (pokemon?.species && pokemon.end === ign.length || matchKnownTermHeading(ign) || joinedSpeciesDetail(ign)) return null;
+    return ign;
+}
+
+// Returns the opponent a line introduces and how many Pokémon must follow it, or null.
+// A label, bold text, a rating, a colon or a digit in the name marks a heading on its own.
+// A plain word could also be a note between two Pokémon, so it counts only after an empty
+// line or divider and with at least two Pokémon below it.
+function sectionHeader(line, afterBreak) {
+    const text = line.replace(/^>+\s*/u, '');
+    const labelled = fieldLabelledIgns(text)[0];
+    if (labelled) return { ign: labelled, minRows: 1 };
+    if (/^(?:[-•]|\*\s|\d{1,2}[.)]\s)/u.test(text)) return null;
+    const inline = text.match(/^\*{0,2}([\p{L}\p{N}_.-]{2,32}?)\*{0,2}\s*(?:\(\s*\d{1,4}\s*\))?\s*(?:-{1,2}>|=>|:)\s*(\S[\s\S]*)$/u);
+    if (inline && !/^\*+$/u.test(inline[2])) {
+        const ign = sectionIgn(inline[1]);
+        const rows = ign ? splitScoutText(inline[2], ign).teamText?.split('\n').filter(Boolean).length || 0 : 0;
+        return rows >= 2 || rows === 1 && hasKnownTeamDetail(inline[2]) ? { ign, minRows: 1 } : null;
+    }
+    const bare = text.match(new RegExp(`^(\\*{0,2})(${IGN_PATTERN})\\*{0,2}\\s*(\\(\\s*\\d{1,4}\\s*\\))?\\s*(:?)\\s*\\**$`, 'u'));
+    const ign = bare && sectionIgn(bare[2]);
+    if (!ign) return null;
+    if (bare[1] || bare[3] || bare[4] || /[\d_.]/u.test(ign)) return { ign, minRows: 1 };
+    return afterBreak ? { ign, minRows: 2 } : null;
+}
+
+// Splits a message that lists several opponents, each followed by its own team, into one text per
+// report. Returns null for an ordinary single report.
+function splitScoutSections(text) {
+    const lines = String(text || '').replace(/\r/g, '').split('\n');
+    const blank = line => !line.trim() || isSeparatorLine(line.trim().replace(/^>+\s*/u, ''));
+    const candidates = [];
+    let afterBreak = true, firstContent = -1;
+    for (const [index, line] of lines.entries()) {
+        if (blank(line)) { afterBreak = true; continue; }
+        if (firstContent < 0) firstContent = index;
+        const header = sectionHeader(line.trim(), afterBreak);
+        if (header) candidates.push({ index, ...header });
+        afterBreak = false;
+    }
+    if (candidates.length < 2 || candidates[0].index !== firstContent) return null;
+    // A heading without enough Pokémon below it is a note inside the previous report.
+    const headers = [];
+    for (const [position, candidate] of candidates.entries()) {
+        const body = lines.slice(candidate.index, candidates[position + 1]?.index ?? lines.length).join('\n');
+        const rows = splitScoutText(body, candidate.ign).teamText?.split('\n').filter(Boolean).length || 0;
+        // The first heading is the message's own opponent and needs only one Pokémon.
+        if (rows >= (headers.length ? candidate.minRows : 1)) headers.push(candidate);
+        else if (!headers.length) return null;
+    }
+    if (headers.length < 2) return null;
+    return headers.map((header, position) => {
+        const section = lines.slice(header.index, headers[position + 1]?.index ?? lines.length);
+        while (section.length && blank(section.at(-1))) section.pop();
+        return section.join('\n');
+    });
+}
+
 function namesSeveralOpponents(text) {
     const source = String(text || '');
     const headings = [...source.matchAll(/\*\*([\p{L}\p{N}_.-]{3,32})\*\*\s*:/gu)]
         .map(match => match[1])
         .filter(name => {
             const pokemon = matchSpeciesHeading(name, { allowTypo: true });
-            return !pokemon?.species || pokemon.end !== name.length;
+            return !IGN_FIELD_LABEL.test(name) && (!pokemon?.species || pokemon.end !== name.length);
         });
     for (const line of source.split(/\n+/u)) {
         const match = line.match(/^\s*([\p{L}\p{N}_.-]{3,32}?)\s*(?:-{1,2}>|=>|:)\s*(.*)$/u);
         if (!match) continue;
         const label = match[1];
+        // "name: PlayerName ..." is a field label; the name itself is counted below.
+        if (IGN_FIELD_LABEL.test(label)) continue;
         const pokemon = matchSpeciesHeading(label, { allowTypo: true });
         if (pokemon?.species && pokemon.end === label.length) continue;
         // A move list like "Aegis: Shadow Sneak" is one Pokémon, not another scout.
         if (splitScoutText(match[2]).teamText || /\b(?:team|opponent|pvp|vs)\b/iu.test(match[2])) headings.push(label);
     }
+    // Several pasted reports in one message each carry their own name field.
+    headings.push(...fieldLabelledIgns(source));
     if (new Set(headings.map(normalizeIgn)).size >= 2) return true;
     const sharedTeam = source.match(/^\s*([\p{L}\p{N}_.-]{3,32})\s*&\s*([\p{L}\p{N}_.-]{3,32})\b/u);
     return Boolean(sharedTeam && !matchSpeciesHeading(sharedTeam[1])?.species
         && !matchSpeciesHeading(sharedTeam[2])?.species);
 }
 
+// One message can hold several reports. The first belongs to the message itself, with its screenshots;
+// the others are returned as extraSections for the caller to save as separate reports.
+function extractSectionedScoutData(message, options) {
+    const sections = splitScoutSections(message.content);
+    if (!sections) return null;
+    const single = { ...options, singleReport: true };
+    const parsed = extractScoutData({ ...message, content: sections[0] }, single);
+    const reportKey = value => JSON.stringify([value.ignNormalized, value.rating ?? null,
+        String(value.teamText || '').toLocaleLowerCase('en-US'), String(value.notes || '').toLocaleLowerCase('en-US')]);
+    const seen = new Set([reportKey(parsed)]);
+    const extraSections = [];
+    for (const content of sections.slice(1)) {
+        const section = extractScoutData({ content, attachments: [] }, { ...single, ocrResults: [] });
+        // A section whose opponent cannot be read alone leaves the whole message to the single-report rules.
+        if (!section.ign) return null;
+        const key = reportKey(section);
+        // An exact repeat of an earlier report in the same message is saved once.
+        if (seen.has(key)) continue;
+        seen.add(key);
+        extraSections.push({ content, ...section });
+    }
+    return parsed.ign ? { ...parsed, extraSections } : null;
+}
+
 function extractScoutData(message = {}, options = {}) {
+    const sectioned = options.singleReport ? null : extractSectionedScoutData(message, options);
+    if (sectioned) return sectioned;
     const content = String(message.content || '').trim();
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
     const images = hasImageEvidence(attachments);
@@ -1083,5 +1196,6 @@ module.exports = {
     normalizeIgn,
     obviousIgnTypo,
     opponentFromBattleBanner,
+    splitScoutSections,
     splitScoutText
 };

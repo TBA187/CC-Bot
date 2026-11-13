@@ -121,4 +121,5 @@ Use the Node.js versions documented in `README.md` (Node.js 22 or later, with No
 ## Reporting
 
 - List changed files, what changed, and why. Report check commands and results, skipped checks and reasons, remaining work, and material verification limits. Include equivalence assumptions or intentional exclusions when applicable; keep detail proportional to the task.
+- Remove leftover, temporary, compatibility, migration, legacy, or one-time code and scripts, including code that a change makes unused, as soon as they are no longer needed. If any must stay for now, report what it is, why it remains, and when it can be safely removed, for example after a manual database change is confirmed.
 - Distinguish local checks from actual Discord, database, forum, or deployment verification. Do not imply the bot was restarted, commands registered, messages delivered, or production behavior verified unless those actions occurred.

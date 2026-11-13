@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const { setImmediate: yieldToEvents } = require('node:timers/promises');
 const { writeJsonIfChanged } = require('../../utils/jsonFile.js');
 const { ensureScoutTables } = require('./ScoutSchema.js');
-const { extractScoutData, hasImageEvidence, IGN_DISPLAY_NAMES, nameFromResultLine } = require('./PvpScoutParser.js');
+const { candidateFromText, extractScoutData, hasImageEvidence, IGN_DISPLAY_NAMES, nameFromResultLine, normalizeIgn } = require('./PvpScoutParser.js');
 const { buildReviewLearning } = require('./ScoutReviewLearning.js');
 const { reportContextSpecies, splitScoutText } = require('./PokemonTeamParser.js');
 
@@ -28,12 +28,9 @@ function publicLookupWhere(ignNormalized) {
 
 // A grouped nameless text follow-up is reviewed together with its root.
 // This also applies when the combined report still needs an opponent name.
+// Reports inside an open author correction window stay in the queue so an officer can decide early.
 const PENDING_REVIEW_WHERE = `
     m.channel_id = ? AND m.review_status = 'pending' AND m.is_deleted = 0
-    AND NOT EXISTS (
-        SELECT 1 FROM pvp_scout_correction_windows c
-        WHERE c.message_id = m.message_id AND c.channel_id = m.channel_id AND c.status = 'waiting'
-    )
     AND NOT (
         m.root_message_id IS NOT NULL AND m.message_id <> m.root_message_id
         AND m.opponent_ign IS NULL
@@ -49,6 +46,13 @@ const PENDING_REVIEW_WHERE = `
         )
     )
 `;
+
+// A message that holds several reports keeps the first on its own row; each further report is saved
+// as "<messageId>_<n>". This returns the Discord message a row belongs to.
+function discordMessageId(id) {
+    const value = String(id || '');
+    return value.match(/^(\d+)_\d+$/u)?.[1] || value;
+}
 
 function json(value, fallback) {
     try {
@@ -177,6 +181,36 @@ function reviewScope(channelId) {
     return { params, clause, pending: PENDING_REVIEW_WHERE.replace('m.channel_id = ?', clause) };
 }
 
+// Both halves of the review queue select the same columns: pending member edits first,
+// then pending reports with the state of the author's correction window.
+function reviewQueueSql(scope) {
+    return `
+        SELECT m.*, e.before_json AS edit_before_json, e.after_json AS edit_after_json,
+               e.revision AS edit_revision, 1 AS pending_edit,
+               0 AS correction_open, NULL AS correction_due_at_ms
+        FROM pvp_scout_messages m
+        INNER JOIN pvp_scout_edit_reviews e
+            ON e.message_id = m.message_id AND e.channel_id = m.channel_id AND e.status = 'pending'
+        WHERE ${scope.clause} AND m.is_deleted = 0
+        UNION ALL
+        SELECT m.*, NULL AS edit_before_json, NULL AS edit_after_json,
+               NULL AS edit_revision, 0 AS pending_edit,
+               (c.message_id IS NOT NULL) AS correction_open, c.due_at_ms AS correction_due_at_ms
+        FROM pvp_scout_messages m
+        LEFT JOIN pvp_scout_correction_windows c
+            ON c.message_id = m.message_id AND c.channel_id = m.channel_id AND c.status = 'waiting'
+        WHERE ${scope.pending}
+          AND NOT EXISTS (
+              SELECT 1 FROM pvp_scout_edit_reviews e
+              WHERE e.message_id = m.message_id AND e.channel_id = m.channel_id AND e.status = 'pending'
+          )`;
+}
+
+function reviewQueueRow(row) {
+    return { ...normalizeMessageRow(row), correction_open: Number(row.correction_open) === 1,
+        correction_due_at_ms: row.correction_due_at_ms == null ? null : Number(row.correction_due_at_ms) };
+}
+
 class PvpScoutStore {
     constructor(options = {}) {
         this.db = options.db;
@@ -283,7 +317,8 @@ class PvpScoutStore {
                 'pvp_scout_review_events',
                 'pvp_scout_review_alerts',
                 'pvp_scout_edit_reviews',
-                'pvp_scout_correction_windows'
+                'pvp_scout_correction_windows',
+                'pvp_scout_deletions'
             ]);
             this.schemaReady = true;
             return true;
@@ -368,9 +403,89 @@ class PvpScoutStore {
                 team_layout_status = VALUES(team_layout_status),
                 is_deleted = IF(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(staff_overrides_json, '$.hidden')), 'false') = 'true', 1, 0),
                 content_hash = VALUES(content_hash)
-        `, [...params, ...Array(13).fill(preserve)]);
+        `, [...params, ...Array(9).fill(preserve),
+            // An author's edit to a reviewed report replaces its details but keeps the officer's decision.
+            ...Array(4).fill(preserve || record.preserveReviewDecision ? 1 : 0)]);
         this.invalidateAutocompleteCache();
         return this.getMessage(record.messageId);
+    }
+
+    // Further reports saved from one Discord message, including ones its author later removed.
+    async sectionRows(messageId) {
+        await this.ensureSchema();
+        const [rows] = await this.db.query(`
+            SELECT * FROM pvp_scout_messages
+            WHERE channel_id = ? AND message_id LIKE ? ESCAPE '!'
+            ORDER BY LENGTH(message_id), message_id
+        `, [this.channelId, `${discordMessageId(messageId)}!_%`]);
+        return rows.map(normalizeMessageRow);
+    }
+
+    // Saves the further reports of a message as their own rows and removes the ones its author deleted
+    // from the text. Reports are matched by the opponent in their heading, so adding or reordering
+    // reports keeps each report's ID, officer decisions and review state.
+    async syncSections(primaryValue, sections = [], { deferReview = false } = {}) {
+        const base = scoutVersion(primaryValue), id = base.messageId;
+        const result = { rows: [], created: 0, removed: 0 };
+        if (!/^\d+$/u.test(id)) return result;
+        const existing = await this.sectionRows(id);
+        if (!sections.length && !existing.length) return result;
+        // Loaded here: the edit policy itself depends on this module.
+        const { hasOfficerDecision, mergeReviewedEdit } = require('./ScoutEditPolicy.js');
+        const heading = content => normalizeIgn(candidateFromText(content)?.ign) || '';
+        const keys = contents => {
+            const counts = new Map();
+            return contents.map(content => {
+                const name = heading(content), count = (counts.get(name) || 0) + 1;
+                counts.set(name, count);
+                return `${name}#${count}`;
+            });
+        };
+        const live = existing.filter(row => !row.is_deleted);
+        const liveKeys = keys(live.map(row => row.archive_message_content));
+        const byKey = new Map(live.map((row, index) => [liveKeys[index], row]));
+        const removed = existing.filter(row => row.is_deleted && !row.staffOverrides?.hidden && !row.reviewed_by_id);
+        const taken = new Set(existing.map(row => row.message_id)), kept = new Set();
+        const sectionKeys = keys(sections.map(section => section.content));
+        let next = 2;
+        for (const [index, section] of sections.entries()) {
+            let target = byKey.get(sectionKeys[index]) || null;
+            if (!target) {
+                // A report the author removed and later restored returns under its earlier ID.
+                const earlier = removed.findIndex(row => heading(row.archive_message_content) === heading(section.content));
+                if (earlier >= 0) {
+                    [target] = removed.splice(earlier, 1);
+                    await this.db.query(`
+                        UPDATE pvp_scout_messages SET is_deleted = 0, review_status = 'not_required'
+                        WHERE message_id = ? AND channel_id = ? AND reviewed_by_id IS NULL
+                    `, [target.message_id, this.channelId]);
+                    target = { ...target, is_deleted: false, review_status: 'not_required' };
+                }
+            }
+            let messageId = target?.message_id;
+            if (!messageId) {
+                while (taken.has(`${id}_${next}`)) next++;
+                messageId = `${id}_${next}`;
+                taken.add(messageId);
+                result.created++;
+            }
+            kept.add(messageId);
+            // A report an officer locked or declined is not changed by the author's edit.
+            if (target && (target.staffOverrides?.locked || target.review_status === 'not_scout')) continue;
+            const { content, ...parsed } = section;
+            let record = { messageId, channelId: this.channelId, server: this.server, guildId: base.guildId, authorId: base.authorId,
+                authorUsername: base.authorUsername, createdAt: base.createdAt, editedAt: base.editedAt, sourceUrl: base.sourceUrl,
+                replyToId: null, content, attachments: [], ocrResults: [], ...parsed, teamLayoutStatus: 'none', deferReview };
+            if (target && hasOfficerDecision(target) && target.archive_message_content !== content) record = mergeReviewedEdit(target, record);
+            result.rows.push(await this.saveMessage(record));
+        }
+        for (const row of live) {
+            if (kept.has(row.message_id) || row.staffOverrides?.locked) continue;
+            await this.markDeleted(row.message_id);
+            await this.resolveCorrectionWindow(row.message_id);
+            result.removed++;
+        }
+        return result;
     }
 
     async getMessage(messageId) {
@@ -390,14 +505,16 @@ class PvpScoutStore {
         await this.ensureSchema();
         // Count distinct reports, including pending attempts. Database timestamps
         // retain the rolling window across restarts; exclude this report's retries.
+        // created_at and edited_at hold Discord's UTC times, while requested_at is the
+        // database server's own clock, so each is compared with the matching "now".
         const [rows] = await this.db.query(`
             SELECT COUNT(DISTINCT COALESCE(m.root_message_id, m.message_id)) AS total
             FROM pvp_scout_messages m
             LEFT JOIN pvp_scout_edit_reviews e ON e.message_id = m.message_id AND e.channel_id = m.channel_id
             WHERE m.channel_id = ? AND m.author_id = ?
-                AND m.created_at < DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL 7 DAY)
+                AND m.created_at < DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 7 DAY)
                 AND COALESCE(m.root_message_id, m.message_id) <> ?
-                AND (m.edited_at >= DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL 10 MINUTE)
+                AND (m.edited_at >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL 10 MINUTE)
                     OR e.requested_at >= DATE_SUB(CURRENT_TIMESTAMP(3), INTERVAL 10 MINUTE))
         `, [this.channelId, before.authorId, String(previous.root_message_id || before.messageId)]);
         return Number(rows[0]?.total || 0) >= 2;
@@ -622,6 +739,12 @@ class PvpScoutStore {
         let updated = 0;
         const knownIgnEvidence = await this.knownIgnEvidence({ fresh: true });
         const reviewLearning = await this.staffReviewLearning({ fresh: true });
+        // Messages that already have further reports saved are synchronized even when they no longer split.
+        const [sectioned] = await this.db.query(`
+            SELECT DISTINCT SUBSTRING_INDEX(message_id, '_', 1) AS message_id FROM pvp_scout_messages
+            WHERE channel_id = ? AND message_id REGEXP '^[0-9]+_[0-9]+$'
+        `, [this.channelId]);
+        const withSections = new Set((Array.isArray(sectioned) ? sectioned : []).map(row => String(row.message_id)));
         while (true) {
             const [rows] = await this.db.query(`
                 SELECT m.*, root.classification AS grouped_root_classification,
@@ -694,6 +817,10 @@ class PvpScoutStore {
                     } else {
                         continue;
                     }
+                }
+                if (parsed.extraSections?.length || withSections.has(row.message_id)) {
+                    const synced = await this.syncSections(row, parsed.extraSections || []);
+                    updated += synced.created + synced.removed;
                 }
                 const changed = row.classification !== parsed.classification
                     || row.opponent_ign !== parsed.ign
@@ -1244,27 +1371,12 @@ class PvpScoutStore {
         await this.ensureSchema();
         const scope = reviewScope(channelId);
         const [rows] = await this.db.query(`
-            SELECT * FROM (
-                SELECT m.*, e.before_json AS edit_before_json, e.after_json AS edit_after_json,
-                       e.revision AS edit_revision, 1 AS pending_edit
-                FROM pvp_scout_messages m
-                INNER JOIN pvp_scout_edit_reviews e
-                    ON e.message_id = m.message_id AND e.channel_id = m.channel_id AND e.status = 'pending'
-                WHERE ${scope.clause} AND m.is_deleted = 0
-                UNION ALL
-                SELECT m.*, NULL AS edit_before_json, NULL AS edit_after_json,
-                       NULL AS edit_revision, 0 AS pending_edit
-                FROM pvp_scout_messages m
-                WHERE ${scope.pending}
-                  AND NOT EXISTS (
-                      SELECT 1 FROM pvp_scout_edit_reviews e
-                      WHERE e.message_id = m.message_id AND e.channel_id = m.channel_id AND e.status = 'pending'
-                  )
+            SELECT * FROM (${reviewQueueSql(scope)}
             ) AS review_queue
             ORDER BY created_at DESC, message_id DESC LIMIT ? OFFSET ?
         `, [...scope.params, ...scope.params,
             Math.max(1, Math.min(20, Number(limit) || 1)), Math.max(0, Number(offset) || 0)]);
-        return rows.map(normalizeMessageRow);
+        return rows.map(reviewQueueRow);
     }
 
     async pendingReviewCount(channelId = this.channelId) {
@@ -1289,30 +1401,15 @@ class PvpScoutStore {
         await this.ensureSchema();
         const scope = reviewScope(channelId);
         const [rows] = await this.db.query(`
-            SELECT * FROM (
-                SELECT m.*, e.before_json AS edit_before_json, e.after_json AS edit_after_json,
-                       e.revision AS edit_revision, 1 AS pending_edit
-                FROM pvp_scout_messages m
-                INNER JOIN pvp_scout_edit_reviews e
-                    ON e.message_id = m.message_id AND e.channel_id = m.channel_id AND e.status = 'pending'
-                WHERE ${scope.clause} AND m.is_deleted = 0
-                UNION ALL
-                SELECT m.*, NULL AS edit_before_json, NULL AS edit_after_json,
-                       NULL AS edit_revision, 0 AS pending_edit
-                FROM pvp_scout_messages m
-                WHERE ${scope.pending}
-                  AND NOT EXISTS (
-                      SELECT 1 FROM pvp_scout_edit_reviews e
-                      WHERE e.message_id = m.message_id AND e.channel_id = m.channel_id AND e.status = 'pending'
-                  )
+            SELECT * FROM (${reviewQueueSql(scope)}
             ) AS review_queue
             ORDER BY created_at DESC, message_id DESC
         `, [...scope.params, ...scope.params]);
-        return rows.map(normalizeMessageRow);
+        return rows.map(reviewQueueRow);
     }
 
     async applyStaffReview(messageId, reviewerId, action, correction = {},
-        { allowPreviouslyReviewed = false, logAction = true, requirePending = false } = {}) {
+        { allowPreviouslyReviewed = false, logAction = true, requirePending = false, expectedContentHash } = {}) {
         await this.ensureSchema();
         const id = String(messageId);
         const reviewer = String(reviewerId);
@@ -1326,11 +1423,18 @@ class PvpScoutStore {
                 WHERE message_id = ? AND channel_id = ? AND is_deleted = 0 FOR UPDATE
             `, [id, this.channelId]);
             const before = rows[0];
-            const [windows] = requirePending ? await connection.query(`
+            // Lock the author's correction window so its deadline cannot escalate during this decision.
+            if (requirePending) await connection.query(`
                 SELECT status FROM pvp_scout_correction_windows WHERE message_id = ? AND channel_id = ? FOR UPDATE
-            `, [id, this.channelId]) : [[]];
-            if (requirePending && (!before || before.review_status !== 'pending' || windows[0]?.status === 'waiting')) {
+            `, [id, this.channelId]);
+            if (requirePending && (!before || before.review_status !== 'pending')) {
                 const error = new Error('This scout review is no longer pending. Reopen /scout-review before acting.');
+                error.code = 'SCOUT_REVIEW_STALE';
+                throw error;
+            }
+            // The author can still edit during the correction window; never apply a decision to text the officer has not seen.
+            if (requirePending && expectedContentHash && before.content_hash !== expectedContentHash) {
+                const error = new Error('The member edited this scout message after the review was opened. Reopen /scout-review before acting.');
                 error.code = 'SCOUT_REVIEW_STALE';
                 throw error;
             }
@@ -1363,6 +1467,11 @@ class PvpScoutStore {
                     WHERE message_id = ? AND channel_id = ?
                 `, [reviewer, id, this.channelId]);
             } else throw new Error(`Unknown scout review action: ${action}`);
+            // An officer decision ends the author's correction window; its deadline must not escalate a reviewed report.
+            await connection.query(`
+                UPDATE pvp_scout_correction_windows SET status = 'resolved'
+                WHERE message_id = ? AND channel_id = ? AND status = 'waiting'
+            `, [id, this.channelId]);
             const [updated] = await connection.query(
                 'SELECT * FROM pvp_scout_messages WHERE message_id = ? AND channel_id = ?', [id, this.channelId]
             );
@@ -1462,6 +1571,7 @@ module.exports = {
     PvpScoutStore,
     MISSING_TEAM_REASON,
     contentHash,
+    discordMessageId,
     scoutVersion,
     decode,
     normalizeMessageRow

@@ -77,6 +77,7 @@ for (const cleanupFailure of [false, true]) test(`actual index startup stops aft
             async start() { calls.push('ingestor start'); }
             async stop() {}
         } },
+        './features/pvp-scouting/ScoutDeletionReview.js': { handleScoutDeletionInteraction: async () => false },
         './features/pvp-scouting/ScoutServerSettings.js': { ScoutServerSettings: class { async hydratePreferences() {} } },
         './features/pvp-scouting/ScoutRosterStore.js': { ScoutRosterStore: FakeStore },
         './features/pvp-scouting/ScoutAuditLogger.js': { ScoutAuditLogger: class { async flush() {} } },

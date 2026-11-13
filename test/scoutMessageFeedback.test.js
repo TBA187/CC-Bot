@@ -803,17 +803,34 @@ test('an unsuccessful edit remains in review and refreshes feedback', async () =
     assert.deepEqual(f.counts(), { saves: 1, staged: 0, grouped: 1, feedback: 1 });
 });
 
-test('edits after 24 hours, officer decisions, and pending proposals keep officer approval', async () => {
+const rewrittenRecord = async () => ({ messageId: ID, channelId: CHANNEL, authorId: 'member', reviewStatus: 'not_required',
+    classification: 'scout', ign: 'OtherPlayer', ignNormalized: 'otherplayer', teamText: '- Garchomp: Outrage\n- Zapdos: Roost',
+    content: 'OtherPlayer\nGarchomp: Outrage, Earthquake, Stealth Rock\nZapdos: Roost, Defog, Hurricane' });
+
+test('rewrites after 48 hours, declined or locked reports, and pending proposals keep officer approval', async () => {
     for (const [patch, proposal] of [
-        [{ review_status: 'not_required', created_at: new Date(Date.now() - 25 * 3600000) }, null],
-        [{ review_status: 'confirmed', reviewed_by_id: 'officer' }, null],
-        [{ review_status: 'pending', reviewed_by_id: 'officer' }, null],
+        [{ review_status: 'not_required', created_at: new Date(Date.now() - 49 * 3600000) }, null],
+        [{ review_status: 'not_scout', reviewed_by_id: 'officer' }, null],
         [{ review_status: 'pending', staffOverrides: { locked: true } }, null],
         [{ review_status: 'pending' }, { status: 'pending' }]
     ]) {
         const f = editFixture(patch, proposal);
+        f.ingestor.buildRecord = rewrittenRecord;
         await f.ingestor.handleUpdate(f.message);
         assert.deepEqual(f.counts(), { saves: 0, staged: 1, grouped: 0, feedback: 1 });
+    }
+});
+
+test('edits on the second day and edits to officer-reviewed reports apply without officer approval', async () => {
+    for (const patch of [
+        { review_status: 'not_required', created_at: new Date(Date.now() - 25 * 3600000) },
+        { review_status: 'confirmed', reviewed_by_id: 'officer' },
+        { review_status: 'pending', reviewed_by_id: 'officer' }
+    ]) {
+        const f = editFixture(patch);
+        f.ingestor.buildRecord = rewrittenRecord;
+        await f.ingestor.handleUpdate(f.message);
+        assert.deepEqual(f.counts(), { saves: 1, staged: 0, grouped: 1, feedback: 1 });
     }
 });
 
@@ -994,13 +1011,16 @@ test('rapid edits to Discord’s mutable cached message retain each gateway revi
 test('successive edits after the window closes compare against the previous proposal and suppress duplicate events', async t => {
     const f = memberEditLogFixture(); f.message.content = 'good published report';
     await f.ingestor.handleUpdate(f.message);
-    const later = Date.now() + 25 * 3600000;
+    const later = Date.now() + 49 * 3600000;
     t.mock.method(Date, 'now', () => later);
-    f.message.content = 'good first proposed edit'; await f.ingestor.handleUpdate(f.message);
-    f.message.content = 'good second proposed edit'; await f.ingestor.handleUpdate(f.message);
+    // Each proposal rewrites the report, so neither counts as a small late update.
+    const first = 'good first proposed edit that replaces the published report with entirely different wording';
+    const second = 'good second proposed edit that again replaces everything with another long description';
+    f.message.content = first; await f.ingestor.handleUpdate(f.message);
+    f.message.content = second; await f.ingestor.handleUpdate(f.message);
     await f.ingestor.handleUpdate(f.message);
-    assert.equal(f.logs.length, 3); assert.equal(f.logs[2].before.content, 'good first proposed edit');
-    assert.equal(f.logs[2].after.content, 'good second proposed edit'); assert.equal(f.logs[2].awaitingApproval, true);
+    assert.equal(f.logs.length, 3); assert.equal(f.logs[2].before.content, first);
+    assert.equal(f.logs[2].after.content, second); assert.equal(f.logs[2].awaitingApproval, true);
     assert.equal(f.logs[2].failed, false);
 });
 

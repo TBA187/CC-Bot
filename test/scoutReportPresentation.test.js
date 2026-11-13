@@ -122,6 +122,25 @@ test('saved author IDs render one mention and plain username is only a fallback'
     assert.doesNotMatch(embed.description, /vangogsan/u);
 });
 
+test('a review opened during the member correction window warns the officer and keeps every action', () => {
+    const { root } = originalAndContinuation();
+    const dueAt = Date.now() + 30 * 60 * 1000;
+    const open = reviewPayload({ ...root, correction_open: true, correction_due_at_ms: dueAt }, 0, 1, 'owner');
+    const description = open.embeds[0].toJSON().description;
+    assert.match(description, new RegExp(`^⚠️ \\*\\*The member's correction window is still open\\.\\*\\* It ends <t:${Math.floor(dueAt / 1000)}:R>\\.`, 'u'));
+    assert.match(description, /officers are alerted only if it remains unresolved/u);
+    assert.deepEqual(open.components[0].toJSON().components.map(button => button.label),
+        ['Previous', 'Next', 'Confirm', 'Correct', 'Not a scout']);
+    assert.deepEqual(open.allowedMentions, { parse: [] });
+    // The deadline is omitted until the window has started, and after it has passed.
+    for (const due of [null, Date.now() - 1000]) {
+        const text = reviewPayload({ ...root, correction_open: true, correction_due_at_ms: due }, 0, 1, 'owner').embeds[0].toJSON().description;
+        assert.match(text, /correction window is still open/u);
+        assert.doesNotMatch(text, /It ends/u);
+    }
+    assert.doesNotMatch(reviewPayload(root, 0, 1, 'owner').embeds[0].toJSON().description, /correction window/u);
+});
+
 function embedTextLength(embeds) {
     return embeds.reduce((sum, value) => {
         const embed = value.toJSON?.() || value;

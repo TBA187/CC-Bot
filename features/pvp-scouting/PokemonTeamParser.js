@@ -426,6 +426,15 @@ function bracketEntries(line) {
     return { entries, before: line.slice(0, headings[0].start).trim(), uncertainNames };
 }
 
+// A broad alias or near-miss spelling can be the last word of a move or item:
+// "Sand Tomb" and "Rock Tomb" are moves, not Spiritomb.
+function endsKnownTerm(line, start, end) {
+    const previous = line.slice(0, start).match(/([\p{L}\p{N}'’]+)\s+$/u)?.[1];
+    if (!previous) return false;
+    const { found, leftover } = recognizedTerms(`${previous} ${line.slice(start, end)}`);
+    return found.length === 1 && !nameKey(leftover) && /\s/u.test(found[0].written);
+}
+
 function inlineSeparatedEntries(line) {
     const headings = [];
     for (const token of line.matchAll(/\S+/gu)) {
@@ -433,6 +442,7 @@ function inlineSeparatedEntries(line) {
         if (headings.length && start < headings.at(-1).end) continue;
         const match = matchSpeciesHeading(line.slice(start), { allowTypo: true, allowBroadAlias: true });
         if (!match?.species || !/^\s*(?:-->|->|=>|→|[-–:])\s*(?:\S|$)/u.test(line.slice(start + match.end))) continue;
+        if (match.kind !== 'exact' && endsKnownTerm(line, start, start + match.end)) continue;
         headings.push({ start, end: start + match.end, match });
     }
     if (headings.length < 2) return null;
@@ -598,11 +608,31 @@ function commaRosterEntries(line) {
     };
 }
 
+// Field labels members write before the opponent's name, such as "name : PlayerName"
+// or "Opponent IGN: PlayerName". The label itself is never the IGN.
+const IGN_LABEL = String.raw`(?:(?:opponent|opp|enemy|player|trainer)(?:['’]s)?(?:[ \t]+(?:ign|name|nick(?:name)?))?|(?:in[- ]?game[ \t]+)?name|ign(?:[ \t]+name)?|nick(?:name)?|username)`;
+// A dash only separates the label from the name when it stands alone, so "Player-123" stays one IGN.
+const IGN_LABEL_SEPARATOR = String.raw`(?:[ \t]*[:=][ \t]*|[ \t]+[-–—][ \t]+)`;
+const IGN_LABEL_PREFIX = new RegExp(String.raw`^\s*(?:>+\s*)?(?:[-*•]\s+)?\*{0,2}${IGN_LABEL}\*{0,2}${IGN_LABEL_SEPARATOR}\*{0,2}[ \t]*`, 'iu');
+
+// Returns the text after an IGN field label, or null when the line does not start with one.
+function ignLabelValue(line) {
+    const source = String(line || '');
+    const label = source.match(IGN_LABEL_PREFIX);
+    return label ? source.slice(label[0].length) : null;
+}
+
+// Divider rows such as "--------" or "=====" separate pasted reports and carry no scout details.
+function isSeparatorLine(line) {
+    return /^[\s\-_=~*#+|.·•—–─━═]{3,}$/u.test(String(line || ''));
+}
+
 function noteWithoutIgnHeading(value, ign) {
-    const line = String(value || '').trim();
-    if (!ign) return line;
+    const original = String(value || '').trim();
+    if (!ign) return original;
+    const line = ignLabelValue(original) ?? original;
     const heading = line.match(/^\s*(?:>+\s*)?(?:\*\*)?([\p{L}\p{N}_.-]{2,32})(?:\*\*)?([\s\S]*)$/u);
-    if (!heading || nameKey(heading[1]) !== nameKey(ign)) return line;
+    if (!heading || nameKey(heading[1]) !== nameKey(ign)) return original;
 
     let detail = heading[2].trim();
     const parenthetical = detail.match(/^\(([^)\n]{1,80})\)\s*([\s\S]*)$/u);
@@ -680,7 +710,14 @@ function splitScoutText(text, ign = null, { allowContextualDetails = false, cont
         const line = rawLine.trim();
         if (!line || (ign && nameKey(line) === nameKey(ign))) continue;
         const unquoted = line.replace(/^>+\s*/, '');
+        if (isSeparatorLine(unquoted)) continue;
         let withoutBullet = unquoted.replace(/^(?:\d{1,2}[.)]\s+|[-*•]\s+)/u, '');
+        // "name : PlayerName" only labels the opponent. Text after the name is read as if it followed a bare IGN.
+        const labelled = ign ? ignLabelValue(withoutBullet) : null;
+        if (labelled !== null && nameKey(labelled.match(/^\*{0,2}([\p{L}\p{N}_.-]{2,32})/u)?.[1]) === nameKey(ign)) {
+            if (!noteWithoutIgnHeading(labelled, ign)) continue;
+            withoutBullet = labelled;
+        }
         const namedLine = ign && withoutBullet.match(/^([^\s:]+)\s*(?::\s*|\s+)([\s\S]+)$/u);
         if (namedLine && nameKey(namedLine[1]) === nameKey(ign)) {
             const afterIgn = namedLine[2]
@@ -820,6 +857,7 @@ function mergePreviewTeam(teamText, previewText) {
 }
 
 module.exports = {
+    IGN_LABEL, IGN_LABEL_SEPARATOR, isSeparatorLine,
     commaRosterEntries, hasKnownTeamDetail, inlineSeparatedEntries, isPokemonDetailNote,
     matchKnownTermHeading, matchSpeciesHeading, mergePreviewTeam, nameKey, reportContextSpecies,
     recognizedTerms, resolveNoteShorthand, sameTeamSpecies, splitScoutText, teamFromPreview, teamLineSpecies

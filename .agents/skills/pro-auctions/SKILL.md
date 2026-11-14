@@ -164,5 +164,5 @@ Forum HTML in tests must be fixture strings, never live requests.
 
 1. Read the relevant module end to end before editing; `AuctionDiscord.js`, `AuctionMonitor.js` and `AuctionFollowService.js` share state only through the store.
 2. Run the auction tests, plus the diagnostics and startup tests if log texts or wiring changed.
-3. Update `docs/operations.md` only when operators would notice the change.
+3. Update `docs/operations.md` only when operators need different instructions to configure, operate or recover the monitor.
 4. Report what could only be verified live: Components V2 rendering, DM delivery, current forum markup and request volume.

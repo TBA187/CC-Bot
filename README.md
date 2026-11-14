@@ -1,6 +1,6 @@
 # Crow Control Bot
 
-A Discord bot for the Crow Control guild, built with Node.js and discord.js. It brings Gold and Silver PvP scouting, PvP King challenges, dungeon recruitment, giveaways, XP rewards, guild applications and forum notifications into the server.
+A Discord bot for the Crow Control guild, built with Node.js and discord.js. It brings Gold and Silver PvP scouting, PvP King challenges, dungeon recruitment, giveaways, XP rewards, guild applications, PRO auction announcements and forum notifications into the server.
 
 ## Requirements
 
@@ -53,7 +53,7 @@ The bot registers its application commands in the configured guild at startup. K
 | Recruitment and events | Dungeon commands create team panels and reminders; `/giveaway` manages draws and participation. |
 | Server administration | Auto-role panels, welcome messages and configurable audit logging support server management. `/inspect` shows a member's Discord profile, roles and server status. |
 
-Guild application monitoring posts Officer alerts and Court House polls. Forum shop monitoring delivers new-reply notifications to the configured owner. See [operations and configuration](docs/operations.md) for monitor settings, storage, backups and PvP event configuration.
+Guild application monitoring posts Officer alerts and Court House polls. Forum shop monitoring delivers new-reply notifications to the configured owner. PRO Trade Zone auctions are posted in the auction channel, where members can follow an auction to receive bid DMs. See [operations and configuration](docs/operations.md) for monitor settings, storage, backups and PvP event configuration.
 
 ## Operation
 

@@ -84,4 +84,5 @@ Finish with:
 - Each check command and its result, including failures and the Node version used.
 - Skipped checks and the reason.
 - Equivalent cases left unchanged on purpose (for example Gold versus Silver), and any assumptions about equivalence.
+- Temporary, compatibility, migration or one-time code that still remains, why it stays, and when it can be removed.
 - Remaining work and verification limits. Do not imply that the bot was restarted, commands were registered or messages were delivered unless that happened.

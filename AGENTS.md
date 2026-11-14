@@ -2,7 +2,7 @@
 
 ## Project overview
 
-Crow Control is the Crow Control guild's Discord bot for Pokemon Revolution Online. It uses Node.js, CommonJS JavaScript, discord.js v14, and MySQL/MariaDB through `mysql2/promise`. Features include Gold and Silver PvP scouting and PvP King challenges, guild applications, forum shop notifications, dungeon recruitment, giveaways, XP rewards, message editing, role management, and audit logging. Feature-specific JSON files preserve supported state and pending operations during database outages. OCR uses Sharp and Tesseract through a shared helper process.
+Crow Control is the Crow Control guild's Discord bot for Pokemon Revolution Online. It uses Node.js, CommonJS JavaScript, discord.js v14, and MySQL/MariaDB through `mysql2/promise`. Features include Gold and Silver PvP scouting and PvP King challenges, guild applications, forum shop notifications, PRO auction announcements and bid DMs, dungeon recruitment, giveaways, XP rewards, message editing, role management, and audit logging. Feature-specific JSON files preserve supported state and pending operations during database outages. OCR uses Sharp and Tesseract through a shared helper process.
 
 ## Development commands
 

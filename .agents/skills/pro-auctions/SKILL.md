@@ -23,7 +23,7 @@ Both listings grow over time: an auction without bids stays active until someone
 | `AuctionFollowService.js` | `AuctionFollowService` (`follow`, `unfollow`, `observe`, `pause`, `cleanupEnded`, `drain`) and `validFollowState`. |
 | `AuctionStore.js` | `AuctionStore`: copy-on-write updates, cheap reads, JSON-only mode, MySQL mode with a local operation journal and replay, and receipt pruning. |
 | `AuctionSqlRepository.js` | `AuctionSqlRepository`: flattens state into rows, revision-checked transactional `apply` with operation receipts, `load`, `pruneReceipts`, and runtime `ensureSchema`. Also exports `changesBetween`, `projectOperation` and `operationHash`. |
-| `AuctionDiscord.js` | Announcement and DM payload builders, private pages (images, bids, description, payment), `handleAuctionButton`, `temporaryAuctionFailure`, and `AuctionDiscordNotifier` (`send`, `edit`, `sendBidUpdate`, duplicate search). |
+| `AuctionDiscord.js` | Announcement and DM payload builders, private pages (images, bids, description, payment), `handleAuctionButton`, `temporaryAuctionFailure`, and `AuctionDiscordNotifier` (`send`, paced `edit`, `sendBidUpdate`, duplicate search). |
 | `sql/create_forum_auction_tables.sql` | `forum_auction_control` (with `applied_at`), `forum_auctions`, `forum_auction_subscriptions`, `forum_auction_outbox`. `schemaStatements()` creates the same tables at runtime; keep both definitions identical (covered by `test/auctionSqlRepository.test.js`). |
 
 Wiring: `app/createBotApplication.js` creates the monitor, `app/BotApplication.js` starts it in `onReady` and stops it in `stopAndExit`, and `app/interactionRouter.js` sends every `auction:` button to `handleAuctionButton` with `getAuctionRecord`, `channelId: appConfig.auctionChannelID`, `guildId` and `followService`. The notifier receives the whole `config.json`: `proAuctionsRoleID` is pinged on new announcements and `selfRoleChannelID` appears in the role instructions. Operator guidance is in the "Forum monitors and scouting" section of `docs/operations.md`.
@@ -72,6 +72,13 @@ Wiring: `app/createBotApplication.js` creates the monitor, `app/BotApplication.j
 7. Errors for which `batchFailure()` is true (shutdown, HTTP 429 or 5xx, network codes, `fetch failed`) abort the run and back off the whole monitor with `forumRetryDelay` (up to 30 minutes). Other errors back off only the item.
 
 Every forum request goes through `request()`: one shared queue, 750 ms spacing (`requestSpacingMs`), a shared 429 wait (`forumRateLimit`), and one retry after the spacing for a network reset, timeout, DNS or socket error without an HTTP status (`retryableNetworkError`). TLS and certificate errors anywhere in the `cause` chain are not retried. `fetchAuction` shares one in-flight request per ID between the monitor and follow buttons.
+
+Every card edit goes through `AuctionDiscordNotifier.edit`, which queues it in the notifier's `DiscordEditPacer` (`utils/discordEditPacer.js`). Edits run one at a time in call order, at least 6.5 seconds after the previous edit finished (`AUCTION_EDIT_DELAY_MS`) and after that card's own last edit (`AUCTION_SAME_MESSAGE_EDIT_DELAY_MS`), because Discord accepts about one card edit every 6 seconds in the auction channel. discord.js retries 429 responses silently, so the absence of rate-limit lines in the logs proves nothing.
+
+- The message is fetched before the wait, so a deleted announcement fails at once with `10008`. The payload is built after the wait, so a card's timestamp shows when the edit was sent.
+- The monitor passes `cardEditOptions()` (its current signal and generation). Stopping or restarting it ends the wait at once with `BOT_SHUTTING_DOWN` and sends nothing.
+- Only sent edits use a slot, including ones Discord rejects. A run with 10 changed cards takes about a minute, and its bid DMs follow afterward.
+- New announcements (`send`) and bid DMs are not paced. Never call `message.edit` directly for cards.
 
 ## Retention
 
@@ -146,16 +153,17 @@ Keep log texts stable, or update `STATUS_EVENTS` and `test/discordDiagnostics.te
 | Area | Test file |
 | --- | --- |
 | Parsing, signatures, requests, cancellation | `test/auctionForumClient.test.js` (inline HTML fixtures, `listingCard()`) |
-| Monitor, catch-up, sweep, schedule, retention, retry, shutdown | `test/auctionMonitor.test.js` (`fixture(t)`, `scheduleFixture(t, now)`, `snowflakeAt()`) |
+| Monitor, catch-up, sweep, schedule, retention, retry, shutdown | `test/auctionMonitor.test.js` (`fixture(t)`, `scheduleFixture(t, now)`, `snowflakeAt()`, `realNotifierFixture(t)` for the real notifier and pacer) |
 | Follow service and DM retries | `test/auctionFollow.test.js` |
 | Store, copy-on-write updates, journal, replay, receipts | `test/auctionStore.test.js` (`setup(t)`) |
 | SQL repository, receipt times and schema consistency | `test/auctionSqlRepository.test.js` |
-| Payloads, buttons, removed auctions, retry hint | `test/auctionDiscord.test.js` (`sample()`) |
+| Payloads, buttons, removed auctions, retry hint, card edit pacing | `test/auctionDiscord.test.js` (`sample()`, `pacedNotifier(t)` replaces the pacer's clock and delay) |
+| Shared edit pacer | `test/discordEditPacer.test.js` |
 | Alerts | `test/discordDiagnostics.test.js` |
 | Startup and shutdown wiring | `test/botBootstrapShutdown.test.js` |
 
 ```sh
-node --test "test/auction*.test.js"
+node --test "test/auction*.test.js" test/discordEditPacer.test.js
 ```
 
 Forum HTML in tests must be fixture strings, never live requests.
@@ -165,4 +173,4 @@ Forum HTML in tests must be fixture strings, never live requests.
 1. Read the relevant module end to end before editing; `AuctionDiscord.js`, `AuctionMonitor.js` and `AuctionFollowService.js` share state only through the store.
 2. Run the auction tests, plus the diagnostics and startup tests if log texts or wiring changed.
 3. Update `docs/operations.md` only when operators need different instructions to configure, operate or recover the monitor.
-4. Report what could only be verified live: Components V2 rendering, DM delivery, current forum markup and request volume.
+4. Report what could only be verified live: Components V2 rendering, DM delivery, current forum markup, request volume and Discord's card edit limits.

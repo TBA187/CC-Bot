@@ -4,6 +4,7 @@
 const { createHash } = require('node:crypto');
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, ContainerBuilder, EmbedBuilder,
     MediaGalleryBuilder, MediaGalleryItemBuilder, MessageFlags, PermissionFlagsBits, TextDisplayBuilder, escapeMarkdown } = require('discord.js');
+const { DiscordEditPacer } = require('../../utils/discordEditPacer.js');
 const { messageSearchText } = require('../../utils/discordMessageHistory.js');
 const { isTransientDiscordError } = require('../../utils/networkErrors.js');
 const { SERVERS } = require('../pvp-scouting/ScoutServerSettings.js');
@@ -32,6 +33,10 @@ function temporaryAuctionFailure(error) {
 const IMAGE_PAGE_SIZE = 10;
 const BID_PAGE_SIZE = 25;
 const BID_DESCRIPTION_LIMIT = 4096;
+// Discord accepts about one announcement edit every 6 seconds in the auction channel: its 429
+// retries for back-to-back card edits arrived exactly 6 seconds apart. 6.5 seconds adds a margin.
+const AUCTION_EDIT_DELAY_MS = 6500;
+const AUCTION_SAME_MESSAGE_EDIT_DELAY_MS = 6500;
 function footer(page = null, title = 'PRO Auctions', botUser = null) {
     const iconURL = botUser?.displayAvatarURL?.({ size: 64 });
     return { text: `${title} • Last updated:${page ? ` • Page ${page}` : ''}`,
@@ -498,6 +503,8 @@ class AuctionDiscordNotifier {
         this.client = options.client;
         this.channelId = String(options.channelId || '');
         this.config = options.config || {};
+        this.editPacer = new DiscordEditPacer({ routeDelayMs: AUCTION_EDIT_DELAY_MS,
+            sameMessageDelayMs: AUCTION_SAME_MESSAGE_EDIT_DELAY_MS });
     }
 
     async channel() {
@@ -534,15 +541,23 @@ class AuctionDiscordNotifier {
         return channel.send({ ...buildAuctionPayload(auction, this.config, this.client.user), nonce: `auction:${auction.id}`, enforceNonce: true });
     }
 
-    async edit(messageId, auction) {
-        const channel = await this.channel();
-        const message = await channel.messages.fetch(String(messageId));
-        const payload = buildAuctionPayload(auction, this.config, this.client.user);
-        payload.allowedMentions = { parse: [] };
-        const attachments = [...(message.attachments?.values?.() || [])];
-        payload.attachments = attachments.filter(attachment => !['cc_logo.webp', 'ww_logo.png'].includes(attachment.name))
-            .map(attachment => ({ id: attachment.id }));
-        return message.edit(payload);
+    // Card edits are paced and run in call order. The message is fetched first, so a deleted
+    // announcement fails without waiting; the payload is built after the wait, so a stopped monitor
+    // sends nothing and the card's timestamp shows when the edit was sent. New announcements are not paced.
+    async edit(messageId, auction, { signal = null, isCurrent = null } = {}) {
+        return this.editPacer.edit({
+            key: `${this.channelId}:${messageId}`,
+            load: async () => (await this.channel()).messages.fetch(String(messageId)),
+            payload: message => {
+                const payload = buildAuctionPayload(auction, this.config, this.client.user);
+                payload.allowedMentions = { parse: [] };
+                const attachments = [...(message.attachments?.values?.() || [])];
+                payload.attachments = attachments.filter(attachment => !['cc_logo.webp', 'ww_logo.png'].includes(attachment.name))
+                    .map(attachment => ({ id: attachment.id }));
+                return payload;
+            },
+            signal, isCurrent
+        });
     }
 
     async sendBidUpdate(userId, key, job) {

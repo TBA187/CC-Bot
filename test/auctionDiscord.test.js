@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const { Client, ButtonInteraction, Collection, ChannelType, ComponentType, MessageFlags, MessageFlagsBitField, embedLength } = require('discord.js');
 const { AuctionDiscordNotifier, buildAuctionPayload, handleAuctionButton, privatePage,
     followConfirmation, buildBidNotificationPayload, temporaryAuctionFailure } = require('../features/auctions/AuctionDiscord.js');
+const { abortableDelay } = require('../utils/abortable.js');
 
 function sample(overrides = {}) {
     return { id: '14702', url: 'https://pokemonrevolution.net/forum/trade/14702/', title: 'Teddiursa',
@@ -866,6 +867,9 @@ test('auction edits remove logo attachments, retain other files and use the host
     const channel = { isTextBased: () => true, messages: { fetch: async () => message }, async send() {} };
     const botUser = { displayAvatarURL: () => 'https://cdn.discordapp.com/avatars/123/avatar.webp' };
     const notifier = new AuctionDiscordNotifier({ client: { user: botUser, channels: { cache: new Map([['123', channel]]) } }, channelId: '123' });
+    const waits = [];
+    notifier.editPacer.clock = () => 0;
+    notifier.editPacer.delay = async ms => { waits.push(ms); };
     await notifier.edit('message', sample());
     assert.equal(edits[0].files, undefined);
     assert.deepEqual(edits[0].attachments, [{ id: 'c' }]);
@@ -873,9 +877,102 @@ test('auction edits remove logo attachments, retain other files and use the host
     assert.equal(edits[0].embeds[0].toJSON().image.url, sample().imageUrls[0]);
     message.attachments = new Collection();
     await notifier.edit('message', sample());
+    assert.deepEqual(waits, [6500], 'a repeat edit of the same card waits for its turn');
     assert.equal(edits[1].files, undefined);
     assert.deepEqual(edits[1].attachments, []);
     assert.equal(edits[1].embeds[0].toJSON().footer.icon_url, botUser.displayAvatarURL());
+});
+
+// Replaces the card pacer's clock and delay so no real time passes; Date.now follows the same clock,
+// so each card's embed timestamp shows when its payload was built.
+function pacedNotifier(t, { editMs = 0 } = {}) {
+    let now = Date.parse('2026-11-14T12:00:00Z');
+    t.mock.method(Date, 'now', () => now);
+    const events = [];
+    const messages = new Map();
+    const message = id => {
+        if (!messages.has(id)) messages.set(id, { id, attachments: new Collection(), async edit(payload) {
+            events.push({ type: 'edit', id, at: now, payload });
+            now += editMs;
+            return this;
+        } });
+        return messages.get(id);
+    };
+    const channel = { isTextBased: () => true, async send() {}, messages: { async fetch(id) {
+        events.push({ type: 'fetch', id: String(id), at: now });
+        return message(String(id));
+    } } };
+    const notifier = new AuctionDiscordNotifier({ client: { user: { id: 'bot' }, channels: { cache: new Map([['123', channel]]) } }, channelId: '123' });
+    notifier.editPacer.clock = () => now;
+    notifier.editPacer.delay = async ms => {
+        events.push({ type: 'wait', ms, at: now });
+        now += ms;
+    };
+    const of = type => events.filter(event => event.type === type);
+    return { notifier, events, of, now: () => now, advance: ms => { now += ms; } };
+}
+
+test('card edits run one at a time in call order, 6.5 seconds after the previous edit finished', async t => {
+    const f = pacedNotifier(t, { editMs: 200 });
+    const start = f.now();
+    assert.equal(f.notifier.editPacer.routeDelayMs, 6500);
+    assert.equal(f.notifier.editPacer.sameMessageDelayMs, 6500);
+    await Promise.all(['a', 'b', 'c'].map(id => f.notifier.edit(id, sample())));
+    assert.deepEqual(f.events.map(event => event.type), ['fetch', 'edit', 'fetch', 'wait', 'edit', 'fetch', 'wait', 'edit']);
+    assert.deepEqual(f.of('edit').map(edit => [edit.id, edit.at - start]), [['a', 0], ['b', 6700], ['c', 13400]]);
+    assert.deepEqual(f.of('wait').map(wait => wait.ms), [6500, 6500]);
+});
+
+test('a card edit waits only for the part of the delay not already spent, such as the forum fetch', async t => {
+    const f = pacedNotifier(t);
+    await f.notifier.edit('a', sample());
+    f.advance(4000);
+    await f.notifier.edit('b', sample());
+    await f.notifier.edit('b', sample());
+    assert.deepEqual(f.of('wait').map(wait => wait.ms), [2500, 6500]);
+});
+
+test('a card payload is built after its wait, so its timestamp shows when the edit was sent', async t => {
+    const f = pacedNotifier(t);
+    await f.notifier.edit('a', sample());
+    await f.notifier.edit('b', sample({ title: 'Updated' }));
+    const [, edit] = f.of('edit');
+    assert.equal(f.of('wait')[0].ms, 6500);
+    assert.equal(edit.payload.embeds[0].toJSON().title, 'Updated');
+    assert.equal(edit.payload.embeds[0].toJSON().timestamp, new Date(edit.at).toISOString());
+    assert.deepEqual(edit.payload.allowedMentions, { parse: [] });
+});
+
+test('stopping during a card edit wait sends nothing, keeps the previous slot and lets the next edit run', async t => {
+    const f = pacedNotifier(t);
+    await f.notifier.edit('a', sample());
+    const fakeDelay = f.notifier.editPacer.delay;
+    const waiting = Promise.withResolvers();
+    f.notifier.editPacer.delay = (ms, signal) => {
+        waiting.resolve(ms);
+        return abortableDelay(ms, signal);
+    };
+    const controller = new AbortController();
+    const stopped = f.notifier.edit('b', sample(), { signal: controller.signal });
+    assert.equal(await waiting.promise, 6500);
+    f.advance(3000);
+    controller.abort();
+    await assert.rejects(stopped, { code: 'BOT_SHUTTING_DOWN' });
+    f.notifier.editPacer.delay = fakeDelay;
+    f.advance(1000);
+    await f.notifier.edit('c', sample());
+    assert.deepEqual(f.of('edit').map(edit => edit.id), ['a', 'c']);
+    // Measured from card a's edit 4 seconds ago; a slot for the stopped edit would leave 5.5 seconds.
+    assert.deepEqual(f.of('wait').map(wait => wait.ms), [2500]);
+});
+
+test('a card edit for a stopped or restarted monitor sends nothing after its wait', async t => {
+    const f = pacedNotifier(t);
+    await f.notifier.edit('a', sample());
+    let current = true;
+    f.notifier.editPacer.delay = async () => { current = false; };
+    await assert.rejects(f.notifier.edit('b', sample(), { isCurrent: () => current }), { code: 'BOT_SHUTTING_DOWN' });
+    assert.deepEqual(f.of('edit').map(edit => edit.id), ['a']);
 });
 
 test('new announcements notify only the configured role and subsequent edits do not notify it again', async () => {

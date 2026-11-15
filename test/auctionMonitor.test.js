@@ -10,6 +10,8 @@ const { AuctionStore } = require('../features/auctions/AuctionStore.js');
 const { AuctionMonitor, ended } = require('../features/auctions/AuctionMonitor.js');
 const { AuctionForumRequestError } = require('../features/auctions/AuctionForumClient.js');
 const { AuctionFollowService } = require('../features/auctions/AuctionFollowService.js');
+const { AuctionDiscordNotifier } = require('../features/auctions/AuctionDiscord.js');
+const { abortableDelay } = require('../utils/abortable.js');
 
 function fixture(t) {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'auction-monitor-'));
@@ -792,6 +794,64 @@ test('an old scheduled run cannot rearm polling while a restart is initializing'
     initializing.resolve();
     await restarting;
     await f.monitor.stop();
+});
+
+// Announces auctions 11 and 12 with the fake notifier, gives both a new bid, then switches the
+// monitor to the real notifier and card edit pacer over an in-memory channel.
+async function realNotifierFixture(t, { fetchMessage = null } = {}) {
+    const f = fixture(t);
+    f.pages.set(1, ['10']);
+    await f.monitor.runOnce();
+    f.pages.set(1, ['12', '11', '10']);
+    for (const id of ['11', '12']) f.auctions.set(id, { id, status: 'Active', bids: [] });
+    await f.monitor.runOnce();
+    for (const id of ['11', '12']) f.auctions.set(id, { id, status: 'Active', bids: [{ amount: '500' }] });
+    const cardEdits = [];
+    const channel = { isTextBased: () => true, async send() { assert.fail('Refreshes must not post announcements'); },
+        messages: { async fetch(id) {
+            if (fetchMessage) return fetchMessage(String(id));
+            return { id: String(id), attachments: new Map(), async edit() { cardEdits.push(String(id)); return this; } };
+        } } };
+    const notifier = new AuctionDiscordNotifier({ client: { user: { id: 'bot' }, channels: { cache: new Map([['555', channel]]) } },
+        channelId: '555' });
+    f.monitor.notifier = notifier;
+    return { ...f, notifier, cardEdits };
+}
+
+test('stopping the monitor while a card edit waits for its turn returns at once without editing', async t => {
+    const f = await realNotifierFixture(t);
+    const waiting = Promise.withResolvers();
+    f.notifier.editPacer.delay = (ms, signal) => {
+        waiting.resolve(ms);
+        return abortableDelay(ms, signal);
+    };
+    const running = f.monitor.runOnce();
+    assert.ok(await waiting.promise > 6000);
+    const stoppingAt = Date.now();
+    await f.monitor.stop();
+    assert.ok(Date.now() - stoppingAt < 1000, 'stop() must not wait for the card edit delay');
+    assert.equal(await running, false);
+    assert.equal(f.monitor.failureCount, 0);
+    assert.equal(f.cardEdits.length, 1);
+    const skipped = ['11', '12'].find(id => !f.cardEdits.includes(`message-${id}`));
+    assert.deepEqual((await f.store.getAuctionRecord(skipped)).auction.bids, [], 'the unsent card keeps its stored state');
+    // The stopped edit leaves the shared pacer usable: the next monitor edits the remaining card.
+    f.notifier.editPacer.delay = async () => {};
+    assert.equal(await restartedMonitor(f).runOnce(), true);
+    assert.deepEqual(f.cardEdits.slice(1), [`message-${skipped}`]);
+    assert.deepEqual((await f.store.getAuctionRecord(skipped)).auction.bids, [{ amount: '500' }]);
+});
+
+test('a deleted announcement is marked missing through the real notifier without waiting for an edit slot', async t => {
+    const f = await realNotifierFixture(t, { fetchMessage: async id => {
+        if (id === 'message-12') throw Object.assign(new Error('Unknown Message'), { status: 404, code: 10008 });
+        return { id, attachments: new Map(), async edit() { return this; } };
+    } });
+    f.notifier.editPacer.delay = async () => assert.fail('A deleted announcement must not wait for an edit slot');
+    assert.equal(await f.monitor.runOnce(), true);
+    assert.equal((await f.store.getAuctionRecord('12')).messageMissing, true);
+    assert.equal((await f.store.getAuctionRecord('11')).messageMissing, undefined);
+    assert.equal(f.monitor.itemFailures.has('refresh 12'), false);
 });
 
 async function followedFixture(t) {

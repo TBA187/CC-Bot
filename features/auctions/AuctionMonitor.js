@@ -370,6 +370,13 @@ class AuctionMonitor {
         if (marked) console.log(`[CC LOG] PRO auction ${id} message was not found in the configured channel; embed updates stopped.`);
     }
 
+    // A card edit can wait several seconds for its turn in the notifier's pacer. Stopping or
+    // restarting the monitor ends that wait at once, and the edit rejects with BOT_SHUTTING_DOWN.
+    cardEditOptions() {
+        const generation = this.generation;
+        return { signal: this.controller.signal, isCurrent: () => generation === this.generation };
+    }
+
     async markPendingUnavailable(id, since) {
         await this.store.update(data => {
             const entry = data.pending[id];
@@ -741,7 +748,7 @@ class AuctionMonitor {
                     const unavailable = { ...record.auction, status: 'Unavailable', sourceUnavailable: true, endsAt: null, timeLeft: null,
                         unavailableSince: new Date(this.clock()).toISOString() };
                     if (!record.messageMissing) {
-                        try { await this.notifier.edit(record.messageId, unavailable); }
+                        try { await this.notifier.edit(record.messageId, unavailable, this.cardEditOptions()); }
                         catch (editError) {
                             if (editError.auctionStorage || editError.code === 'AUCTION_STORE_CONFLICT' || this.batchFailure(editError)) throw editError;
                             if (unknownMessage(editError)) await this.markMessageMissing(id, record, key);
@@ -781,7 +788,7 @@ class AuctionMonitor {
             return observedActive;
         }
         try {
-            await this.notifier.edit(record.messageId, auction);
+            await this.notifier.edit(record.messageId, auction, this.cardEditOptions());
         } catch (error) {
             if (this.batchFailure(error)) throw error;
             if (unknownMessage(error)) {

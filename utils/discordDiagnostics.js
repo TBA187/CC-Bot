@@ -70,6 +70,13 @@ const STATUS_EVENTS = [
 // stores share one server, and these Discord checks share one connection. Each group is one incident
 // that recovers once all of its sources have recovered.
 const GROUPED_INCIDENTS = { 'database:mysql': 'MySQL', 'forum:pro': 'PRO forum', 'discord:connection': 'Discord connection' };
+// Failed-run messages of each forum monitor, with the outage source that covers them.
+const FORUM_RUN_FAILURES = [
+    [/^\[CC LOG\] PRO auction monitor failed; retaining pending work\b/u, 'forum:auctions'],
+    [/^\[CC LOG\] PRO Forum Shop monitor failed:/u, 'forum:pro-forum-shop'],
+    [/^\[CC LOG\] PRO Dungeon Shop monitor failed:/u, 'forum:pro-dungeon-shop'],
+    [/^\[CC LOG\] Guild Application monitor cycle failed:/u, 'forum:applications']
+];
 
 function incidentIdentity(status, text) {
     // Each giveaway has its own incident, so one delivery's recovery never closes another's alert.
@@ -186,6 +193,10 @@ class DiscordDiagnosticLogger {
                 message: escapeMarkdown(stripBotLogPrefix(clean)).slice(0, 3500) });
             return;
         }
+        // During a forum monitor's own outage, a failed run usually has the same cause, for example a maintenance
+        // page after a 503, so the outage alert covers it. Data and storage failures still alert.
+        const forumRun = !dataFailure && FORUM_RUN_FAILURES.find(([pattern]) => pattern.test(clean));
+        if (forumRun && this.incidents.active.get('forum:pro')?.sources.has(forumRun[1])) return;
         if (consoleOnlyDiagnostic(level, clean, code)) return;
         const autocompleteStatus = level === 'warn' && /^\[CC LOG\] \/scout autocomplete missed its Discord response deadline /u.test(clean);
         const runtimeWarning = /^Node runtime warning:/u.test(clean);

@@ -319,14 +319,49 @@ test('brief auction forum timeouts stay local while persistent outages alert onc
     f.consoleObject.warn(warning, detail, { code: 'ETIMEDOUT' });
     await f.clock.advance(120000);
     assert.equal(f.sent.length, 1);
-    f.consoleObject.warn('[CC LOG] PRO auction monitor failed; retaining pending work:', 'disk failure');
-    assert.equal(f.sent.length, 2, 'unexpected monitor failures remain immediate');
+    const failedRun = '[CC LOG] PRO auction monitor failed; retaining pending work:';
+    const maintenance = 'PRO auction listing was not recognized (page title: "Maintenance").';
+    f.consoleObject.warn(failedRun, maintenance);
+    assert.equal(f.sent.length, 1, 'a failed run during the forum outage stays in the console');
+    f.consoleObject.warn(failedRun, Object.assign(new Error('no space left on device, write'), { code: 'ENOSPC' }));
+    f.consoleObject.warn(failedRun, 'Auction JSON recovery paused; original data preserved at forum_auctions.json.corrupt-1');
+    assert.equal(f.sent.length, 3, 'storage and corrupt-data failures still alert during the outage');
     f.consoleObject.log('[CC LOG] PRO auction monitor connection restored.');
     await settle();
-    assert.equal(f.sent.length, 3);
-    assert.equal(f.sent[2].status, 'recovered');
-    assert.equal(f.sent[2].replyTo, 'message-1');
-    assert.equal(f.sent[2].statusKey, 'forum:pro');
+    assert.equal(f.sent.length, 4);
+    assert.equal(f.sent[3].status, 'recovered');
+    assert.equal(f.sent[3].replyTo, 'message-1');
+    assert.equal(f.sent[3].statusKey, 'forum:pro');
+    f.consoleObject.warn(failedRun, maintenance);
+    assert.equal(f.sent.length, 5, 'outside a forum outage a failed run alerts immediately');
+    assert.equal(f.sent[4].status, undefined);
+});
+
+test('failed shop and application runs stay in the console only during their own forum outage', async t => {
+    const f = fixture(); t.after(() => f.logger.stop()); f.logger.start();
+    const monitors = [
+        ['[CC LOG] PRO Forum Shop monitor is unavailable. Retrying in 12 minute(s): HTTP 503', '[CC LOG] PRO Forum Shop monitor failed:'],
+        ['[CC LOG] PRO Dungeon Shop monitor is unavailable. Retrying in 12 minute(s): HTTP 503', '[CC LOG] PRO Dungeon Shop monitor failed:'],
+        ['[CC LOG] PRO Forum application monitor is unavailable. Retrying in 10 minute(s): HTTP 503', '[CC LOG] Guild Application monitor cycle failed:']
+    ];
+    for (const [outage, failure] of monitors) {
+        f.consoleObject.error(failure, new Error('Forum page was not recognized.'));
+        assert.equal(f.sent.length, 1, `${failure} alerts outside its outage`);
+        f.sent.length = 0;
+        f.logger.recent.clear();
+        f.consoleObject.warn(outage);
+        f.consoleObject.error(failure, new Error('Forum page was not recognized.'));
+        assert.deepEqual(f.sent, [], `${failure} stays in the console during its outage`);
+    }
+});
+
+test('a failed auction run alerts immediately while only another forum monitor is unavailable', async t => {
+    const f = fixture(); t.after(() => f.logger.stop()); f.logger.start();
+    f.consoleObject.warn('[CC LOG] PRO Forum Shop monitor is unavailable. Retrying in 12 minute(s): fetch failed');
+    f.consoleObject.warn('[CC LOG] PRO auction monitor failed; retaining pending work:', 'Auction listing page 1 is empty or unreadable.');
+    assert.equal(f.sent.length, 1);
+    assert.match(f.sent[0].message, /^PRO auction monitor failed; retaining pending work/u);
+    assert.equal(f.sent[0].status, undefined, 'an immediate alert, not the delayed forum incident');
 });
 
 test('a recoverable outage resolved before Discord is ready does not post a stale warning later', () => {

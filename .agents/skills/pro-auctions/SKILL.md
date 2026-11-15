@@ -142,8 +142,9 @@ Every custom ID starts with `auction:` and is handled by `handleAuctionButton`:
 
 `STATUS_EVENTS` in `utils/discordDiagnostics.js`:
 
-- `PRO auction monitor is unavailable. Retrying in …` opens the "PRO Auctions" incident, which alerts after 10 minutes. `PRO auction monitor connection restored.` recovers it.
-- Every other `console.warn` or `console.error` alerts immediately (grouped for 5 minutes), including `PRO auction monitor failed; retaining pending work`, item failures (`PRO auction {id} failed; retrying separately`), DM failures, `Shared auction state unavailable` and the 50-page sweep warning.
+- `PRO auction monitor is unavailable. Retrying in …` joins the shared "PRO forum" incident of all forum monitors, which alerts after 30 minutes. `PRO auction monitor connection restored.` recovers the auction source; the incident recovers once every forum monitor has.
+- While that auction outage lasts, `PRO auction monitor failed; retaining pending work` stays in the console because it usually has the same cause; data and storage failures still alert.
+- Every other `console.warn` or `console.error` alerts immediately (grouped for 5 minutes), including `PRO auction monitor failed; retaining pending work` outside a forum outage, item failures (`PRO auction {id} failed; retrying separately`), DM failures, `Shared auction state unavailable` and the 50-page sweep warning.
 - Unavailable pages (404 or 410), retention, catch-up, sweep stops and recoveries use `console.log` and stay in the console.
 
 Keep log texts stable, or update `STATUS_EVENTS` and `test/discordDiagnostics.test.js` together.

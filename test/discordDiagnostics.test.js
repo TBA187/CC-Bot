@@ -48,13 +48,13 @@ function fixture(options = {}) {
 
 test('actionable warnings before Discord login stay in memory, then post once with their original timestamp', () => {
     const f = fixture({ now: () => Date.parse('2026-10-03T09:30:00Z') });
-    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 5m (ECONNREFUSED).');
+    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 15m (ECONNREFUSED).');
     assert.equal(f.printed.length, 1); assert.equal(f.sent.length, 0);
     f.logger.start(); f.logger.start();
     assert.equal(f.sent.length, 1);
     assert.equal(f.sent[0].code, 'ECONNREFUSED');
     assert.equal(f.sent[0].component, 'MySQL');
-    assert.equal(f.sent[0].timestamp, '2026-10-03T09:25:00.000Z');
+    assert.equal(f.sent[0].timestamp, '2026-10-03T09:15:00.000Z');
     f.logger.stop();
 });
 
@@ -104,7 +104,7 @@ test('expected startup deadlines stay local while persistent fallback outages sh
     f.logger.start();
     assert.equal(f.printed.length, notices.length + 2);
     assert.equal(f.sent.length, 0);
-    await f.clock.advance(5 * 60_000);
+    await f.clock.advance(15 * 60_000);
     assert.equal(f.sent.length, 1);
     assert.equal(f.sent[0].statusKey, 'database:mysql');
     assert.equal(f.logger.waiting.size, 0);
@@ -140,19 +140,19 @@ test('the known loader deprecation stays in stderr and other Node warnings have 
 test('persistent MySQL alerts ping once until confirmed recovery even across error codes and report contexts', async () => {
     const f = fixture(); f.logger.start();
     f.logger.run({ component: 'Scout ingestion', reportId: '123', messageId: '124' }, () => {
-        f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 5m (ECONNRESET; 5 failed attempt(s)).');
+        f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 15m (ECONNRESET; 15 failed attempt(s)).');
     });
     assert.equal(f.sent[0].component, 'MySQL');
     assert.equal(f.sent[0].reportId, undefined);
     assert.equal(f.sent[0].messageId, undefined);
     await settle();
     await f.clock.advance(5 * 60_000);
-    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 10m (ETIMEDOUT; 10 failed attempt(s)).');
+    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 20m (ETIMEDOUT; 20 failed attempt(s)).');
     await f.clock.advance(5 * 60_000);
-    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 15m (ECONNREFUSED; 15 failed attempt(s)).');
+    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 25m (ECONNREFUSED; 25 failed attempt(s)).');
     assert.equal(f.sent.length, 1);
     await f.clock.advance(20 * 60_000);
-    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 35m (ETIMEDOUT; 35 failed attempt(s)).');
+    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 45m (ETIMEDOUT; 45 failed attempt(s)).');
     assert.equal(f.sent.length, 1);
     f.consoleObject.error('The database write failed.', Object.assign(new Error('Lost connection'), { code: 'ECONNRESET' }));
     assert.equal(f.sent.length, 2);
@@ -272,7 +272,7 @@ test('recoverable warnings get a reply only after the same subsystem reports rec
     ];
     for (const [warning, recovery] of scenarios) {
         consoleObject.warn(warning);
-        await clock.advance(10 * 60_000);
+        await clock.advance(30 * 60_000);
         consoleObject.log(recovery);
         await settle();
     }
@@ -295,7 +295,7 @@ test('unmatched recovery logs do not create standalone Discord alerts', () => {
     f.logger.stop();
 });
 
-test('brief auction forum timeouts stay local while persistent outages alert once under PRO Auctions and recover in a reply', async t => {
+test('brief auction forum timeouts stay local while persistent outages alert once under PRO forum and recover in a reply', async t => {
     const f = fixture();
     t.after(() => f.logger.stop());
     f.logger.start();
@@ -306,15 +306,15 @@ test('brief auction forum timeouts stay local while persistent outages alert onc
     assert.deepEqual(f.sent, []);
     await f.clock.advance(120000);
     f.consoleObject.log('[CC LOG] PRO auction monitor connection restored.');
-    await f.clock.advance(10 * 60000);
+    await f.clock.advance(30 * 60000);
     assert.deepEqual(f.sent, []);
     f.consoleObject.warn(warning, detail, { code: 'ETIMEDOUT' });
-    await f.clock.advance(10 * 60000 - 1);
+    await f.clock.advance(30 * 60000 - 1);
     assert.deepEqual(f.sent, []);
     await f.clock.advance(1);
     assert.equal(f.sent.length, 1);
-    assert.equal(f.sent[0].statusKey, 'forum:auctions');
-    assert.equal(f.sent[0].component, 'PRO Auctions');
+    assert.equal(f.sent[0].statusKey, 'forum:pro');
+    assert.equal(f.sent[0].component, 'PRO forum');
     assert.equal(f.sent[0].code, 'ETIMEDOUT');
     f.consoleObject.warn(warning, detail, { code: 'ETIMEDOUT' });
     await f.clock.advance(120000);
@@ -326,7 +326,7 @@ test('brief auction forum timeouts stay local while persistent outages alert onc
     assert.equal(f.sent.length, 3);
     assert.equal(f.sent[2].status, 'recovered');
     assert.equal(f.sent[2].replyTo, 'message-1');
-    assert.equal(f.sent[2].statusKey, 'forum:auctions');
+    assert.equal(f.sent[2].statusKey, 'forum:pro');
 });
 
 test('a recoverable outage resolved before Discord is ready does not post a stale warning later', () => {
@@ -351,14 +351,14 @@ test('failed alert delivery retries with the same nonce, then recovery replies t
         t.after(() => f.logger.stop()); f.logger.start();
         const warning = '[CC LOG] PRO Forum Shop monitor is unavailable. Retrying in 1 minute(s): fetch failed';
         f.consoleObject.warn(warning);
-        await f.clock.advance(10 * 60_000);
+        await f.clock.advance(30 * 60_000);
         await f.clock.advance(30_000);
         assert.equal(sent[0].nonce, sent[1].nonce);
         f.consoleObject.log('[CC LOG] PRO Forum Shop monitor connection restored.');
         await settle();
         assert.equal(sent[2].replyTo, 'message-2');
         f.consoleObject.warn(warning);
-        await f.clock.advance(10 * 60_000);
+        await f.clock.advance(30 * 60_000);
         assert.equal(sent[3].status, 'unavailable');
         assert.notEqual(sent[3].nonce, sent[0].nonce);
         assert.equal(calls, 4);
@@ -371,7 +371,7 @@ test('pending recovery replies are cancelled at shutdown', async () => {
     const f = fixture({ send: event => { sent.push(event); return pending; } });
     f.logger.start();
     f.consoleObject.warn('[CC LOG] PRO Forum Shop monitor is unavailable. Retrying in 1 minute(s): fetch failed');
-    await f.clock.advance(10 * 60_000);
+    await f.clock.advance(30 * 60_000);
     f.consoleObject.log('[CC LOG] PRO Forum Shop monitor connection restored.');
     f.logger.stop();
     finish({ id: 'warning' });
@@ -391,7 +391,7 @@ test('Gold and Silver storage outages share one ping and recover only when both 
     f.logger.run({ component: 'Scout ingestion', reportId: '123', messageId: '456' }, () => {
         gold.noteMysqlFailure(outage); silver.noteMysqlFailure(outage);
     });
-    await f.clock.advance(5 * 60_000);
+    await f.clock.advance(15 * 60_000);
     assert.deepEqual(sent.map(event => event.statusKey), ['database:mysql']);
     assert.ok(sent.every(event => event.reportId === undefined && event.messageId === undefined));
     gold.noteMysqlRestored();
@@ -405,22 +405,22 @@ test('Gold and Silver storage outages share one ping and recover only when both 
 });
 
 const timedServices = [
-    { name: 'MySQL', delay: 5 * 60_000,
+    { name: 'MySQL', delay: 15 * 60_000,
         warning: '[DB LOG] MySQL connectivity issue detected (ECONNREFUSED). Query retries and feature fallbacks are active.',
         recovery: '[DB LOG] MySQL connection restored after 5m (2 failed attempt(s)).' },
     { name: 'command registration', delay: 5 * 60_000,
         warning: '[CC LOG] ❌ ERROR: Command registration failed: ETIMEDOUT',
         recovery: '[CC LOG] ✅ Guild slash commands registered to Discord' },
-    { name: 'Discord REST warmup', delay: 5 * 60_000,
+    { name: 'Discord REST warmup', delay: 15 * 60_000,
         warning: '[CC LOG] Discord interaction connection warmup failed (ETIMEDOUT). Initial responses may need a new connection.',
         recovery: '[CC LOG] Discord interaction connection warmup recovered.' },
-    { name: 'CC tag verification', delay: 5 * 60_000,
+    { name: 'CC tag verification', delay: 15 * 60_000,
         warning: '[CC TAG] Discord verification unavailable (EAI_AGAIN). Tag checks will retry automatically.',
         recovery: '[CC TAG] Discord verification restored. Pending tag checks have completed.' },
     { name: 'container memory accounting', delay: 5 * 60_000,
         warning: '[RUNTIME MEMORY] Container accounting unavailable. Process RSS fallback is active.',
         recovery: '[RUNTIME MEMORY] Container accounting restored. Container memory checks are active.' },
-    ...['PRO Forum Shop', 'PRO Dungeon Shop', 'PRO Forum application'].map(name => ({ name, delay: 10 * 60_000,
+    ...['PRO Forum Shop', 'PRO Dungeon Shop', 'PRO Forum application'].map(name => ({ name, delay: 30 * 60_000,
         warning: `[CC LOG] ${name} monitor is unavailable. Retrying in 12 minute(s): fetch failed`,
         recovery: `[CC LOG] ${name} monitor connection restored.` })),
     { name: 'giveaway announcement delivery', delay: 10 * 60_000,
@@ -498,7 +498,7 @@ test('brief service interruptions stay in the console without warning or recover
     }
 });
 
-test('a long outage resolved before login still sends its warning followed by confirmed recovery', async t => {
+test('a long outage that ended before its alert could be sent is reported once, as a recovery without a ping', async t => {
     const f = fixture(); t.after(() => f.logger.stop());
     const service = timedServices[0];
     f.consoleObject.warn(service.warning);
@@ -506,8 +506,9 @@ test('a long outage resolved before login still sends its warning followed by co
     f.consoleObject.log(service.recovery);
     assert.equal(f.sent.length, 0);
     f.logger.start(); await settle();
-    assert.deepEqual(f.sent.map(event => event.status), ['unavailable', 'recovered']);
-    assert.equal(f.sent[1].durationMs, service.delay + 10_000);
+    assert.deepEqual(f.sent.map(event => [event.status, event.level, event.replyTo]), [['recovered', 'log', null]]);
+    assert.equal(f.sent[0].durationMs, service.delay + 10_000);
+    assert.equal(f.sent[0].message, '[DB LOG] MySQL connection restored after 5m (2 failed attempt(s)).');
 });
 
 test('urgent data loss and unexpected failures alert immediately and corruption never auto-recovers', async t => {
@@ -608,27 +609,27 @@ test('OCR pressure warnings deliver immediately after login, including buffered 
     }
 });
 
-test('gateway interruptions wait one minute and require every disconnected shard to recover', async t => {
+test('gateway interruptions wait 15 minutes and require every disconnected shard to recover', async t => {
     const f = fixture(), client = new EventEmitter(); t.after(() => f.logger.stop());
     f.logger.watchGateway(client); f.logger.watchGateway(client); f.logger.start();
     client.emit(Events.ShardReady, 0);
     client.emit(Events.ShardDisconnect, { code: 1006 }, 0);
-    await f.clock.advance(59_999);
+    await f.clock.advance(15 * 60_000 - 1);
     assert.equal(f.sent.length, 0);
     client.emit(Events.ShardReconnecting, 0);
     client.emit(Events.ShardDisconnect, { code: 1006 }, 1);
     await f.clock.advance(1);
     assert.equal(f.sent.length, 1);
-    assert.equal(f.sent[0].statusKey, 'discord:gateway');
+    assert.equal(f.sent[0].statusKey, 'discord:connection');
     client.emit(Events.ShardResume, 0, 4); await settle();
     assert.equal(f.sent.length, 1);
     client.emit(Events.ShardReady, 1); await settle();
     assert.equal(f.sent[1].replyTo, 'message-1');
-    // A later 59-second interruption stays local.
+    // A later 14-minute interruption stays local.
     client.emit(Events.ShardDisconnect, {}, 0);
-    await f.clock.advance(59_000);
+    await f.clock.advance(14 * 60_000);
     client.emit(Events.ShardResume, 0, 1);
-    await f.clock.advance(60_000);
+    await f.clock.advance(15 * 60_000);
     assert.equal(f.sent.length, 2);
     f.logger.stop();
     assert.equal(client.eventNames().length, 0);
@@ -690,9 +691,10 @@ test('an outage that heals during failed delivery is reported once when delivery
     f.consoleObject.log(service.recovery); await settle();
     available = true;
     await f.clock.advance(30_000);
-    assert.deepEqual(sent.map(event => event.status), ['unavailable', 'unavailable', 'recovered']);
-    assert.equal(sent[0].nonce, sent[1].nonce);
-    assert.equal(sent[2].replyTo, 'message-2');
+    // The warning never reached Discord, so only the recovery with its duration is posted.
+    assert.deepEqual(sent.map(event => [event.status, event.replyTo ?? null]), [['unavailable', null], ['recovered', null]]);
+    assert.equal(sent[1].durationMs, service.delay);
+    assert.equal(f.logger.incidents.pending.size, 0);
 });
 
 test('synchronous send failures do not leave extra timers and shutdown cancels delayed alerts', async () => {
@@ -778,7 +780,7 @@ test('registration retries stop on shutdown and never start for an already abort
     assert.equal(calls, 1);
 });
 
-test('member audit database failures wait five minutes and recover after synchronization succeeds', async t => {
+test('member audit database failures wait 15 minutes and recover after synchronization succeeds', async t => {
     const { MemberAuditHistory } = require('../utils/memberAuditHistory.js');
     const f = fixture(); t.after(() => f.logger.stop()); f.logger.start();
     for (const level of ['log', 'warn', 'error']) t.mock.method(console, level, f.consoleObject[level]);
@@ -789,7 +791,7 @@ test('member audit database failures wait five minutes and recover after synchro
     } } });
     await history.restore();
     assert.equal(f.sent.length, 0);
-    await f.clock.advance(5 * 60_000);
+    await f.clock.advance(15 * 60_000);
     assert.equal(f.sent[0].statusKey, 'database:mysql');
     offline = false; await history.restore(); await settle();
     assert.equal(f.sent[1].replyTo, 'message-1');
@@ -838,9 +840,46 @@ test('a retrospective database duration does not change the nonce of an unconfir
     const f = fixture({ send: event => { sent.push(event); return null; } });
     t.after(() => f.logger.stop()); f.logger.start();
     f.consoleObject.warn(timedServices[0].warning);
-    await f.clock.advance(5 * 60_000);
-    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 6m (ECONNREFUSED).');
+    await f.clock.advance(15 * 60_000);
+    f.consoleObject.warn('[DB LOG] MySQL is still unavailable after 16m (ECONNREFUSED).');
     await f.clock.advance(30_000);
     assert.equal(sent.length, 2);
     assert.equal(sent[0].nonce, sent[1].nonce);
+});
+
+test('the PRO forum monitors share one alert, and it recovers only after every monitor has recovered', async t => {
+    const f = fixture(); t.after(() => f.logger.stop()); f.logger.start();
+    const monitors = [
+        ['[CC LOG] PRO auction monitor is unavailable. Retrying in 90 seconds; pending work retained:', '[CC LOG] PRO auction monitor connection restored.'],
+        ['[CC LOG] PRO Forum Shop monitor is unavailable. Retrying in 12 minute(s): fetch failed', '[CC LOG] PRO Forum Shop monitor connection restored.'],
+        ['[CC LOG] PRO Dungeon Shop monitor is unavailable. Retrying in 12 minute(s): fetch failed', '[CC LOG] PRO Dungeon Shop monitor connection restored.'],
+        ['[CC LOG] PRO Forum application monitor is unavailable. Retrying in 10 minute(s): fetch failed', '[CC LOG] PRO Forum application monitor connection restored.']
+    ];
+    for (const [warning] of monitors) f.consoleObject.warn(warning);
+    await f.clock.advance(30 * 60_000 - 1);
+    assert.equal(f.sent.length, 0);
+    await f.clock.advance(1);
+    assert.deepEqual(f.sent.map(event => [event.statusKey, event.component, event.status]), [['forum:pro', 'PRO forum', 'unavailable']]);
+    for (const [, recovery] of monitors.slice(0, 3)) f.consoleObject.log(recovery);
+    await settle();
+    assert.equal(f.sent.length, 1, 'one monitor is still failing');
+    f.consoleObject.log(monitors[3][1]); await settle();
+    assert.deepEqual(f.sent.map(event => event.status), ['unavailable', 'recovered']);
+    assert.equal(f.sent[1].replyTo, 'message-1');
+});
+
+test('the Discord gateway, interaction warmup and tag checks share one Discord connection alert', async t => {
+    const f = fixture(), client = new EventEmitter(); t.after(() => f.logger.stop());
+    f.logger.watchGateway(client); f.logger.start();
+    client.emit(Events.ShardDisconnect, { code: 1006 }, 0);
+    f.consoleObject.warn('[CC LOG] Discord interaction connection warmup failed (ETIMEDOUT). Initial responses may need a new connection.');
+    f.consoleObject.warn('[CC TAG] Discord verification unavailable (ENOTFOUND). Tag checks will retry automatically.');
+    await f.clock.advance(15 * 60_000);
+    assert.deepEqual(f.sent.map(event => [event.statusKey, event.component]), [['discord:connection', 'Discord connection']]);
+    client.emit(Events.ShardReady, 0);
+    f.consoleObject.log('[CC LOG] Discord interaction connection warmup recovered.');
+    await settle();
+    assert.equal(f.sent.length, 1);
+    f.consoleObject.log('[CC TAG] Discord verification restored. Pending tag checks have completed.'); await settle();
+    assert.deepEqual(f.sent.map(event => event.status), ['unavailable', 'recovered']);
 });

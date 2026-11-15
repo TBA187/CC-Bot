@@ -58,7 +58,9 @@ class DiagnosticIncidents {
     }
 
     async deliver(incident) {
-        const recovery = Boolean(incident.messageId);
+        // An outage that ended before its alert could be sent, for example while Discord was unreachable,
+        // is reported once as a recovery with its duration, without a separate warning or ping.
+        const recovery = Boolean(incident.messageId) || incident.resolvedAt !== null;
         const event = { ...incident.event, status: recovery ? 'recovered' : 'unavailable', statusKey: incident.key,
             timestamp: new Date(recovery ? incident.resolvedAt : incident.startedAt).toISOString(),
             nonce: this.nonce(incident, recovery), repeats: 0 };

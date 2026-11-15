@@ -140,16 +140,17 @@ Invalid values use defaults.
 
 ## Discord diagnostic alerts
 
-Bot warnings and errors use the existing `logChannelID` and mention `ownerID`. Confirmed recovery replies to the original alert without another mention.
-Console and monthly logs record failures immediately; Discord waits for persistent service outages:
+Bot warnings and errors use the existing `logChannelID` and mention `ownerID`. Confirmed recovery replies to the original alert without another mention. An outage that ends before its alert could be posted, for example while Discord was unreachable, is reported once as a recovery without a mention.
+Console and monthly logs record failures immediately; Discord waits for persistent service outages, and outages that recover sooner send nothing:
 
 | Problem | Discord alert timing |
 | --- | --- |
 | JSON save failures, corrupted data, unexpected errors, failed background jobs | Immediately |
-| MySQL outages and feature storage fallbacks, Discord REST warmup, CC tag verification, command registration, unavailable container memory accounting | After 5 minutes |
-| PRO forum outages, including application and shop scans; giveaway winner announcements still waiting for delivery | After 10 minutes |
-| Discord Gateway disconnection | After 1 minute |
 | Memory pressure | After 1 minute |
+| Command registration, unavailable container memory accounting | After 5 minutes |
+| Giveaway winner announcements still waiting for delivery | After 10 minutes |
+| MySQL outages and feature storage fallbacks (one alert for all of them); Discord connection problems: Gateway disconnection, REST warmup and CC tag verification (one alert) | After 15 minutes |
+| PRO forum outages: auction, application and shop scans (one alert) | After 30 minutes |
 
 Memory monitoring logs pressure, recovery and changes in container accounting, plus a memory summary 15 minutes after start and every 6 hours in the console and monthly log only. Warning and critical thresholds are 80% and 90%; recovery is below 75%.
 

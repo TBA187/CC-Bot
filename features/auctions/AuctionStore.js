@@ -336,7 +336,9 @@ class AuctionStore {
         try {
             return Number(await this.repository.pruneReceipts(cutoffMs)) || 0;
         } catch (error) {
-            console.warn('[CC LOG] Old PRO auction change receipts could not be removed; retrying later:', error.code || error.message);
+            // A dropped connection is retried at the next hourly cleanup, so only other failures alert staff.
+            const log = this.db?.isDatabaseUnavailableError?.(error) ? console.log : console.warn;
+            log('[CC LOG] Old PRO auction change receipts could not be removed; retrying later:', error.code || error.message);
             return 0;
         }
     }); }

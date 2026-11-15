@@ -8,6 +8,7 @@ const { stripBotLogPrefix } = require('./logFormat.js');
 const { DiagnosticIncidents } = require('./diagnosticIncidents.js');
 
 const TRANSIENT_CONNECTION_CODES = /^(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|EHOSTUNREACH|ENOTFOUND|PROTOCOL_CONNECTION_LOST|ER_CON_COUNT_ERROR)$/u;
+const DISCORD_CONNECTION_KEYS = new Set(['discord:gateway', 'discord:interaction-warmup', 'discord:tag-verification']);
 
 // Pair known outage and recovery messages by subsystem. Other console logs stay local.
 const STATUS_EVENTS = [
@@ -57,18 +58,29 @@ const STATUS_EVENTS = [
     { key: 'discord:giveaway-delivery', component: 'Giveaways', delayMs: 10 * 60_000,
         warning: /^\[CC LOG\] Giveaway \S+ winner announcement is pending\b/u,
         recovery: /^\[CC LOG\] Giveaway \S+ winner announcement (?:delivered|cancelled)\b/u }
-// Memory pressure waits one minute because OCR helper spikes are released within seconds.
-].map(status => ({ ...status, delayMs: status.delayMs ?? (status.key.startsWith('forum:') ? 10 * 60_000
-    : status.key === 'discord:gateway' || status.key === 'runtime:memory-pressure' ? 60_000
-        : status.key.startsWith('storage:') ? 0 : 5 * 60_000) }));
+// PRO forum, MySQL and Discord connection outages usually clear up on their own, so they alert only when
+// they last longer than these delays. Memory pressure waits one minute because OCR helper spikes are
+// released within seconds.
+].map(status => ({ ...status, delayMs: status.delayMs ?? (status.key.startsWith('forum:') ? 30 * 60_000
+    : status.key.startsWith('database:') || DISCORD_CONNECTION_KEYS.has(status.key) ? 15 * 60_000
+        : status.key === 'runtime:memory-pressure' ? 60_000
+            : status.key.startsWith('storage:') ? 0 : 5 * 60_000) }));
+
+// One cause can fail several subsystems at once: every forum monitor reads the same site, the MySQL
+// stores share one server, and these Discord checks share one connection. Each group is one incident
+// that recovers once all of its sources have recovered.
+const GROUPED_INCIDENTS = { 'database:mysql': 'MySQL', 'forum:pro': 'PRO forum', 'discord:connection': 'Discord connection' };
 
 function incidentIdentity(status, text) {
     // Each giveaway has its own incident, so one delivery's recovery never closes another's alert.
     if (status.key === 'discord:giveaway-delivery') {
         return { key: `${status.key}:${/^\[CC LOG\] Giveaway (\S+) /u.exec(text)?.[1] || 'unknown'}`, source: status.key };
     }
-    return { key: status.key.startsWith('database:') ? 'database:mysql' : status.key,
-        source: status.key === 'discord:gateway' ? `shard:${/shard (\d+)/u.exec(text)?.[1]}` : status.key };
+    const source = status.key === 'discord:gateway' ? `shard:${/shard (\d+)/u.exec(text)?.[1]}` : status.key;
+    if (status.key.startsWith('database:')) return { key: 'database:mysql', source };
+    if (status.key.startsWith('forum:')) return { key: 'forum:pro', source };
+    if (DISCORD_CONNECTION_KEYS.has(status.key)) return { key: 'discord:connection', source };
+    return { key: status.key, source };
 }
 
 function databaseOutageAge(text) {
@@ -167,8 +179,10 @@ class DiscordDiagnosticLogger {
         const dataFailure = code === 'JSON_STORE_CORRUPT' || /\b(?:ENOSPC|EROFS|EIO)\b/u.test(String(code || ''))
             || /JSON recovery paused|corrupt(?:ed)? (?:JSON|data)|(?:JSON|data).*corrupt/iu.test(clean);
         if (status && !dataFailure) {
-            this.incidents.fail({ ...incidentIdentity(status, clean), delayMs: status.delayMs,
-                startedAt: this.now() - databaseOutageAge(clean), level, code, component: status.component,
+            const identity = incidentIdentity(status, clean);
+            this.incidents.fail({ ...identity, delayMs: status.delayMs,
+                startedAt: this.now() - databaseOutageAge(clean), level, code,
+                component: GROUPED_INCIDENTS[identity.key] || status.component,
                 message: escapeMarkdown(stripBotLogPrefix(clean)).slice(0, 3500) });
             return;
         }

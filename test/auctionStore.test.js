@@ -634,4 +634,12 @@ test('receipt pruning runs only with healthy shared storage and an empty journal
     assert.equal(warnings[0][1], 'ER_LOCK_WAIT_TIMEOUT');
     assert.equal(store.mysqlOutage, false, 'a failed cleanup does not mark shared storage unavailable');
     assert.deepEqual(calls, [1000]);
+    // A dropped connection stays in the console; the next hourly cleanup retries it.
+    const logs = [];
+    t.mock.method(console, 'log', (...args) => logs.push(args));
+    f.db.isDatabaseUnavailableError = error => error.code === 'ECONNRESET';
+    f.repository.pruneReceipts = async () => { throw Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }); };
+    assert.equal(await store.pruneReceipts(4000), 0);
+    assert.equal(warnings.length, 1);
+    assert.deepEqual(logs.at(-1), ['[CC LOG] Old PRO auction change receipts could not be removed; retrying later:', 'ECONNRESET']);
 });

@@ -147,7 +147,7 @@ Console and monthly logs record failures immediately; Discord waits for persiste
 | --- | --- |
 | JSON save failures, corrupted data, unexpected errors, failed background jobs | Immediately |
 | MySQL outages and feature storage fallbacks, Discord REST warmup, CC tag verification, command registration, unavailable container memory accounting | After 5 minutes |
-| PRO forum outages, including application and shop scans | After 10 minutes |
+| PRO forum outages, including application and shop scans; giveaway winner announcements still waiting for delivery | After 10 minutes |
 | Discord Gateway disconnection | After 1 minute |
 | Memory pressure | After 1 minute |
 

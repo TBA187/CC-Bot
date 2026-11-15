@@ -27,7 +27,7 @@ class Welcome {
             `- <#1184121209609269409> — Get yourself some roles (You can select multiple roles)\n` +
             `- <#1345014095103135825> & <#1180559466555527309> — Feel free to ask any PvP related questions here\n` +
             `- <#1469101041189523657> — Participate in our PvP King competition (Read Channel description for more info)\n` +
-            `### If you have any questions, feel free to ask in <#1301600985655017566> or send a DM to an Offcier!`
+            `### If you have any questions, feel free to ask in <#1301600985655017566> or send a DM to an Officer!`
         );
     }
 }

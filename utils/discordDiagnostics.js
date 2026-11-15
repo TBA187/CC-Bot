@@ -52,13 +52,21 @@ const STATUS_EVENTS = [
         recovery: /^\[XP QUEUE\] MySQL recovered\b/u },
     { key: 'storage:guild-applications-json', component: 'Guild Applications',
         warning: /^\[CC LOG\] Guild Application local JSON storage (?:cannot write|failed)\b/u,
-        recovery: /^\[CC LOG\] Guild Application local JSON storage restored\./u }
+        recovery: /^\[CC LOG\] Guild Application local JSON storage restored\./u },
+    // Announcements retry every minute; alert only when one is still waiting after 10 minutes.
+    { key: 'discord:giveaway-delivery', component: 'Giveaways', delayMs: 10 * 60_000,
+        warning: /^\[CC LOG\] Giveaway \S+ winner announcement is pending\b/u,
+        recovery: /^\[CC LOG\] Giveaway \S+ winner announcement (?:delivered|cancelled)\b/u }
 // Memory pressure waits one minute because OCR helper spikes are released within seconds.
-].map(status => ({ ...status, delayMs: status.key.startsWith('forum:') ? 10 * 60_000
+].map(status => ({ ...status, delayMs: status.delayMs ?? (status.key.startsWith('forum:') ? 10 * 60_000
     : status.key === 'discord:gateway' || status.key === 'runtime:memory-pressure' ? 60_000
-        : status.key.startsWith('storage:') ? 0 : 5 * 60_000 }));
+        : status.key.startsWith('storage:') ? 0 : 5 * 60_000) }));
 
 function incidentIdentity(status, text) {
+    // Each giveaway has its own incident, so one delivery's recovery never closes another's alert.
+    if (status.key === 'discord:giveaway-delivery') {
+        return { key: `${status.key}:${/^\[CC LOG\] Giveaway (\S+) /u.exec(text)?.[1] || 'unknown'}`, source: status.key };
+    }
     return { key: status.key.startsWith('database:') ? 'database:mysql' : status.key,
         source: status.key === 'discord:gateway' ? `shard:${/shard (\d+)/u.exec(text)?.[1]}` : status.key };
 }

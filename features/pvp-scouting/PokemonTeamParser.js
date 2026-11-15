@@ -368,7 +368,7 @@ function organizedDetail(detail) {
     const remainder = leftover.replace(/\b(?:with|and|holding|holds|has|using|is|a|the|moves?|item|ability|nature)\b/giu, ' ')
         .replace(/\s+/gu, ' ').trim();
     // An unknown word can modify a nearby term ("Pscyco cut" is not Cut).
-    // Keep the original detail whenever we cannot assign every word safely.
+    // Keep the original detail whenever not every word can be assigned safely.
     if (remainder) return ` ${original}`;
     const attributes = [
         byKind.item.length && `Item: ${byKind.item.join(', ')}`,

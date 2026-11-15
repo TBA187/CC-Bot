@@ -93,6 +93,11 @@ test('required roles stay role-only and ping inputs reject malformed or unintend
     for (const input of ['@everyone', '@here', '<#123456789012345678>', '<@bad>', '<@99999999999999999999>', 'Missing Role']) {
         assert.throws(() => resolveGiveawayPings(guild, input));
     }
+    // ping_roles accepts members, so a malformed member mention is reported as one rather than as a missing role.
+    for (const input of ['<@bad>', '<@!>', `<@&${roles[0].id}> <@12345>`]) {
+        assert.throws(() => resolveGiveawayPings(guild, input), /^Error: Please select a valid member with @\.$/u);
+    }
+    assert.throws(() => resolveRequiredRoleIds(guild, '<@bad>'), /is not a role! Only roles are accepted!/u);
     assert.throws(() => resolveGiveawayPings(null, `<@${userId}>`), /inside a server/u);
     const shortNames = { id: guildId, roles: { cache: new Collection(roles.map((role, index) => [role.id, { ...role, name: `R${index}` }])) } };
     assert.throws(() => resolveGiveawayPings(shortNames, roles.map((_, index) => `R${index}`).join(',')), /Too many/u);

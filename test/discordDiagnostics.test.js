@@ -422,8 +422,40 @@ const timedServices = [
         recovery: '[RUNTIME MEMORY] Container accounting restored. Container memory checks are active.' },
     ...['PRO Forum Shop', 'PRO Dungeon Shop', 'PRO Forum application'].map(name => ({ name, delay: 10 * 60_000,
         warning: `[CC LOG] ${name} monitor is unavailable. Retrying in 12 minute(s): fetch failed`,
-        recovery: `[CC LOG] ${name} monitor connection restored.` }))
+        recovery: `[CC LOG] ${name} monitor connection restored.` })),
+    { name: 'giveaway announcement delivery', delay: 10 * 60_000,
+        warning: '[CC LOG] Giveaway giveaway_1 winner announcement is pending (the message history lookup timed out). Delivery will retry automatically.',
+        recovery: '[CC LOG] Giveaway giveaway_1 winner announcement delivered.' }
 ];
+
+test('each pending giveaway announcement keeps its own 10-minute alert and recovery', async t => {
+    const f = fixture(); t.after(() => f.logger.stop()); f.logger.start();
+    const pending = id => `[CC LOG] Giveaway ${id} winner announcement is pending (Discord error 50013 Missing Permissions). Delivery will retry automatically.`;
+    f.consoleObject.warn(pending('giveaway_a'));
+    await f.clock.advance(5 * 60_000);
+    f.consoleObject.warn(pending('giveaway_b'));
+    await f.clock.advance(5 * 60_000 - 1);
+    assert.equal(f.sent.length, 0);
+    await f.clock.advance(1);
+    assert.deepEqual(f.sent.map(event => [event.statusKey, event.component, event.level, event.status]),
+        [['discord:giveaway-delivery:giveaway_a', 'Giveaways', 'warn', 'unavailable']]);
+    assert.equal(f.sent[0].message, 'Giveaway giveaway\\_a winner announcement is pending (Discord error 50013 Missing Permissions). '
+        + 'Delivery will retry automatically.');
+    f.consoleObject.log('[CC LOG] Giveaway giveaway_a winner announcement delivered.'); await settle();
+    assert.equal(f.sent[1].status, 'recovered');
+    assert.equal(f.sent[1].replyTo, 'message-1');
+    assert.equal(f.logger.incidents.active.has('discord:giveaway-delivery:giveaway_b'), true);
+    await f.clock.advance(5 * 60_000);
+    assert.equal(f.sent[2].statusKey, 'discord:giveaway-delivery:giveaway_b');
+    f.consoleObject.log('[CC LOG] Giveaway giveaway_b winner announcement cancelled because the giveaway was deleted.'); await settle();
+    assert.equal(f.sent[3].replyTo, 'message-3');
+    f.consoleObject.warn(pending('giveaway_c'));
+    await f.clock.advance(10 * 60_000 - 1);
+    f.consoleObject.log('[CC LOG] Giveaway giveaway_c winner announcement delivered.');
+    await f.clock.advance(20 * 60_000);
+    assert.equal(f.sent.length, 4);
+    assert.equal(f.clock.timers.size, 0);
+});
 
 for (const service of timedServices) {
     test(`${service.name} alerts at its threshold from the first failure and pings once per incident`, async t => {

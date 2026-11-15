@@ -91,6 +91,7 @@ Use the Node.js versions documented in `README.md` (Node.js 22 or later, with No
 
 - Write added or revised text in clear, natural, professional language. Use plain, specific wording with enough context; avoid robotic phrasing, filler, unnecessary jargon, and overly elaborate explanations.
 - Use neutral wording in project text and reports. Avoid first-person language such as "I", "we", "us", "my", and "our". Addressing the user as "you" or "your" is acceptable when helpful.
+- This covers bot feedback (error, failure, permission, validation and status replies), logs, code comments and documentation. Never reword content the owner wrote for members, such as welcome and onboarding messages, guides, rules, announcements and greetings, even when it uses "we" or "our".
 - Add comments only for useful context that is not obvious from the code: reasoning, constraints, non-obvious behavior, or relevant references. Do not restate self-explanatory operations or describe the requested edit, prompt, or conversation.
 
 ### Documentation

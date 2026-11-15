@@ -481,7 +481,7 @@ function opponentFromBattleBanner(text, context = {}) {
     const leftMember = memberNames.has(normalizeIgn(left));
     const rightMember = memberNames.has(normalizeIgn(right));
     // A screenshot can be forwarded by another member. Exactly one roster
-    // match still identifies our member's side without assuming the author.
+    // match still identifies the guild member's side without assuming the author.
     if (leftMember !== rightMember) return { ign: leftMember ? right : left, ambiguous: false, sideResolved: true };
     if (leftMember && rightMember) return { ign: null, ambiguous: true, sideResolved: false };
     return { ign: right, ambiguous: false, sideResolved: false };

@@ -1,6 +1,6 @@
 'use strict';
 
-// Uses trainer-card screenshots as a fallback when the forum text does not give us a reliable IGN.
+// Uses trainer-card screenshots as a fallback when the forum text does not provide a reliable IGN.
 const sharp = require('sharp');
 const { ocrWorkerPoolFor, configureImageMemory } = require('../../../utils/runtimeMemoryOcr.js');
 configureImageMemory(sharp);

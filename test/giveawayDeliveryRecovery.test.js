@@ -6,14 +6,17 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { MessageFlags, PermissionFlagsBits } = require('discord.js');
 const { createGiveawayStore, endGiveaway, startGiveawayLoop } = require('../events/giveaways');
+const Giveaways = require('../commands/giveaways');
 
-function fixture(t, { winners = 2, entries = 6 } = {}) {
+// Pending-delivery logging is deduplicated per giveaway for the whole process, so log tests use their own IDs.
+function fixture(t, { winners = 2, entries = 6, giveawayId = 'delivery-recovery' } = {}) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-giveaway-delivery-'));
     t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
     const dataFile = path.join(directory, 'giveaways.json');
     const initial = {
-        giveaway_id: 'delivery-recovery', guild_id: 'guild', channel_id: 'channel', message_id: null,
+        giveaway_id: giveawayId, guild_id: 'guild', channel_id: 'channel', message_id: null,
         prize: 'Prize', winners_total: winners, status: 'active', winner_user_ids: [],
         starts_at: new Date(Date.now() - 3600000).toISOString(),
         ends_at: new Date(Date.now() - 60000).toISOString()
@@ -251,21 +254,6 @@ test('missing history permission keeps delivery pending even when Discord would 
     assert.equal(f.attempts.length, 0);
 });
 
-test('an expired manual response does not prevent the channel winner announcement', async t => {
-    const f = fixture(t);
-    const replies = [];
-    const interaction = { deferred: true, replied: false, async editReply(payload) {
-        replies.push(payload);
-        throw new Error('interaction expired');
-    } };
-    const [ended, winners] = await f.finish(f.store, { announceInteraction: interaction });
-    assert.equal(replies.length, 0);
-    assert.equal(f.attempts.length, 1);
-    assert.deepEqual(f.attempts[0].allowedMentions.users, winners);
-    assert.equal(ended.end_announcement_pending, false);
-    assert.equal(f.snapshot().giveaways[f.initial.giveaway_id].end_announcement_message_id, 'delivery-1');
-});
-
 test('a partial 100-winner announcement resumes after restart without repeating confirmed pings', async t => {
     const f = fixture(t, { winners: 100, entries: 100 });
     const send = f.channel.send;
@@ -321,47 +309,6 @@ test('a delivered batch with a failed receipt is found before retrying', async t
     assert.deepEqual(f.attempts.flatMap(payload => payload.allowedMentions.users), winners);
 });
 
-test('an unconfirmed batch sent with the previous announcement layout is not sent again', async t => {
-    const f = fixture(t, { winners: 100, entries: 100 });
-    const update = f.store.updateGiveaway.bind(f.store);
-    f.store.updateGiveaway = (id, fields, options) => update(id,
-        fields.end_notification_version === 2 ? { ...fields, end_notification_version: 1 } : fields, options);
-    const send = f.channel.send;
-    f.channel.send = async payload => {
-        const delivered = await send(payload);
-        delivered.content = `${payload.content.split('\n\n')[0]}\n\n**Winners 1–50:** ${payload.allowedMentions.users.map(id => `<@${id}>`).join(', ')}`;
-        throw new Error('Discord response lost');
-    };
-    const [pending, winners] = await f.finish();
-    assert.equal(pending.end_announcement_pending, true);
-    assert.equal(f.delivered.size, 1);
-    f.channel.send = send;
-    const restored = await f.restart();
-    const [finished, recovered] = await f.finish(restored);
-    assert.equal(finished.end_announcement_pending, false);
-    assert.deepEqual(recovered, winners);
-    assert.equal(f.delivered.size, 2);
-    assert.deepEqual(f.attempts.flatMap(payload => payload.allowedMentions.users), winners);
-});
-
-test('a legacy 50-person batch keeps its boundaries after the new limit is deployed', async t => {
-    const f = fixture(t, { winners: 100, entries: 100 });
-    const update = f.store.updateGiveaway.bind(f.store);
-    f.store.updateGiveaway = (id, fields, options) => update(id,
-        fields.end_notification_version === 2 ? { ...fields, end_notification_version: 1 } : fields, options);
-    const send = f.channel.send;
-    let calls = 0;
-    f.channel.send = async payload => { if (++calls === 2) throw new Error('Discord unavailable'); return send(payload); };
-    const [pending, winners] = await f.finish();
-    assert.equal(pending.end_notification_version, 1);
-    assert.equal(f.attempts[0].allowedMentions.users.length, 50);
-    f.channel.send = send;
-    const [finished] = await f.finish(await f.restart());
-    assert.equal(finished.end_announcement_pending, false);
-    assert.deepEqual(f.attempts.flatMap(payload => payload.allowedMentions.users), winners);
-    assert.equal(f.attempts[1].allowedMentions.users.length, 50);
-});
-
 test('a partial reroll resumes its saved draw after restart', async t => {
     const f = fixture(t, { winners: 100, entries: 200 });
     await f.finish();
@@ -413,24 +360,6 @@ test('reroll recovery scans older history once for all remaining winner batches'
     assert.deepEqual(recovered, winners);
     assert.deepEqual(f.attempts.slice(2).flatMap(payload => payload.allowedMentions.users), winners);
     assert.equal(requests.length, 3);
-});
-
-test('a legacy small announcement is recovered beyond the latest 100 messages', async t => {
-    const f = fixture(t);
-    const update = f.store.updateGiveaway.bind(f.store);
-    f.store.updateGiveaway = (id, fields, options) => update(id,
-        fields.end_notification_version === 2 ? { ...fields, end_notification_version: 1 } : fields, options);
-    const send = f.channel.send;
-    f.channel.send = async payload => { await send(payload); throw new Error('Discord response lost'); };
-    const [pending] = await f.finish();
-    assert.equal(pending.end_notification_version, 1);
-    const requests = mockHistory(f, [...traffic(120), ...f.delivered.values()]);
-    f.channel.send = send;
-    const [finished] = await f.finish(await f.restart());
-    assert.equal(finished.end_announcement_pending, false);
-    assert.equal(finished.end_announcement_message_id, 'delivery-1');
-    assert.equal(f.attempts.length, 1);
-    assert.equal(requests.length, 2);
 });
 
 test('a reserved reroll survives a draw write failure and resumes without choosing again', async t => {
@@ -485,4 +414,132 @@ test('the scheduler resumes a pending reroll after a restart', async t => {
     })]).finally(() => clearTimeout(timer));
     assert.equal(finished.reroll_announcement, null);
     assert.deepEqual(f.attempts.at(-1).allowedMentions.users, winners);
+});
+
+function officerInteraction(f, changes = {}) {
+    const replies = [], deferrals = [];
+    const interaction = { client: f.client, user: { id: 'staff', username: 'Officer' },
+        member: { roles: { cache: { some: predicate => predicate({ id: 'officer' }) } } },
+        options: { getString: () => f.initial.giveaway_id, getInteger: () => null },
+        async deferReply(options) { deferrals.push(options); this.deferred = true; },
+        async editReply(payload) { replies.push(payload); return { id: 'private-reply' }; },
+        async followUp() { assert.fail('The private command response must be edited in place'); },
+        ...changes };
+    return { interaction, replies, deferrals };
+}
+
+function captureLogs(t) {
+    const warnings = [], logs = [];
+    t.mock.method(console, 'warn', message => warnings.push(message));
+    t.mock.method(console, 'log', message => logs.push(message));
+    return { warnings, logs };
+}
+
+test('an identical reroll inside the clock-skew allowance is announced instead of reusing the previous reroll', async t => {
+    const f = fixture(t, { winners: 1, entries: 1, giveawayId: 'identical-rerolls' });
+    // Discord message IDs grow over time; the previous reroll's newest ID bounds the next lookup.
+    const send = f.channel.send;
+    f.channel.send = async payload => {
+        const message = await send(payload);
+        message.id = String(1300000000000000000n + BigInt(f.delivered.size));
+        return message;
+    };
+    await f.finish();
+    const [first, firstWinners] = await f.finish(f.store, { drawType: 'reroll' });
+    assert.equal(first.last_reroll_announcement_message_id, '1300000000000000002');
+    const restored = await f.restart();
+    const [second, secondWinners] = await f.finish(restored, { drawType: 'reroll' });
+    assert.deepEqual(secondWinners, firstWinners);
+    assert.equal(f.attempts.length, 3);
+    assert.equal(f.attempts[2].content, f.attempts[1].content);
+    assert.equal(second.reroll_announcement, null);
+    assert.equal(second.last_reroll_announcement_message_id, '1300000000000000003');
+    assert.deepEqual(f.attempts[2].allowedMentions.users, secondWinners);
+});
+
+test('a manual end of an unversioned pending announcement pings every winner in one channel message', async t => {
+    const f = fixture(t, { winners: 60, entries: 60, giveawayId: 'unversioned-manual-end' });
+    const winners = Array.from({ length: 60 }, (_, index) => String(100000000000000000n + BigInt(index)));
+    const drawnAt = new Date(Date.now() - 30000).toISOString();
+    const drawId = `${f.initial.giveaway_id}:end`;
+    // Neither record has a notification version field; every pending announcement uses the current layout.
+    f.store.localSaveDraw(drawId, { draw_id: drawId, giveaway_id: f.initial.giveaway_id, draw_type: 'end',
+        drawn_at: drawnAt, eligible_count: 60, winner_user_ids: winners }, false);
+    f.store.localSaveGiveaway(f.initial.giveaway_id, { ...f.initial, status: 'ended', ended_at: drawnAt,
+        winner_user_ids: winners, end_draw_id: drawId, end_announcement_pending: true }, false);
+    const command = new Giveaways({ giveawayStore: f.store, officerRoleID: 'officer' });
+    const { interaction, replies, deferrals } = officerInteraction(f);
+    await command.end(interaction);
+    assert.deepEqual(deferrals, [{ flags: MessageFlags.Ephemeral }]);
+    assert.equal(f.attempts.length, 1);
+    assert.ok(f.attempts[0].content.startsWith('### 🎉  Giveaway ended!\n- **60 winners** won **Prize**!\n\n<@'));
+    assert.deepEqual(f.attempts[0].allowedMentions, { parse: [], users: winners, roles: [], repliedUser: false });
+    assert.equal(replies.length, 1);
+    assert.match(replies[0].content, /^Ended Giveaway:/);
+    assert.deepEqual(replies[0].allowedMentions, { parse: [] });
+    const saved = await f.store.getGiveaway(f.initial.giveaway_id);
+    assert.equal(saved.end_announcement_pending, false);
+    assert.equal(saved.end_announcement_message_id, 'delivery-1');
+});
+
+test('a stuck announcement logs each new coded reason once and then its delivery, without error payloads', async t => {
+    const f = fixture(t, { giveawayId: 'stuck-delivery' });
+    const { warnings, logs } = captureLogs(t);
+    const pending = reason => `[CC LOG] Giveaway stuck-delivery winner announcement is pending (${reason}). Delivery will retry automatically.`;
+    f.channel.permissionsFor = () => ({ has: flag => flag !== PermissionFlagsBits.ReadMessageHistory });
+    await f.finish();
+    await f.finish();
+    assert.deepEqual(warnings, [pending('missing Read Message History permission')]);
+    delete f.channel.permissionsFor;
+    const send = f.channel.send;
+    f.channel.send = async () => {
+        throw Object.assign(new Error('Missing Permissions {"content":"private request body"}'), { code: 50013, status: 403 });
+    };
+    const [stillPending] = await f.finish();
+    assert.equal(stillPending.end_announcement_pending, true);
+    assert.deepEqual(warnings.slice(1), [pending('Discord error 50013 Missing Permissions')]);
+    f.channel.send = async () => {
+        throw Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' }) });
+    };
+    await f.finish();
+    assert.deepEqual(warnings.slice(2), [pending('ECONNRESET')]);
+    assert.ok(warnings.every(message => !/private request body|socket hang up/.test(message)));
+    f.channel.send = send;
+    const [delivered] = await f.finish();
+    assert.equal(delivered.end_announcement_pending, false);
+    assert.equal(warnings.length, 3);
+    assert.deepEqual(logs.filter(message => message.includes('winner announcement')),
+        ['[CC LOG] Giveaway stuck-delivery winner announcement delivered.']);
+});
+
+test('a programming error during delivery surfaces and leaves the saved draw pending for recovery', async t => {
+    const f = fixture(t, { giveawayId: 'delivery-bug' });
+    const { warnings } = captureLogs(t);
+    const send = f.channel.send;
+    f.channel.send = async () => { throw new TypeError('Cannot read properties of undefined'); };
+    await assert.rejects(f.finish(), TypeError);
+    const saved = await f.store.getGiveaway(f.initial.giveaway_id);
+    assert.equal(saved.status, 'ended');
+    assert.equal(saved.end_announcement_pending, true);
+    assert.deepEqual(warnings, []);
+    f.channel.send = send;
+    const [ended, winners] = await f.finish(await f.restart());
+    assert.equal(ended.end_announcement_pending, false);
+    assert.deepEqual(winners, saved.winner_user_ids);
+});
+
+test('deleting a giveaway with a pending announcement clears its delivery alert', async t => {
+    const f = fixture(t, { giveawayId: 'deleted-while-pending' });
+    const { warnings, logs } = captureLogs(t);
+    f.channel.send = async () => { throw Object.assign(new Error('Missing Access'), { code: 50001 }); };
+    const [pending] = await f.finish();
+    assert.equal(pending.end_announcement_pending, true);
+    assert.equal(warnings.length, 1);
+    const command = new Giveaways({ giveawayStore: f.store, officerRoleID: 'officer' });
+    const { interaction, replies } = officerInteraction(f);
+    await command.delete(interaction);
+    assert.match(replies[0], /^Deleted \*\*/);
+    assert.deepEqual(logs.filter(message => message.includes('winner announcement')),
+        ['[CC LOG] Giveaway deleted-while-pending winner announcement cancelled because the giveaway was deleted.']);
+    assert.deepEqual(await f.store.listDueGiveaways(), []);
 });

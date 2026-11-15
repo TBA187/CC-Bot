@@ -494,10 +494,10 @@ test('the announcement and receipt are confirmed before a blocked cosmetic refre
 });
 
 test('delayed initial delivery starts a full reroll window and retains recovery entries and draws', async t => {
-    const f = fixture(t, { status: 'ended', ends_at: iso(-5 * 86400000), ended_at: iso(-4 * 86400000),
+    const f = fixture(t, { status: 'ended', ends_at: iso(-10 * 86400000), ended_at: iso(-9 * 86400000),
         end_draw_id: 'g1:end', end_announcement_pending: true, winner_user_ids: ['original'] });
     f.db.draws.set('g1:end', draw({ drawn_at: f.g.ended_at }));
-    f.entry('original'); f.entry('another', { joined_at: iso(-6 * 86400000) });
+    f.entry('original'); f.entry('another', { joined_at: iso(-11 * 86400000) });
     assert.equal(giveawayEndedWithinRerollWindow(f.g), false);
     const deliveredAt = iso(-1000);
     f.channel.send = async () => ({ id: 'delayed-announcement', createdTimestamp: Date.parse(deliveredAt) });
@@ -505,8 +505,8 @@ test('delayed initial delivery starts a full reroll window and retains recovery 
     assert.equal(ended.end_announced_at, deliveredAt);
     assert.equal(ended.ended_at, f.g.ended_at);
     assert.equal(giveawayEndedWithinRerollWindow(ended), true);
-    assert.equal(giveawayEndedWithinRerollWindow(ended, new Date(Date.parse(deliveredAt) + 48 * 3600000)), true);
-    assert.equal(giveawayEndedWithinRerollWindow(ended, new Date(Date.parse(deliveredAt) + 48 * 3600000 + 1)), false);
+    assert.equal(giveawayEndedWithinRerollWindow(ended, new Date(Date.parse(deliveredAt) + 7 * 86400000)), true);
+    assert.equal(giveawayEndedWithinRerollWindow(ended, new Date(Date.parse(deliveredAt) + 7 * 86400000 + 1)), false);
     const restarted = f.makeStore(); await restarted.restore();
     assert.equal((await restarted.listEntries('g1')).length, 2);
     assert.equal((await restarted.listDraws('g1')).length, 1);
@@ -526,8 +526,8 @@ test('rerolls preserve original cutoff eligibility and reject expired or pending
     const [, winners] = await f.finish(f.store, { drawType: 'reroll' });
     assert.deepEqual(winners, ['eligible-at-cutoff']);
     const count = f.db.draws.size;
-    f.db.giveaways.get('g1').end_announced_at = iso(-49 * 3600000);
-    await assert.rejects(f.finish(f.store, { drawType: 'reroll' }), /48-hour reroll window/);
+    f.db.giveaways.get('g1').end_announced_at = iso(-(7 * 86400000 + 60000));
+    await assert.rejects(f.finish(f.store, { drawType: 'reroll' }), /7-day reroll window/);
     f.db.giveaways.get('g1').end_announcement_pending = true;
     await assert.rejects(f.finish(f.store, { drawType: 'reroll' }), /announcement is still pending/);
     assert.equal(f.db.draws.size, count);
@@ -558,10 +558,10 @@ test('a lost announcement receipt preserves the original delivery time without l
 });
 
 test('the reroll command allows delayed confirmed announcements and rejects pending or expired records', async t => {
-    const f = fixture(t, { status: 'ended', ends_at: iso(-80 * 3600000), ended_at: iso(-72 * 3600000),
+    const f = fixture(t, { status: 'ended', ends_at: iso(-10 * 86400000), ended_at: iso(-9 * 86400000),
         end_announced_at: iso(-3600000), end_announcement_pending: false, winner_user_ids: ['old'] });
     f.db.draws.set('g1:end', draw({ drawn_at: f.g.ended_at, winner_user_ids: ['old'] }));
-    f.entry('new', { joined_at: iso(-90 * 3600000) });
+    f.entry('new', { joined_at: iso(-11 * 86400000) });
     const config = { giveawayStore: f.store, officerRoleID: 'officer', giveawayChannelID: 'channel' };
     const command = new Giveaways(config);
     const messages = [];
@@ -578,7 +578,7 @@ test('the reroll command allows delayed confirmed announcements and rejects pend
     assert.equal(announcedAt, f.g.end_announced_at);
     for (const [changes, expected] of [
         [{ end_announcement_pending: true }, /announcement is still pending/],
-        [{ end_announcement_pending: false, end_announced_at: iso(-49 * 3600000) }, /48-hour reroll window/]
+        [{ end_announcement_pending: false, end_announced_at: iso(-(7 * 86400000 + 60000)) }, /^The 7-day reroll window for that giveaway has expired\.$/]
     ]) {
         Object.assign(f.db.giveaways.get('g1'), changes);
         messages.length = 0;
@@ -881,7 +881,7 @@ test('queued deletion preserves confirmed draws and metadata, and cancels pendin
     assert.equal(f.db.draws.size, 1);
 });
 
-test('a queued deletion with legacy reroll state is synchronized instead of retrying the reroll', async t => {
+test('a queued deletion with a pending reroll is synchronized instead of retrying the reroll', async t => {
     const reroll = draw({ draw_id: 'reroll-pending', draw_type: 'reroll' });
     const pending = { draw_id: reroll.draw_id, draw: reroll, receipts: {} };
     const f = fixture(t, { status: 'ended', ended_at: iso(-1000), winner_user_ids: ['original'], reroll_announcement: pending });
@@ -929,20 +929,6 @@ test('rerolls retain separate IDs, eligibility rules, and narrowly synchronize q
     await f.store.syncPending();
     assert.deepEqual(f.db.giveaways.get('g1').winner_user_ids, ['queued']);
     assert.equal(f.db.giveaways.get('g1').prize, 'Prize');
-});
-
-test('manual end delivers the winner announcement independently of the deferred response', async t => {
-    const f = fixture(t, { ends_at: iso(3600000) });
-    f.entry('winner');
-    const replies = [];
-    const interaction = { user: { id: 'staff', username: 'Officer' }, deferred: true,
-        async editReply(payload) { replies.push(payload); return { id: 'interaction-reply' }; } };
-    const [ended] = await f.finish(f.store, { actor: interaction.user, announceInteraction: interaction });
-    assert.equal(replies.length, 0);
-    assert.match(f.sends[0].content, /Giveaway ended!/);
-    assert.deepEqual(f.sends[0].allowedMentions.users, ['winner']);
-    assert.equal(ended.end_announcement_message_id, 'announcement-1');
-    assert.equal(f.sends.length, 1);
 });
 
 test('manual slash command reports a durably queued request privately during an outage', async t => {
@@ -1076,17 +1062,16 @@ test('corrupt recovery data blocks restore and subsequent replacement even in JS
     assert.equal(fs.readdirSync(path.dirname(f.file)).filter(name => name.includes('.corrupt-')).length, 1);
 });
 
-test('legacy pending queues remain intact in JSON-only mode and are derived if older snapshots omitted IDs', async t => {
+test('pending queues and the file-level pending flag survive a JSON-only restart', async t => {
     const f = fixture(t, {}, { jsonOnly: true });
     f.store.localSaveEntry('g1', 'queued', f.entry('queued'), true);
     f.store.localSaveDraw('g1:end', draw(), true);
     f.store.localSaveGiveaway('g1', f.g, true);
-    const data = JSON.parse(fs.readFileSync(f.file));
-    for (const key of ['pendingSyncGiveawayIds', 'pendingSyncEntryIds', 'pendingSyncDrawIds']) delete data[key];
-    fs.writeFileSync(f.file, JSON.stringify(data));
+    assert.equal(JSON.parse(fs.readFileSync(f.file)).pendingSync, true);
     const restarted = f.makeStore();
     await restarted.restore();
     assert.deepEqual(restarted.local.pendingSyncGiveawayIds, ['g1']);
     assert.deepEqual(restarted.local.pendingSyncEntryIds, ['g1:queued']);
     assert.deepEqual(restarted.local.pendingSyncDrawIds, ['g1:end']);
+    assert.equal(JSON.parse(fs.readFileSync(f.file)).pendingSync, true);
 });

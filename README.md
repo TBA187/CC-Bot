@@ -7,7 +7,7 @@ A Discord bot for the Crow Control guild, built with Node.js and discord.js. It 
 - Node.js 22 or later; Node.js 24 LTS is recommended.
 - MySQL or MariaDB for production storage and scouting.
 - A Discord application with a bot token and the **Server Members Intent** and **Message Content Intent** enabled.
-- Server permissions for the enabled features, including viewing channels, reading message history, sending messages, embedding links and attaching files. Role panels require **Manage Roles**; application polls require **Send Polls**.
+- Server permissions for the enabled features, including viewing channels, reading message history, sending messages, embedding links and attaching files. Role panels require **Manage Roles**; application polls require **Send Polls**; pinned giveaways require **Pin Messages**.
 
 ## Setup
 

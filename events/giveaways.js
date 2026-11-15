@@ -12,7 +12,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { brandingImageURL } = require('../config.json');
+const { DiscordEditPacer } = require('../utils/discordEditPacer.js');
 const { readJsonObject, writeJsonIfChanged } = require('../utils/jsonFile.js');
+const { isTransientDiscordError, networkErrorCode } = require('../utils/networkErrors.js');
 
 const DEFAULT_GIVEAWAY_COLOR = '#39FF14';
 const GIVEAWAY_ACTIVE = 'active';
@@ -27,17 +29,18 @@ const GIVEAWAY_PARTICIPANTS_BUTTON_ID = 'cc_giveaway:participants';
 const GIVEAWAY_PAGE_PREFIX = 'cc_giveaway:page';
 const GIVEAWAY_WINNERS_PREFIX = 'cc_giveaway:winners';
 const MAX_WINNERS = 500;
-const REROLL_AUTOCOMPLETE_WINDOW_MS = 48 * 60 * 60 * 1000;
-const GIVEAWAY_RECOVERY_WINDOW_MS = REROLL_AUTOCOMPLETE_WINDOW_MS;
+// Also sets how long ended giveaways keep their entries and draws in the JSON recovery cache.
+const GIVEAWAY_REROLL_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const GIVEAWAY_REROLL_EXPIRED_MESSAGE = 'The 7-day reroll window for that giveaway has expired.';
 const GIVEAWAY_LIST_PAGE_SIZE = 10;
 const PARTICIPANTS_PAGE_SIZE = 30;
 const WINNER_INLINE_LIMIT = 25;
 const WINNERS_PAGE_SIZE = 50;
 const WINNER_NOTIFICATION_BATCH_SIZE = 100;
-// Pending older draws retain their original batch boundaries and receipt indexes.
-const LEGACY_WINNER_INLINE_LIMIT = 20;
-const LEGACY_WINNER_NOTIFICATION_BATCH_SIZE = 50;
 const WINNER_PAGINATION_TTL_MS = 5 * 60 * 1000;
+const PAGINATION_SESSION_TTL_MS = 15 * 60 * 1000;
+// Each session keeps its rendered pages in memory until it expires.
+const MAX_PAGINATION_SESSIONS = 100;
 const STORAGE_VERSION = 2;
 const GIVEAWAY_END_PACING_MS = 1000;
 const GIVEAWAY_EDIT_DELAY_MS = 1500;
@@ -121,12 +124,11 @@ const COLOR_NAMES = {
 };
 
 const PAGINATION_SESSIONS = new Map();
+// Giveaway ID -> reason last logged for an announcement that is still waiting for delivery.
+const GIVEAWAY_DELIVERY_ALERTS = new Map();
 const GIVEAWAY_REFRESHES = new Map();
-const GIVEAWAY_MESSAGE_EDITS = {
-    queue: Promise.resolve(),
-    lastRouteEditAt: 0,
-    lastMessageEditAt: new Map()
-};
+const GIVEAWAY_EDIT_PACER = new DiscordEditPacer({ routeDelayMs: GIVEAWAY_EDIT_DELAY_MS,
+    sameMessageDelayMs: GIVEAWAY_SAME_MESSAGE_EDIT_DELAY_MS });
 
 function parseStorageMode(value) {
     const mode = String(value || 'auto').toLowerCase();
@@ -249,16 +251,12 @@ function normalizeGiveawayDescription(value) {
     return String(value).replace(/\\n/g, '\n').trim();
 }
 
-function normalizeRoleIds(value) {
-    if (value === null || value === undefined || value === '') return [];
-    const values = Array.isArray(value) ? value : [value];
-    return [...new Set(values.map(v => String(v)).filter(Boolean))];
+function normalizeRoleIds(values) {
+    return [...new Set((values || []).map(String).filter(Boolean))];
 }
 
 function giveawayRequiredRoleIds(giveaway) {
-    const roleIds = normalizeRoleIds(giveaway.required_role_ids);
-    if (roleIds.length) return roleIds;
-    return normalizeRoleIds(giveaway.required_role_id);
+    return normalizeRoleIds(giveaway.required_role_ids);
 }
 
 function userHasRequiredRole(member, requiredRoleIds) {
@@ -416,7 +414,7 @@ function giveawayNeedsRecoveryCache(giveaway, now = new Date()) {
     if (giveaway?.status !== GIVEAWAY_ENDED) return false;
 
     const endedAt = giveawayRerollStart(giveaway);
-    return Boolean(endedAt && endedAt.getTime() >= now.getTime() - GIVEAWAY_RECOVERY_WINDOW_MS);
+    return Boolean(endedAt && endedAt.getTime() >= now.getTime() - GIVEAWAY_REROLL_WINDOW_MS);
 }
 
 function mergeGiveawaySyncState(localGiveaway, mysqlGiveaway) {
@@ -463,9 +461,9 @@ function rerollAnnouncementPending(giveaway) {
     return giveaway?.status === GIVEAWAY_ENDED && Boolean(giveaway.reroll_announcement?.draw_id);
 }
 
-function endDrawForGiveaway(draws, giveaway = {}) {
-    return draws.find(draw => draw.draw_id === giveaway.end_draw_id && draw.draw_type === 'end')
-        || draws.find(draw => draw.draw_type === 'end') || null;
+// The draw insert allows only one end draw per giveaway.
+function endDrawForGiveaway(draws) {
+    return draws.find(draw => draw.draw_type === 'end') || null;
 }
 
 class GiveawayStore {
@@ -578,16 +576,9 @@ class GiveawayStore {
                         && value[key].every(id => typeof id === 'string')));
             this.jsonRecoveryBlocked = false;
             if (!parsed) return emptyJsonData(this.getJsonSource());
-            // Older snapshots may mark the whole file pending without individual IDs.
-            const pending = parsed.pendingSync ? {
-                pendingSyncGiveawayIds: parsed.pendingSyncGiveawayIds ?? Object.keys(parsed.giveaways || {}),
-                pendingSyncEntryIds: parsed.pendingSyncEntryIds ?? Object.entries(parsed.entries || {})
-                    .flatMap(([id, entries]) => Object.keys(entries).map(userId => entryKey(id, userId))),
-                pendingSyncDrawIds: parsed.pendingSyncDrawIds ?? Object.keys(parsed.draws || {})
-            } : {};
             return {
                 ...emptyJsonData(parsed.source || this.getJsonSource()),
-                ...parsed, ...pending,
+                ...parsed,
                 version: STORAGE_VERSION
             };
         } catch (err) {
@@ -619,12 +610,10 @@ class GiveawayStore {
         const values = new Set(this.local[key] || []);
         values.add(String(value));
         this.local[key] = [...values].sort();
-        this.local.pendingSync = true;
     }
 
     clearPending(key, value) {
         this.local[key] = (this.local[key] || []).filter(item => String(item) !== String(value));
-        this.local.pendingSync = this.hasPendingSync();
     }
 
     cacheGiveaway(giveaway) {
@@ -1095,8 +1084,7 @@ class GiveawayStore {
                 } else {
                     const confirmedDraw = endDrawForGiveaway(draws);
                     if (confirmedDraw) giveaway = { ...giveaway, winner_user_ids: confirmedDraw.winner_user_ids || [],
-                        ended_at: confirmedDraw.drawn_at, end_draw_id: confirmedDraw.draw_id, end_announcement_pending: true,
-                        end_notification_version: confirmedDraw.notification_version === 2 ? 2 : giveaway.end_notification_version };
+                        ended_at: confirmedDraw.drawn_at, end_draw_id: confirmedDraw.draw_id, end_announcement_pending: true };
                 }
             }
             giveaway = confirmedReroll ? await this.mysqlApplyReroll(giveawayId, giveaway)
@@ -1508,16 +1496,16 @@ function buildGiveawayComponents(giveaway, { disabled = false, drawId = null } =
     ];
 }
 
+// Only a View Winners button after a reroll needs the draw list; the end draw ID is saved on the giveaway.
 async function giveawayMessageDraws(store, giveaway) {
     if (giveaway?.status !== GIVEAWAY_ENDED || !(giveaway.winner_user_ids?.length > WINNER_INLINE_LIMIT)
-        || (giveaway.end_draw_id && !giveaway.last_rerolled_at) || typeof store.listDraws !== 'function') return [];
+        || !giveaway.last_rerolled_at) return [];
     return store.listDraws(giveaway.giveaway_id);
 }
 
 function giveawayMessageDrawId(giveaway, draws) {
-    if (!giveaway.last_rerolled_at && giveaway.end_draw_id) return giveaway.end_draw_id;
-    const draw = draws.find(candidate => candidate.draw_type === (giveaway.last_rerolled_at ? 'reroll' : 'end')
-        && (!giveaway.last_rerolled_at || candidate.drawn_at === giveaway.last_rerolled_at)
+    if (!giveaway.last_rerolled_at) return giveaway.end_draw_id || null;
+    const draw = draws.find(candidate => candidate.draw_type === 'reroll' && candidate.drawn_at === giveaway.last_rerolled_at
         && JSON.stringify(candidate.winner_user_ids || []) === JSON.stringify(giveaway.winner_user_ids || []));
     return draw?.draw_id || null;
 }
@@ -1645,46 +1633,9 @@ async function replyWithGiveawayMessage(interaction, giveaway, config) {
     };
     if (file) payload.files = [file];
 
-    if (interaction.deferred && !interaction.replied) {
-        await interaction.editReply(payload);
-    } else {
-        await interaction.reply(payload);
-    }
+    // The create command defers its public reply before saving the giveaway.
+    await interaction.editReply(payload);
     return interaction.fetchReply();
-}
-
-async function pacedGiveawayMessageEdit(message, payload) {
-    const previous = GIVEAWAY_MESSAGE_EDITS.queue;
-    let release;
-    GIVEAWAY_MESSAGE_EDITS.queue = new Promise(resolve => {
-        release = resolve;
-    });
-
-    await previous;
-    try {
-        const now = Date.now();
-        const messageKey = `${message.channelId || message.channel?.id || 'unknown'}:${message.id}`;
-        const routeWait = GIVEAWAY_EDIT_DELAY_MS - (now - GIVEAWAY_MESSAGE_EDITS.lastRouteEditAt);
-        const messageWait = GIVEAWAY_SAME_MESSAGE_EDIT_DELAY_MS - (
-            now - (GIVEAWAY_MESSAGE_EDITS.lastMessageEditAt.get(messageKey) || 0)
-        );
-        await wait(Math.max(0, routeWait, messageWait));
-        const currentPayload = typeof payload === 'function' ? await payload() : payload;
-        if (!currentPayload) return;
-        return await message.edit(currentPayload);
-    } finally {
-        const finishedAt = Date.now();
-        const messageKey = `${message.channelId || message.channel?.id || 'unknown'}:${message.id}`;
-        GIVEAWAY_MESSAGE_EDITS.lastRouteEditAt = finishedAt;
-        GIVEAWAY_MESSAGE_EDITS.lastMessageEditAt.set(messageKey, finishedAt);
-        if (GIVEAWAY_MESSAGE_EDITS.lastMessageEditAt.size > 512) {
-            const cutoff = finishedAt - Math.max(60000, GIVEAWAY_SAME_MESSAGE_EDIT_DELAY_MS * 4);
-            for (const [key, editedAt] of GIVEAWAY_MESSAGE_EDITS.lastMessageEditAt) {
-                if (editedAt < cutoff) GIVEAWAY_MESSAGE_EDITS.lastMessageEditAt.delete(key);
-            }
-        }
-        release();
-    }
 }
 
 function refreshGiveawayMessage(client, config, giveaway, { disabled = null } = {}) {
@@ -1727,7 +1678,8 @@ async function refreshGiveawayMessageNow(client, config, giveawayId, { disabled 
         return;
     }
 
-    await pacedGiveawayMessageEdit(message, async () => {
+    // Built after the pacing wait. Returning null skips the edit, which then does not delay later edits.
+    const payload = async () => {
         const entries = await config.giveawayStore.listEntries(giveawayId, { activeOnly: true });
         // The entry refresh may have waited behind an end or reroll while edits were paced.
         let current = await config.giveawayStore.getGiveaway(giveawayId);
@@ -1744,7 +1696,9 @@ async function refreshGiveawayMessageNow(client, config, giveawayId, { disabled 
                 drawId: giveawayMessageDrawId(current, draws) }),
             allowedMentions: { parse: [] }
         };
-    }).catch(() => { });
+    };
+    await GIVEAWAY_EDIT_PACER.edit({ key: `${message.channelId || message.channel?.id || 'unknown'}:${message.id}`,
+        load: () => message, payload }).catch(() => { });
 }
 
 async function deleteGiveawayMessage(client, config, giveaway) {
@@ -1763,28 +1717,25 @@ function withGiveawayLock(giveawayId, task) {
     return GIVEAWAY_LOCKS.run(giveawayId, task);
 }
 
-async function endGiveaway(client, config, giveaway, { actor = null, drawType, winnerCount = null, announceInteraction = null } = {}) {
+async function endGiveaway(client, config, giveaway, { actor = null, drawType, winnerCount = null } = {}) {
     return withGiveawayLock(giveaway.giveaway_id, () => claimAndEndGiveawayLocked(
         client,
         config,
         giveaway,
-        { actor, drawType, winnerCount, announceInteraction }
+        { actor, drawType, winnerCount }
     ));
 }
 
 async function claimAndEndGiveawayLocked(client, config, giveaway, options = {}) {
-    if (options.drawType === 'end' && options.actor && config.giveawayStore.requestEnd) {
+    if (options.drawType === 'end' && options.actor) {
         giveaway = await config.giveawayStore.requestEnd(String(giveaway.giveaway_id), options.actor) || giveaway;
         wakeGiveawayLoop(client);
-    }
-    if (!['end', 'reroll', 'reroll-recovery'].includes(options.drawType) || !config.giveawayStore.claimEnd) {
-        return endGiveawayLocked(client, config, giveaway, options);
     }
     const giveawayId = String(giveaway.giveaway_id);
     const claim = await config.giveawayStore.claimEnd(giveawayId, { allowEarly: Boolean(options.actor || giveaway.end_requested_at),
         allowReroll: options.drawType !== 'end' });
     if (!claim) {
-        const current = await config.giveawayStore.getGiveaway(giveawayId, { requireMysql: Boolean(config.giveawayStore.canUseMysql?.()) });
+        const current = await config.giveawayStore.getGiveaway(giveawayId, { requireMysql: Boolean(config.giveawayStore.canUseMysql()) });
         if (options.drawType === 'end' && current && current.status !== GIVEAWAY_ACTIVE && !endAnnouncementPending(current)) {
             return [current, (current.winner_user_ids || []).map(String)];
         }
@@ -1814,16 +1765,15 @@ async function claimAndEndGiveawayLocked(client, config, giveaway, options = {})
 async function renewGiveawayClaim(store, giveawayId, claim, onWriteStart) {
     if (!claim?.shared) return;
     onWriteStart?.();
-    if (!store.renewEndClaim || !await store.renewEndClaim(giveawayId, claim)) {
+    if (!await store.renewEndClaim(giveawayId, claim)) {
         throw new GiveawayFinalizationDeferred('The giveaway claim expired or belongs to another host.');
     }
 }
 
-async function publishGiveawayEnd(client, config, giveaway, winnerIds, { announceInteraction, requireMysql, endClaim, onWriteStart,
+async function publishGiveawayEnd(client, config, giveaway, winnerIds, { requireMysql, endClaim, onWriteStart,
     drawId = giveaway.end_draw_id }) {
     await renewGiveawayClaim(config.giveawayStore, giveaway.giveaway_id, endClaim, onWriteStart);
-    const delivery = await announceGiveawayDraw(client, giveaway, winnerIds, { drawType: 'end', interaction: announceInteraction, drawId,
-        deliveryVersion: giveaway.end_notification_version === 2 ? 2 : 1,
+    const delivery = await announceGiveawayDraw(client, giveaway, winnerIds, { drawType: 'end', drawId,
         beforeSend: () => renewGiveawayClaim(config.giveawayStore, giveaway.giveaway_id, endClaim, onWriteStart),
         receipts: giveaway.end_notification_receipts, saveReceipt: async (index, message) => {
             await renewGiveawayClaim(config.giveawayStore, giveaway.giveaway_id, endClaim, onWriteStart);
@@ -1853,21 +1803,20 @@ async function publishGiveawayEnd(client, config, giveaway, winnerIds, { announc
     if (confirmed?.end_announcement_pending !== false) {
         throw new GiveawayFinalizationDeferred('The giveaway announcement receipt could not be confirmed.');
     }
-    const finalized = confirmed;
+    resolveGiveawayDeliveryAlert(giveaway.giveaway_id);
     console.log(`[CC LOG] Giveaway ${giveaway.giveaway_id} finalized; initial announcement confirmed.`);
     // Cosmetic edit pacing must not delay the initial announcement or its durable receipt.
-    await refreshGiveawayMessage(client, config, finalized, { disabled: true }).catch(error => {
+    await refreshGiveawayMessage(client, config, confirmed, { disabled: true }).catch(error => {
         console.warn(`[CC LOG] Giveaway ${giveaway.giveaway_id} ended-message refresh failed: ${error.code || 'UNKNOWN'}`);
     });
-    return finalized;
+    return confirmed;
 }
 
-async function publishGiveawayReroll(client, config, giveaway, draw, { announceInteraction, requireMysql, endClaim, onWriteStart }) {
-    const pending = giveaway.reroll_announcement;
+async function publishGiveawayReroll(client, config, giveaway, draw, { requireMysql, endClaim, onWriteStart }) {
     const delivery = await announceGiveawayDraw(client, giveaway, draw.winner_user_ids || [], { drawType: 'reroll',
-        interaction: announceInteraction, drawId: draw.draw_id, deliveryVersion: pending.version === 2 ? 2 : 1,
+        drawId: draw.draw_id,
         beforeSend: () => renewGiveawayClaim(config.giveawayStore, giveaway.giveaway_id, endClaim, onWriteStart),
-        receipts: pending.receipts, saveReceipt: async (index, message) => {
+        receipts: giveaway.reroll_announcement.receipts, saveReceipt: async (index, message) => {
             await renewGiveawayClaim(config.giveawayStore, giveaway.giveaway_id, endClaim, onWriteStart);
             onWriteStart?.();
             const next = { ...giveaway.reroll_announcement, receipts: { ...(giveaway.reroll_announcement.receipts || {}), [index]: message.id } };
@@ -1884,15 +1833,20 @@ async function publishGiveawayReroll(client, config, giveaway, draw, { announceI
     }
     await renewGiveawayClaim(config.giveawayStore, giveaway.giveaway_id, endClaim, onWriteStart);
     onWriteStart?.();
-    const confirmed = await config.giveawayStore.updateGiveaway(giveaway.giveaway_id, { reroll_announcement: null }, { requireMysql, claim: endClaim });
+    // The next reroll's history lookup ignores this announcement and everything before it.
+    const lastMessageId = newestSnowflake([...Object.values(giveaway.reroll_announcement?.receipts || {}), delivery.id])
+        ?? giveaway.last_reroll_announcement_message_id ?? null;
+    const confirmed = await config.giveawayStore.updateGiveaway(giveaway.giveaway_id, { reroll_announcement: null,
+        last_reroll_announcement_message_id: lastMessageId }, { requireMysql, claim: endClaim });
     if (!confirmed || confirmed.reroll_announcement !== null) throw new GiveawayFinalizationDeferred('The reroll announcement receipt could not be confirmed.');
+    resolveGiveawayDeliveryAlert(giveaway.giveaway_id);
     await refreshGiveawayMessage(client, config, confirmed, { disabled: true }).catch(error => {
         console.warn(`[CC LOG] Giveaway ${giveaway.giveaway_id} rerolled-message refresh failed: ${error.code || 'UNKNOWN'}`);
     });
     return confirmed;
 }
 
-async function endGiveawayLocked(client, config, giveaway, { actor = null, drawType, winnerCount = null, announceInteraction = null,
+async function endGiveawayLocked(client, config, giveaway, { actor = null, drawType, winnerCount = null,
     requireMysql = false, onWriteStart = null, endClaim = null } = {}) {
     const giveawayId = String(giveaway.giveaway_id);
     const current = await config.giveawayStore.getGiveaway(giveawayId, { requireMysql });
@@ -1919,10 +1873,10 @@ async function endGiveawayLocked(client, config, giveaway, { actor = null, drawT
                 winner_user_ids: draw.winner_user_ids || [], reroll_announcement: current.reroll_announcement }, { requireMysql, claim: endClaim });
             if (!recovered || recovered.last_rerolled_at !== draw.drawn_at) throw new GiveawayFinalizationDeferred('The reroll result could not be confirmed.');
         }
-        return [await publishGiveawayReroll(client, config, recovered, draw, { announceInteraction, requireMysql, endClaim, onWriteStart }), draw.winner_user_ids || [], draw];
+        return [await publishGiveawayReroll(client, config, recovered, draw, { requireMysql, endClaim, onWriteStart }), draw.winner_user_ids || [], draw];
     }
     if (drawType === 'end') {
-        const previousEndDraw = endDrawForGiveaway(existingDraws, current);
+        const previousEndDraw = endDrawForGiveaway(existingDraws);
         if (current.status !== GIVEAWAY_ACTIVE && !endAnnouncementPending(current)) {
             return [current, (current.winner_user_ids || previousEndDraw?.winner_user_ids || []).map(String)];
         }
@@ -1932,26 +1886,17 @@ async function endGiveawayLocked(client, config, giveaway, { actor = null, drawT
             const winnerIds = (previousEndDraw.winner_user_ids || []).map(String);
             const endedAt = previousEndDraw.drawn_at || utcNowIso();
             if (endAnnouncementPending(current)) return [await publishGiveawayEnd(client, config, current, winnerIds,
-                { announceInteraction, requireMysql, endClaim, onWriteStart, drawId: previousEndDraw.draw_id }), winnerIds];
+                { requireMysql, endClaim, onWriteStart, drawId: previousEndDraw.draw_id }), winnerIds];
             await renewGiveawayClaim(config.giveawayStore, giveawayId, endClaim, onWriteStart);
             onWriteStart?.();
-            const savedRecovery = await config.giveawayStore.updateGiveaway(giveawayId, {
-                status: GIVEAWAY_ENDED,
-                ended_at: endedAt,
-                winner_user_ids: winnerIds, end_draw_id: previousEndDraw.draw_id, end_announcement_pending: true,
-                end_notification_version: previousEndDraw.notification_version === 2 ? 2 : 1
-            }, { requireMysql, claim: endClaim });
+            const recoveredEnd = { status: GIVEAWAY_ENDED, ended_at: endedAt, winner_user_ids: winnerIds,
+                end_draw_id: previousEndDraw.draw_id, end_announcement_pending: true };
+            const savedRecovery = await config.giveawayStore.updateGiveaway(giveawayId, recoveredEnd, { requireMysql, claim: endClaim });
             if (requireMysql && !savedRecovery) throw new Error(`Giveaway ${giveawayId} disappeared before its end was saved.`);
-            const recovered = savedRecovery || {
-                ...current,
-                status: GIVEAWAY_ENDED,
-                ended_at: endedAt,
-                winner_user_ids: winnerIds, end_draw_id: previousEndDraw.draw_id, end_announcement_pending: true,
-                end_notification_version: previousEndDraw.notification_version === 2 ? 2 : 1
-            };
+            const recovered = savedRecovery || { ...current, ...recoveredEnd };
             if (recovered.status !== GIVEAWAY_ENDED) throw new GiveawayFinalizationDeferred('The recovered giveaway end was not saved.');
             return [await publishGiveawayEnd(client, config, recovered, winnerIds,
-                { announceInteraction, requireMysql, endClaim, onWriteStart }), winnerIds];
+                { requireMysql, endClaim, onWriteStart }), winnerIds];
         }
         if (current.status === GIVEAWAY_ENDED) throw new GiveawayFinalizationDeferred('The saved end draw could not be found.');
     } else if (drawType === 'reroll' && current.status !== GIVEAWAY_ENDED) {
@@ -1964,7 +1909,7 @@ async function endGiveawayLocked(client, config, giveaway, { actor = null, drawT
         throw new GiveawayFinalizationDeferred('The previous reroll announcement is still pending. Please wait for it to finish.');
     }
     if (drawType === 'reroll' && !giveawayEndedWithinRerollWindow(current)) {
-        throw new GiveawayFinalizationDeferred('The 48-hour reroll window for that giveaway has expired.');
+        throw new GiveawayFinalizationDeferred(GIVEAWAY_REROLL_EXPIRED_MESSAGE);
     }
 
     const entries = eligibleGiveawayEntries(current,
@@ -1989,13 +1934,12 @@ async function endGiveawayLocked(client, config, giveaway, { actor = null, drawT
         drawn_by_id: drawType === 'end' && current.end_requested_at ? current.end_requested_by_id : actor?.id ?? null,
         drawn_by_name: drawType === 'end' && current.end_requested_at ? current.end_requested_by_name : actor?.displayName ?? actor?.username ?? null,
         drawn_at: now,
-        notification_version: 2,
         eligible_count: activeEntries(entries).length,
         winner_user_ids: winnerIds
     };
     let rerollAnnouncement = null;
     if (drawType === 'reroll') {
-        rerollAnnouncement = { draw_id: drawId, receipts: {}, draw, version: 2 };
+        rerollAnnouncement = { draw_id: drawId, receipts: {}, draw };
         await renewGiveawayClaim(config.giveawayStore, giveawayId, endClaim, onWriteStart);
         onWriteStart?.();
         const reserved = await config.giveawayStore.updateGiveaway(giveawayId, { reroll_announcement: rerollAnnouncement }, { requireMysql, claim: endClaim });
@@ -2016,7 +1960,6 @@ async function endGiveawayLocked(client, config, giveaway, { actor = null, drawT
         updates.ended_at = now;
         updates.end_draw_id = savedDraw?.draw_id || drawId;
         updates.end_announcement_pending = true;
-        updates.end_notification_version = 2;
     } else {
         updates.last_rerolled_at = now;
         updates.reroll_announcement = rerollAnnouncement;
@@ -2029,18 +1972,16 @@ async function endGiveawayLocked(client, config, giveaway, { actor = null, drawT
     if (drawType === 'end') {
         if (updated.status !== GIVEAWAY_ENDED) throw new GiveawayFinalizationDeferred('The giveaway end was not saved.');
         return [await publishGiveawayEnd(client, config, updated, winnerIds,
-            { announceInteraction, requireMysql, endClaim, onWriteStart }), winnerIds];
+            { requireMysql, endClaim, onWriteStart }), winnerIds];
     }
     const final = await publishGiveawayReroll(client, config, updated, savedDraw || draw,
-        { announceInteraction, requireMysql, endClaim, onWriteStart });
+        { requireMysql, endClaim, onWriteStart });
     return [final, winnerIds, savedDraw || draw];
 }
 
-function winnerAnnouncementParts(giveaway, winnerIds, { drawType, deliveryVersion = 2 }) {
-    const inlineLimit = deliveryVersion === 1 ? LEGACY_WINNER_INLINE_LIMIT : WINNER_INLINE_LIMIT;
-    const batchLimit = deliveryVersion === 1 ? LEGACY_WINNER_NOTIFICATION_BATCH_SIZE : WINNER_NOTIFICATION_BATCH_SIZE;
-    const summary = drawAnnouncementContent(giveaway, winnerIds, { drawType, inlineLimit });
-    if (winnerIds.length <= inlineLimit) {
+function winnerAnnouncementParts(giveaway, winnerIds, { drawType }) {
+    const summary = drawAnnouncementContent(giveaway, winnerIds, { drawType });
+    if (winnerIds.length <= WINNER_INLINE_LIMIT) {
         return [{ content: summary, allowedMentions: { parse: [], users: winnerIds.map(String), roles: [], repliedUser: false } }];
     }
     const parts = [];
@@ -2048,7 +1989,7 @@ function winnerAnnouncementParts(giveaway, winnerIds, { drawType, deliveryVersio
     while (offset < winnerIds.length) {
         const prefix = parts.length === 0 ? `${summary}\n\n` : '';
         const batch = [];
-        while (offset + batch.length < winnerIds.length && batch.length < batchLimit) {
+        while (offset + batch.length < winnerIds.length && batch.length < WINNER_NOTIFICATION_BATCH_SIZE) {
             const next = [...batch, String(winnerIds[offset + batch.length])];
             const comma = offset + next.length < winnerIds.length ? ',' : '';
             const content = `${prefix}${next.map(id => `<@${id}>`).join(', ')}${comma}`;
@@ -2064,125 +2005,188 @@ function winnerAnnouncementParts(giveaway, winnerIds, { drawType, deliveryVersio
     return parts;
 }
 
-async function findGiveawayAnnouncements(client, channel, candidates, drawnAt) {
+function snowflakeValue(value) {
+    const text = String(value ?? '');
+    return /^\d{1,20}$/u.test(text) ? BigInt(text) : null;
+}
+
+function newestSnowflake(values) {
+    let newest = null;
+    for (const value of values) {
+        const parsed = snowflakeValue(value);
+        if (parsed !== null && (newest === null || parsed > newest.parsed)) newest = { id: String(value), parsed };
+    }
+    return newest?.id ?? null;
+}
+
+// A reroll is announced only after the previous announcement was confirmed, so its
+// messages are always newer than every message saved for earlier announcements.
+function previousAnnouncementMessageId(giveaway) {
+    return newestSnowflake([giveaway.end_announcement_message_id,
+        ...Object.values(giveaway.end_notification_receipts || {}), giveaway.last_reroll_announcement_message_id]);
+}
+
+const DISCORD_ERROR_LABELS = { 10003: 'Unknown Channel', 10008: 'Unknown Message', 50001: 'Missing Access', 50013: 'Missing Permissions' };
+
+// Programming errors must surface. Only Discord, network and storage failures leave a delivery pending.
+function isUnexpectedDeliveryError(err) {
+    return [TypeError, ReferenceError, SyntaxError, RangeError].some(type => err instanceof type)
+        && !isTransientDiscordError(err);
+}
+
+// Describes a failure by its code or name only; Discord and MySQL errors can carry request payloads.
+function deliveryFailureReason(err) {
+    if (err instanceof GiveawayFinalizationDeferred) return err.message.replace(/\.$/u, '');
+    // Discord JSON error codes start at 10001; smaller numbers are other codes, such as an AbortError's 20.
+    const discordCode = Number(err?.code ?? err?.rawError?.code);
+    if (Number.isInteger(discordCode) && discordCode >= 10000) {
+        return `Discord error ${discordCode}${DISCORD_ERROR_LABELS[discordCode] ? ` ${DISCORD_ERROR_LABELS[discordCode]}` : ''}`;
+    }
+    const code = networkErrorCode(err);
+    const status = Number.isInteger(err?.status) ? ` ${err.status}` : '';
+    return `${code === 'UNKNOWN' ? 'Error' : code}${status}`;
+}
+
+// Logs once per giveaway and reason. The matching status event in utils/discordDiagnostics.js
+// raises a Bot Warning only if the announcement is still pending after 10 minutes.
+function noteGiveawayDeliveryPending(giveawayId, reason) {
+    const id = String(giveawayId);
+    const text = String(reason || 'unknown reason').replace(/\s+/gu, ' ').slice(0, 200);
+    if (GIVEAWAY_DELIVERY_ALERTS.get(id) === text) return;
+    GIVEAWAY_DELIVERY_ALERTS.set(id, text);
+    console.warn(`[CC LOG] Giveaway ${id} winner announcement is pending (${text}). Delivery will retry automatically.`);
+}
+
+function resolveGiveawayDeliveryAlert(giveawayId, { deleted = false } = {}) {
+    const id = String(giveawayId);
+    if (!GIVEAWAY_DELIVERY_ALERTS.delete(id)) return;
+    console.log(deleted
+        ? `[CC LOG] Giveaway ${id} winner announcement cancelled because the giveaway was deleted.`
+        : `[CC LOG] Giveaway ${id} winner announcement delivered.`);
+}
+
+// Another host or command can finish or delete a giveaway this process saw as pending.
+async function reconcileGiveawayDeliveryAlerts(store, checkedIds) {
+    for (const giveawayId of [...GIVEAWAY_DELIVERY_ALERTS.keys()]) {
+        if (checkedIds.has(giveawayId)) continue;
+        let current;
+        try {
+            current = await store.getGiveaway(giveawayId);
+        } catch {
+            continue;
+        }
+        if (!current || current.status === GIVEAWAY_DELETED) resolveGiveawayDeliveryAlert(giveawayId, { deleted: true });
+        else if (current.status === GIVEAWAY_ENDED && !endAnnouncementPending(current) && !rerollAnnouncementPending(current)) {
+            resolveGiveawayDeliveryAlert(giveawayId);
+        }
+    }
+}
+
+async function getDeliveryChannel(client, channelId) {
+    if (!channelId) return { channel: null, reason: 'the giveaway has no channel' };
+    try {
+        const channel = client.channels.cache.get(String(channelId)) || await client.channels.fetch(String(channelId));
+        return channel ? { channel } : { channel: null, reason: 'the giveaway channel is unavailable' };
+    } catch (err) {
+        if (isUnexpectedDeliveryError(err)) throw err;
+        return { channel: null, reason: `the giveaway channel is unavailable: ${deliveryFailureReason(err)}` };
+    }
+}
+
+async function findGiveawayAnnouncements(client, channel, candidates, drawnAt, { afterMessageId = null } = {}) {
     const matches = new Map();
     const permissions = channel.permissionsFor?.(client.user);
-    if (permissions && !permissions.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory])) {
-        return { matches, complete: false };
+    const missing = permissions ? [[PermissionFlagsBits.ViewChannel, 'View Channel'],
+        [PermissionFlagsBits.ReadMessageHistory, 'Read Message History']]
+        .filter(([flag]) => !permissions.has(flag)).map(([, label]) => label) : [];
+    if (missing.length) {
+        return { matches, complete: false, reason: `missing ${missing.join(' and ')} permission${missing.length > 1 ? 's' : ''}` };
     }
     // Allow for clock skew between the host's saved draw time and Discord timestamps.
     const since = (parseDate(drawnAt)?.getTime() ?? -Infinity) - 60000;
+    // Within that allowance, identical text from an earlier announcement must not count as this draw's delivery.
+    const after = snowflakeValue(afterMessageId);
+    const olderThanDraw = message => {
+        if (message.createdTimestamp < since) return true;
+        const id = snowflakeValue(message.id);
+        return after !== null && id !== null && id <= after;
+    };
     const startedAt = Date.now();
     let before;
     const cursors = new Set();
     for (let scanned = 0; scanned < GIVEAWAY_ANNOUNCEMENT_HISTORY_LIMIT; scanned += 100) {
-        if (Date.now() - startedAt >= GIVEAWAY_ANNOUNCEMENT_HISTORY_TIMEOUT_MS) break;
+        if (Date.now() - startedAt >= GIVEAWAY_ANNOUNCEMENT_HISTORY_TIMEOUT_MS) {
+            return { matches, complete: false, reason: 'the message history lookup timed out' };
+        }
         let page;
         try {
             page = await channel.messages.fetch({ limit: 100, cache: false, ...(before ? { before } : {}) });
-        } catch { break; }
-        if (!page?.values) break;
+        } catch (err) {
+            if (isUnexpectedDeliveryError(err)) throw err;
+            return { matches, complete: false, reason: `the message history could not be read: ${deliveryFailureReason(err)}` };
+        }
+        if (!page?.values) return { matches, complete: false, reason: 'the message history could not be read' };
         const messages = [...page.values()];
         for (const message of messages) {
-            if (message.author?.id !== client.user.id || message.createdTimestamp < since) continue;
-            for (const [index, contents] of candidates) {
-                if (!matches.has(index) && contents.includes(message.content)) matches.set(index, message);
+            if (message.author?.id !== client.user.id || olderThanDraw(message)) continue;
+            for (const [index, content] of candidates) {
+                if (!matches.has(index) && content === message.content) matches.set(index, message);
             }
         }
-        if (matches.size === candidates.size || messages.length < 100
-            || messages.some(message => message.createdTimestamp < since)) return { matches, complete: true };
+        if (matches.size === candidates.size || messages.length < 100 || messages.some(olderThanDraw)) {
+            return { matches, complete: true };
+        }
         const next = messages.at(-1)?.id;
-        if (!next || cursors.has(next)) break;
+        if (!next || cursors.has(next)) return { matches, complete: false, reason: 'the message history repeated a page' };
         cursors.add(next);
         before = next;
     }
     // An incomplete lookup cannot establish that sending again is safe.
-    return { matches, complete: false };
+    return { matches, complete: false,
+        reason: `the message history lookup reached its ${GIVEAWAY_ANNOUNCEMENT_HISTORY_LIMIT}-message limit` };
 }
 
-async function announceGiveawayDraw(client, giveaway, winnerIds, { drawType, interaction = null, drawId = null, deliveryVersion = 1, receipts = {}, saveReceipt = null, beforeSend = null }) {
-    const content = drawAnnouncementContent(giveaway, winnerIds, { drawType,
-        inlineLimit: deliveryVersion === 1 ? LEGACY_WINNER_INLINE_LIMIT : WINNER_INLINE_LIMIT });
-    const useParts = deliveryVersion === 2 || winnerIds.length > LEGACY_WINNER_INLINE_LIMIT;
-    if (useParts && !drawId) return null;
-    if (useParts) {
-        const channel = await getChannel(client, giveaway.channel_id);
-        if (!channel) return null;
-        const source = await fetchGiveawayMessage(channel, giveaway);
-        const parts = winnerAnnouncementParts(giveaway, winnerIds, { drawType, deliveryVersion });
-        const candidates = new Map();
-        let offset = 0;
-        for (const [index, part] of parts.entries()) {
-            if (!receipts?.[index]) {
-                const previousHeader = index === 0 ? content : `### ${drawType === 'reroll' ? '🔁 Giveaway rerolled!' : '🎉 Giveaway ended!'} (continued)`;
-                const previousContent = `${previousHeader}\n\n**Winners ${offset + 1}–${offset + part.allowedMentions.users.length}:** ${part.allowedMentions.users.map(id => `<@${id}>`).join(', ')}`;
-                candidates.set(index, [part.content, previousContent]);
-            }
-            offset += part.allowedMentions.users.length;
-        }
-        const history = candidates.size && client.user?.id && channel.messages?.fetch
-            ? await findGiveawayAnnouncements(client, channel, candidates, drawType === 'end' ? giveaway.ended_at : giveaway.last_rerolled_at)
-            : { matches: new Map(), complete: true };
-        let firstId = receipts?.[0] || null;
-        let firstDelivery = firstId && channel.messages?.fetch
-            ? await channel.messages.fetch(firstId).catch(() => null) : null;
-        for (const [index, part] of parts.entries()) {
-            if (receipts?.[index]) continue;
-            try {
-                const existing = history.matches.get(index);
-                if (!existing && !history.complete) return null;
-                const nonce = crypto.createHash('sha256').update(`giveaway-draw:${drawId}:${index}`).digest('hex').slice(0, 24);
-                const payload = { ...part, nonce, enforceNonce: true };
-                if (!existing) await beforeSend?.();
-                const sent = existing || (index === 0 && source
-                    ? await source.reply({ ...payload, failIfNotExists: false }) : await channel.send(payload));
-                if (!sent?.id) return null;
-                if (saveReceipt) await saveReceipt(index, sent);
-                if (index === 0) { firstId = sent.id; firstDelivery = sent; }
-            } catch { return null; }
-        }
-        return { id: firstId, createdAt: firstDelivery?.createdAt, createdTimestamp: firstDelivery?.createdTimestamp };
-    }
-    const allowedMentions = { users: winnerIds };
-    if (interaction) {
-        try {
-            await beforeSend?.();
-            if (interaction.deferred || interaction.replied) {
-                return await interaction.editReply({ content, allowedMentions }) || {};
-            } else {
-                return await interaction.reply({ content, allowedMentions }) || {};
-            }
-        } catch {
-            // The command handler will finish the deferred response with its own status message.
-        }
+async function announceGiveawayDraw(client, giveaway, winnerIds, { drawType, drawId = null, receipts = {},
+    saveReceipt = null, beforeSend = null }) {
+    const pending = reason => {
+        noteGiveawayDeliveryPending(giveaway.giveaway_id, reason);
         return null;
+    };
+    // A failed announcement leaves the saved draw pending; it never undoes the ended giveaway.
+    const failed = err => {
+        if (isUnexpectedDeliveryError(err)) throw err;
+        return pending(deliveryFailureReason(err));
+    };
+    if (!drawId) return pending('the saved draw ID is missing');
+    const { channel, reason: channelReason } = await getDeliveryChannel(client, giveaway.channel_id);
+    if (!channel) return pending(channelReason);
+    const drawnAt = drawType === 'end' ? giveaway.ended_at : giveaway.last_rerolled_at;
+    const afterMessageId = drawType === 'end' ? null : previousAnnouncementMessageId(giveaway);
+    const source = await fetchGiveawayMessage(channel, giveaway);
+    const parts = winnerAnnouncementParts(giveaway, winnerIds, { drawType });
+    const candidates = new Map(parts.map((part, index) => [index, part.content]).filter(([index]) => !receipts?.[index]));
+    const history = candidates.size && client.user?.id && channel.messages?.fetch
+        ? await findGiveawayAnnouncements(client, channel, candidates, drawnAt, { afterMessageId })
+        : { matches: new Map(), complete: true };
+    let firstId = receipts?.[0] || null;
+    let firstDelivery = firstId && channel.messages?.fetch
+        ? await channel.messages.fetch(firstId).catch(() => null) : null;
+    for (const [index, part] of parts.entries()) {
+        if (receipts?.[index]) continue;
+        const existing = history.matches.get(index);
+        if (!existing && !history.complete) return pending(history.reason);
+        try {
+            const nonce = crypto.createHash('sha256').update(`giveaway-draw:${drawId}:${index}`).digest('hex').slice(0, 24);
+            const payload = { ...part, nonce, enforceNonce: true };
+            if (!existing) await beforeSend?.();
+            const sent = existing || (index === 0 && source
+                ? await source.reply({ ...payload, failIfNotExists: false }) : await channel.send(payload));
+            if (!sent?.id) return pending('Discord did not confirm the message');
+            if (saveReceipt) await saveReceipt(index, sent);
+            if (index === 0) { firstId = sent.id; firstDelivery = sent; }
+        } catch (err) { return failed(err); }
     }
-
-    const channel = await getChannel(client, giveaway.channel_id);
-    if (!channel) return null;
-    if (client.user?.id && channel.messages?.fetch) {
-        const history = await findGiveawayAnnouncements(client, channel, new Map([[0, [content]]]),
-            drawType === 'end' ? giveaway.ended_at : giveaway.last_rerolled_at);
-        const existing = history.matches.get(0);
-        if (existing) return existing;
-        if (!history.complete) return null;
-    }
-    const message = await fetchGiveawayMessage(channel, giveaway);
-    try {
-        const delivery = drawType === 'end' ? { nonce: crypto.createHash('sha256')
-            .update(`giveaway-end:${giveaway.giveaway_id}`).digest('hex').slice(0, 24), enforceNonce: true }
-            : drawId ? { nonce: crypto.createHash('sha256').update(`giveaway-reroll:${drawId}`).digest('hex').slice(0, 24), enforceNonce: true } : {};
-        await beforeSend?.();
-        if (message) {
-            return await message.reply({ content, allowedMentions: { ...allowedMentions, repliedUser: false },
-                failIfNotExists: false, ...delivery }) || {};
-        } else {
-            return await channel.send({ content, allowedMentions, ...delivery }) || {};
-        }
-    } catch {
-        // Announcement failure should not undo an ended giveaway.
-    }
-    return null;
+    return { id: firstId, createdAt: firstDelivery?.createdAt, createdTimestamp: firstDelivery?.createdTimestamp };
 }
 
 async function fetchGiveawayMessage(channel, giveaway) {
@@ -2190,7 +2194,7 @@ async function fetchGiveawayMessage(channel, giveaway) {
     return channel.messages.fetch(giveaway.message_id).catch(() => null);
 }
 
-function drawAnnouncementContent(giveaway, winnerIds, { drawType, inlineLimit = WINNER_INLINE_LIMIT }) {
+function drawAnnouncementContent(giveaway, winnerIds, { drawType }) {
     const title = drawType === 'reroll' ? 'Giveaway rerolled!' : 'Giveaway ended!';
     const emoji = drawType === 'reroll' ? '🔁' : '🎉';
     const prize = String(giveaway.prize || 'the prize');
@@ -2198,7 +2202,7 @@ function drawAnnouncementContent(giveaway, winnerIds, { drawType, inlineLimit = 
     if (!winnerIds.length) {
         return `### ${heading}\n- Nobody joined this giveaway.`;
     }
-    if (winnerIds.length > inlineLimit) {
+    if (winnerIds.length > WINNER_INLINE_LIMIT) {
         return `### ${heading}\n- **${winnerIds.length} winners** won **${prize}**!`;
     }
     const mentions = winnerIds.map(userId => `<@${userId}>`).join(', ');
@@ -2329,10 +2333,6 @@ async function handleJoinLeave(interaction, config) {
         await interaction.editReply('This giveaway has ended.');
         return;
     }
-    if (result.type === 'storage_unavailable') {
-        await interaction.editReply('Giveaway storage is temporarily unavailable. Please try again shortly.');
-        return;
-    }
     if (result.type === 'missing_role') {
         await interaction.editReply(`You need one of these roles to enter this giveaway: ${roleMentions(result.requiredRoleIds)}`);
         return;
@@ -2364,33 +2364,28 @@ function winnerDrawKey(drawId) {
     return crypto.createHash('sha256').update(String(drawId)).digest('hex').slice(0, 16);
 }
 
+// The button exists only on the giveaway message and shows that message's latest draw.
+// The draw key at the end of its custom ID only marks which draw the button was built for.
 async function handleWinnersButton(interaction, config) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    const match = /^(?:cc|ww)_giveaway:winners:(.+):([a-f0-9]{16})$/.exec(interaction.customId);
-    let giveaway = match && await config.giveawayStore.getGiveaway(match[1]);
-    if (!giveaway || String(giveaway.guild_id) !== String(interaction.guildId)) {
+    const giveawayId = /^cc_giveaway:winners:(.+):[a-f0-9]{16}$/u.exec(interaction.customId)?.[1];
+    const findGiveaway = async () => {
+        const giveaway = giveawayId ? await config.giveawayStore.getGiveaway(giveawayId) : null;
+        return giveaway && String(giveaway.guild_id) === String(interaction.guildId) && giveaway.message_id
+            && String(giveaway.message_id) === String(interaction.message?.id) ? giveaway : null;
+    };
+    let giveaway = await findGiveaway();
+    let draw;
+    // A reroll saves its draw before the giveaway, so the giveaway is read after its draws.
+    for (let attempt = 0; giveaway && !draw && attempt < 3; attempt++) {
+        const draws = await config.giveawayStore.listDraws(giveawayId);
+        giveaway = await findGiveaway();
+        const drawId = giveaway?.status === GIVEAWAY_ENDED ? giveawayMessageDrawId(giveaway, draws) : null;
+        draw = draws.find(candidate => candidate.draw_id === drawId);
+    }
+    if (!giveaway) {
         await interaction.editReply('That giveaway could not be found.');
         return;
-    }
-    const isOriginalMessage = interaction.message?.id && giveaway.message_id
-        && String(interaction.message.id) === String(giveaway.message_id);
-    let draws = await config.giveawayStore.listDraws(giveaway.giveaway_id);
-    let draw;
-    if (isOriginalMessage) {
-        for (let attempt = 0; attempt < 3; attempt++) {
-            giveaway = await config.giveawayStore.getGiveaway(match[1]);
-            if (!giveaway || String(giveaway.guild_id) !== String(interaction.guildId)
-                || String(giveaway.message_id) !== String(interaction.message.id)) {
-                await interaction.editReply('That giveaway could not be found.');
-                return;
-            }
-            const drawId = giveaway.status === GIVEAWAY_ENDED ? giveawayMessageDrawId(giveaway, draws) : null;
-            draw = draws.find(candidate => candidate.draw_id === drawId);
-            if (draw || attempt === 2) break;
-            draws = await config.giveawayStore.listDraws(giveaway.giveaway_id);
-        }
-    } else {
-        draw = draws.find(candidate => winnerDrawKey(candidate.draw_id) === match[2]);
     }
     if (!draw) {
         await interaction.editReply('The winner list couldn’t be loaded. Please try again.');
@@ -2447,7 +2442,7 @@ async function sendParticipantEmbeds(interaction, config, giveaway) {
     await sendEmbedFollowUp(interaction, embeds);
 }
 
-async function sendEmbedFollowUp(interaction, embeds, { expiresAfterMs = null, allowedMentions, arrowButtons = false } = {}) {
+async function sendEmbedFollowUp(interaction, embeds, { expiresAfterMs, allowedMentions, arrowButtons = false } = {}) {
     const [embed] = embeds;
     const mentions = allowedMentions ? { allowedMentions } : {};
     if (embeds.length <= 1) {
@@ -2460,13 +2455,24 @@ async function sendEmbedFollowUp(interaction, embeds, { expiresAfterMs = null, a
 
 function createPaginationSession(ownerId, embeds, { expiresAfterMs, allowedMentions, arrowButtons = false } = {}) {
     const id = crypto.randomBytes(6).toString('hex');
-    const session = { id, ownerId, embeds, index: 0, createdAt: Date.now(), allowedMentions, arrowButtons };
+    const lifetimeMs = Number.isFinite(expiresAfterMs) && expiresAfterMs > 0 ? expiresAfterMs : PAGINATION_SESSION_TTL_MS;
+    const createdAt = Date.now();
+    const session = { id, ownerId, embeds, index: 0, createdAt, expiresAt: createdAt + lifetimeMs, allowedMentions, arrowButtons };
+    session.timer = setTimeout(() => removePaginationSession(session), lifetimeMs);
+    session.timer.unref?.();
     PAGINATION_SESSIONS.set(id, session);
-    if (expiresAfterMs) {
-        session.expiresAt = session.createdAt + expiresAfterMs;
-        setTimeout(() => PAGINATION_SESSIONS.delete(id), expiresAfterMs).unref?.();
+    // Older sessions give way first; their buttons then show the expiry message.
+    for (const oldest of PAGINATION_SESSIONS.values()) {
+        if (PAGINATION_SESSIONS.size <= MAX_PAGINATION_SESSIONS) break;
+        removePaginationSession(oldest);
     }
     return session;
+}
+
+function removePaginationSession(session) {
+    if (PAGINATION_SESSIONS.get(session.id) !== session) return;
+    PAGINATION_SESSIONS.delete(session.id);
+    clearTimeout(session.timer);
 }
 
 function buildPaginationComponents(session) {
@@ -2488,7 +2494,7 @@ async function handlePaginationButton(interaction) {
     const [, , sessionId, direction] = interaction.customId.split(':');
     const session = PAGINATION_SESSIONS.get(sessionId);
     if (!session || session.expiresAt <= Date.now()) {
-        PAGINATION_SESSIONS.delete(sessionId);
+        if (session) removePaginationSession(session);
         await interaction.reply({ content: 'This pagination expired. Reopen the list from its original button or command.', flags: MessageFlags.Ephemeral });
         return;
     }
@@ -2580,7 +2586,7 @@ function giveawayListFieldValue(giveaway) {
     const lines = [
         `**Prize:** ${giveaway.prize || 'Unknown'}`,
         `**Winners:** ${giveaway.winners_total || 1}`,
-        `**Participants:** ${giveaway.participant_count ?? activeEntries(giveaway.entries || []).length}`,
+        `**Participants:** ${giveaway.participant_count ?? 0}`,
         `**Starts:** ${startText}`,
         `**Ends:** ${endText}`,
         `**ID:** \`${giveaway.giveaway_id}\``
@@ -2675,7 +2681,7 @@ function giveawayEndedWithinRerollWindow(giveaway, now = new Date()) {
     const endedAt = giveawayRerollStart(giveaway);
     if (!endedAt) return false;
     const diff = now.getTime() - endedAt.getTime();
-    return diff >= 0 && diff <= REROLL_AUTOCOMPLETE_WINDOW_MS;
+    return diff >= 0 && diff <= GIVEAWAY_REROLL_WINDOW_MS;
 }
 
 async function giveawayAutocomplete(interaction, config, { status, recentEndedOnly = false } = {}) {
@@ -2709,7 +2715,8 @@ function resolveGiveawayPings(guild, value) {
     const text = String(value).trim();
     if (/@everyone|@here|<#/u.test(text)) throw new Error('Mention specific roles or members. Channel mentions, @everyone and @here are not supported.');
     const userIds = [];
-    const roleText = text.replace(/<@!?(\d+)>/gu, (_, id) => {
+    // Every <@...> or <@!...> token is a member mention here, including malformed ones; <@&...> stays a role.
+    const roleText = text.replace(/<@!?([^>&]*)>/gu, (_, id) => {
         if (!/^\d{15,20}$/u.test(id) || BigInt(id) > 18446744073709551615n) throw new Error('Please select a valid member with @.');
         if (!userIds.includes(id)) userIds.push(id);
         return ' ';
@@ -2804,16 +2811,8 @@ function drawSummary(action, giveaway, winnerIds, guild = null) {
         ? `${winnerIds.length} selected.`
         : winnerIds.length ? winnerIds.map(userId => `<@${userId}>`).join(', ') : 'No winners';
     const label = winnerIds.length === 1 ? 'Winner' : 'Winners';
-    const giveawayLabel = giveawayDisplayLabel(giveaway, { guild });
-    const giveawayLink = linkTextToGiveaway(giveaway, giveawayLabel);
-    if (action === 'Rerolled') {
-        return `Rerolled Giveaway: **${giveawayLink}**\n- ${label}: ${winners}`;
-    }
-    if (action === 'Ended') {
-        return `Ended Giveaway: **${giveawayLink}**\n- ${label}: ${winners}`;
-    }
-
-    return `${action} **${giveawayLabel}**. ${label}: ${winners}`;
+    const giveawayLink = linkTextToGiveaway(giveaway, giveawayDisplayLabel(giveaway, { guild }));
+    return `${action} Giveaway: **${giveawayLink}**\n- ${label}: ${winners}`;
 }
 
 function startGiveawayLoop(client, config) {
@@ -2837,7 +2836,7 @@ function startGiveawayLoop(client, config) {
         running = true;
         let delayMs = GIVEAWAY_RECOVERY_SWEEP_MS;
         try {
-            await config.giveawayStore.syncPending?.();
+            await config.giveawayStore.syncPending();
             if (stopped) return;
             const dueGiveaways = await config.giveawayStore.listDueGiveaways(new Date());
             for (const [index, giveaway] of dueGiveaways.entries()) {
@@ -2849,14 +2848,21 @@ function startGiveawayLoop(client, config) {
                         await endGiveaway(client, config, current, { actor: null, drawType: 'end' });
                     } else if (rerollAnnouncementPending(current)) {
                         await endGiveaway(client, config, current, { actor: null, drawType: 'reroll-recovery' });
+                    } else {
+                        resolveGiveawayDeliveryAlert(giveaway.giveaway_id, { deleted: !current || current.status === GIVEAWAY_DELETED });
                     }
                 } catch (err) {
-                    if (!(err instanceof GiveawayFinalizationDeferred) && !config.giveawayStore.db?.isDatabaseUnavailableError?.(err)) {
+                    // Storage outages have their own MySQL alert; a deferred draw or delivery is still pending work.
+                    if (err instanceof GiveawayFinalizationDeferred) {
+                        noteGiveawayDeliveryPending(giveaway.giveaway_id, deliveryFailureReason(err));
+                    } else if (!config.giveawayStore.db?.isDatabaseUnavailableError?.(err)) {
                         console.error(`[CC LOG] Could not end giveaway ${giveaway.giveaway_id || 'unknown'}:`, err);
                     }
                 }
                 if (index + 1 < dueGiveaways.length) await wait(GIVEAWAY_END_PACING_MS);
             }
+            if (stopped) return;
+            await reconcileGiveawayDeliveryAlerts(config.giveawayStore, new Set(dueGiveaways.map(item => String(item.giveaway_id))));
             if (stopped) return;
             const nextDueAt = await config.giveawayStore.nextDueAt();
             if (nextDueAt) {
@@ -2898,10 +2904,10 @@ module.exports = {
     GiveawayFinalizationDeferred,
     giveawayEntryCutoff,
     makeDrawId,
-    DEFAULT_GIVEAWAY_COLOR,
     GIVEAWAY_ACTIVE,
     GIVEAWAY_DELETED,
     GIVEAWAY_ENDED,
+    GIVEAWAY_REROLL_EXPIRED_MESSAGE,
     MAX_WINNERS,
     winnerAnnouncementParts,
     buildGiveawayEmbed,
@@ -2921,7 +2927,7 @@ module.exports = {
     normalizeGiveawayDescription,
     parseColor,
     parseGiveawayEndTime,
-    resolveRoleIds,
+    resolveGiveawayDeliveryAlert,
     resolveGiveawayPings,
     resolveRequiredRoleIds,
     replyWithGiveawayMessage,
@@ -2929,10 +2935,12 @@ module.exports = {
     sendParticipantEmbeds,
     shouldRestrictGiveawayChannel,
     startGiveawayLoop,
+    userDisplayName,
     wakeGiveawayLoop,
     utcNowIso,
     validateWinnerCount,
     deleteGiveawayMessage,
     refreshGiveawayMessage,
+    giveawayEditPacer: GIVEAWAY_EDIT_PACER,
     withGiveawayLock
 };

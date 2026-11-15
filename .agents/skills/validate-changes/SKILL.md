@@ -32,7 +32,8 @@ Map each changed file to its tests. With Node 22+, `node --test` expands quoted 
 
 | Changed code | Start with |
 | --- | --- |
-| `features/auctions/`, `utils/discordEditPacer.js` | `"test/auction*.test.js" test/discordEditPacer.test.js` (see the `pro-auctions` skill) |
+| `features/auctions/` | `"test/auction*.test.js"` (see the `pro-auctions` skill) |
+| `utils/discordEditPacer.js` | `test/discordEditPacer.test.js "test/auction*.test.js" test/giveawayRefresh.test.js` |
 | `features/pvp-scouting/`, `commands/scout*.js`, `events/pvpScouting.js`, `events/scoutRoster.js` | `"test/scout*.test.js" "test/pvpScout*.test.js" test/pvpScouting.test.js test/pokemonScoutDetails.test.js test/guildMemberSettings.test.js` (see the `pvp-scouting` skill) |
 | `commands/pvp-king/`, `tasks/cooldownNotifier.js` | `"test/pvpKing*.test.js" test/pvpHelper.test.js test/pvpHistoryMessages.test.js test/cooldownNotifier.test.js` |
 | `features/guild-applications/` | `"test/guildApplication*.test.js" "test/guildForum*.test.js" test/proForumClient.test.js test/countryRegistry.test.js test/forumClientReliability.test.js test/forumMonitorLifecycle.test.js` |

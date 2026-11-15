@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { handleGiveawayButton, refreshGiveawayMessage } = require('../events/giveaways');
+const { giveawayEditPacer, handleGiveawayButton, refreshGiveawayMessage } = require('../events/giveaways');
 
 const copy = value => JSON.parse(JSON.stringify(value));
 const turn = () => new Promise(resolve => setImmediate(resolve));
@@ -24,6 +24,14 @@ function fixture(t) {
         const timer = { callback, due: now + delay };
         timers.push(timer);
         return timer;
+    });
+    // The shared edit pacer keeps its own monotonic clock; each test drives it and starts with no earlier edits.
+    const pacerClock = giveawayEditPacer.clock;
+    giveawayEditPacer.clock = () => now;
+    t.after(() => {
+        giveawayEditPacer.clock = pacerClock;
+        giveawayEditPacer.lastEditAt = -Infinity;
+        giveawayEditPacer.lastMessageEditAt.clear();
     });
     const active = {
         giveaway_id: `refresh-${fixtureNumber}`,
@@ -230,4 +238,21 @@ test('a reroll completed during participant lookup updates the winner button and
     }, { giveawayStore: f.store });
     assert.equal(winnerPage.embeds[0].toJSON().title, 'Rerolled Winners (26) — Page 1/1');
     assert.match(winnerPage.embeds[0].toJSON().description, /<@223456789012345678>/);
+});
+
+test('a refresh skipped during its wait does not delay the next edit of that giveaway', async t => {
+    const f = fixture(t);
+    await f.drain(f.refresh());
+    assert.equal(f.edits.length, 1);
+    const skipped = f.refresh();
+    await turn();
+    assert.equal(f.timers.length, 1, 'the second refresh waits for the same-message delay');
+    f.remove();
+    await f.advance(6500);
+    await skipped;
+    assert.equal(f.edits.length, 1, 'a giveaway removed during the wait is not edited');
+    f.update(f.active);
+    await f.drain(f.refresh());
+    assert.equal(f.edits.length, 2);
+    assert.equal(f.edits[1].at - f.edits[0].at, 6500, 'the skipped refresh used no edit slot');
 });

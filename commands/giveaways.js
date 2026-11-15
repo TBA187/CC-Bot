@@ -9,6 +9,7 @@ const {
     GIVEAWAY_ACTIVE,
     GIVEAWAY_DELETED,
     GIVEAWAY_ENDED,
+    GIVEAWAY_REROLL_EXPIRED_MESSAGE,
     MAX_WINNERS,
     GiveawayFinalizationDeferred,
     buildGiveawayListEmbeds,
@@ -26,12 +27,14 @@ const {
     parseColor,
     parseGiveawayEndTime,
     refreshGiveawayMessage,
+    resolveGiveawayDeliveryAlert,
     resolveRequiredRoleIds,
     resolveGiveawayPings,
     sendEmbedFollowUp,
     replyWithGiveawayMessage,
     sendParticipantEmbeds,
     shouldRestrictGiveawayChannel,
+    userDisplayName,
     utcNowIso,
     validateWinnerCount,
     wakeGiveawayLoop,
@@ -218,7 +221,7 @@ class Giveaways {
                     .setDescription('Reroll winners for an ended giveaway.')
                     .addStringOption(o =>
                         o.setName('giveaway')
-                            .setDescription('Select an ended giveaway to reroll. Giveaways older than 48 hours cannot be rerolled.')
+                            .setDescription('Select an ended giveaway to reroll. Giveaways older than 7 days cannot be rerolled.')
                             .setRequired(true)
                             .setAutocomplete(true)
                     )
@@ -319,10 +322,10 @@ class Giveaways {
             description: normalizeGiveawayDescription(interaction.options.getString('description')),
             prize: interaction.options.getString('prize', true).trim(),
             host_text: host?.trim() || interaction.user.toString(),
-            host_display_name: host?.trim() ? null : this.userDisplayName(interaction.member || interaction.user),
+            host_display_name: host?.trim() ? null : userDisplayName(interaction.member || interaction.user),
             host_user_id: host?.trim() ? null : interaction.user.id,
             created_by_id: interaction.user.id,
-            created_by_name: this.userDisplayName(interaction.member || interaction.user),
+            created_by_name: userDisplayName(interaction.member || interaction.user),
             winners_total: winners,
             ping_role_ids: pings.roleIds,
             ping_user_ids: pings.userIds,
@@ -351,7 +354,9 @@ class Giveaways {
                 deleted_at: utcNowIso()
             });
             wakeGiveawayLoop(interaction.client);
-            await interaction.editReply('Discord returned an error while creating the giveaway.').catch(() => { });
+            // The reply may already show the giveaway if only reading it back failed; remove its Enter button.
+            await interaction.editReply({ content: 'Discord returned an error while creating the giveaway.',
+                embeds: [], components: [], attachments: [], allowedMentions: { parse: [] } }).catch(() => { });
             return;
         }
 
@@ -363,7 +368,7 @@ class Giveaways {
                 await message.pin('Giveaway created with pin enabled');
             } catch (err) {
                 console.warn(`[CC LOG] Could not pin giveaway ${giveawayId}: ${err.code || err.message}`);
-                pinNotice = '\nI could not pin the message. Check the bot’s Manage Messages permission.';
+                pinNotice = '\nThe giveaway message could not be pinned. Check that the bot has the Pin Messages permission in this channel.';
             }
         }
         await interaction.followUp({ content: `Giveaway created: ${message.url}${pinNotice}`, flags: MessageFlags.Ephemeral });
@@ -454,8 +459,7 @@ class Giveaways {
         try {
             [ended, winnerIds] = await endGiveaway(interaction.client, this.config, record, {
                 actor: interaction.user,
-                drawType: 'end',
-                announceInteraction: interaction
+                drawType: 'end'
             });
         } catch (err) {
             if (!(err instanceof GiveawayFinalizationDeferred) && !this.giveawayStore.db?.isDatabaseUnavailableError?.(err)) throw err;
@@ -473,14 +477,7 @@ class Giveaways {
             return interaction.editReply('The giveaway ended and its winners were saved. The announcement is pending and will retry automatically.');
         }
 
-        const summary = drawSummary('Ended', ended, winnerIds, interaction.guild);
-        if (interaction.replied) {
-            await interaction.followUp({ content: summary, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
-        } else if (interaction.deferred) {
-            await interaction.editReply({ content: summary, allowedMentions: { parse: [] } });
-        } else {
-            await interaction.reply({ content: summary, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
-        }
+        await interaction.editReply({ content: drawSummary('Ended', ended, winnerIds, interaction.guild), allowedMentions: { parse: [] } });
     }
 
     async delete(interaction) {
@@ -499,6 +496,7 @@ class Giveaways {
             });
         });
         if (!updated) return interaction.editReply('That giveaway could not be found.');
+        resolveGiveawayDeliveryAlert(giveawayId, { deleted: true });
         wakeGiveawayLoop(interaction.client);
         await deleteGiveawayMessage(interaction.client, this.config, updated);
         await interaction.editReply(`Deleted **${giveawayDisplayLabel(updated, { guild: interaction.guild })}**.`);
@@ -527,7 +525,7 @@ class Giveaways {
             return interaction.editReply('The previous reroll announcement is still pending. Please wait for it to finish.');
         }
         if (!giveawayEndedWithinRerollWindow(record)) {
-            return interaction.editReply('The 48-hour reroll window for that giveaway has expired.');
+            return interaction.editReply(GIVEAWAY_REROLL_EXPIRED_MESSAGE);
         }
 
         let winnerCount;
@@ -542,8 +540,7 @@ class Giveaways {
             [rerolled, winnerIds] = await endGiveaway(interaction.client, this.config, record, {
                 actor: interaction.user,
                 drawType: 'reroll',
-                winnerCount,
-                announceInteraction: interaction
+                winnerCount
             });
         } catch (err) {
             if (!(err instanceof GiveawayFinalizationDeferred) && !this.giveawayStore.db?.isDatabaseUnavailableError?.(err)) throw err;
@@ -561,14 +558,7 @@ class Giveaways {
             return interaction.editReply('The reroll was saved. Winner notifications are pending and will retry automatically.');
         }
 
-        const summary = drawSummary('Rerolled', rerolled, winnerIds, interaction.guild);
-        if (interaction.replied) {
-            await interaction.followUp({ content: summary, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
-        } else if (interaction.deferred) {
-            await interaction.editReply({ content: summary, allowedMentions: { parse: [] } });
-        } else {
-            await interaction.reply({ content: summary, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
-        }
+        await interaction.editReply({ content: drawSummary('Rerolled', rerolled, winnerIds, interaction.guild), allowedMentions: { parse: [] } });
     }
 
     async participants(interaction) {
@@ -591,12 +581,7 @@ class Giveaways {
             giveaway.participant_count = entries.length;
         }
 
-        const embeds = buildGiveawayListEmbeds(giveaways, status, interaction.guild);
-        return this.sendEmbeds(interaction, embeds);
-    }
-
-    async sendEmbeds(interaction, embeds) {
-        await sendEmbedFollowUp(interaction, embeds);
+        await sendEmbedFollowUp(interaction, buildGiveawayListEmbeds(giveaways, status, interaction.guild));
     }
 
     async handleAutocomplete(interaction) {
@@ -615,10 +600,6 @@ class Giveaways {
             return interaction.respond(await giveawayAutocomplete(interaction, this.config, { status: 'all' }));
         }
         return interaction.respond([]);
-    }
-
-    userDisplayName(user) {
-        return String(user?.nickname || user?.displayName || user?.globalName || user?.username || user?.user?.username || user?.id || 'Unknown');
     }
 }
 

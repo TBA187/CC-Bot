@@ -3,6 +3,10 @@ const MINUTE_MS = 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 const CONTEST_REMINDER_BEFORE_MS = 30 * MINUTE_MS;
+// A reminder that cannot go out on time, for example after the host was paused, may still be sent,
+// and retried after a failure, for up to 30 minutes. It is never sent once its event has started.
+const REMINDER_SEND_WINDOW_MS = 30 * MINUTE_MS;
+const REMINDER_RETRY_MS = MINUTE_MS;
 
 // Base anchor for the alternating FCC/BCC contests (Saturday, 29 August 2026 at 00:00 UTC)
 const ANCHOR_SATURDAY_UTC_MS = Date.UTC(2026, 7, 29, 0, 0, 0, 0);
@@ -93,8 +97,10 @@ function mentionBatches(userIds, body) {
 
 /**
  * Sends every user who subscribed to this notification.
+ * `delivery` keeps the message batches and how many were sent, so a retry
+ * continues with the remaining batches and never pings anyone twice.
  */
-async function sendUserReminder(client, notificationConfig, content, userIds = []) {
+async function sendUserReminder(client, notificationConfig, content, userIds = [], delivery = {}) {
     const { channelId } = notificationConfig;
     const channel = await client.channels.fetch(channelId);
 
@@ -104,8 +110,11 @@ async function sendUserReminder(client, notificationConfig, content, userIds = [
         );
     }
 
+    delivery.batches ||= mentionBatches(userIds, content);
+    delivery.sent ||= 0;
     const sent = [];
-    for (const batch of mentionBatches(userIds, content)) {
+    while (delivery.sent < delivery.batches.length) {
+        const batch = delivery.batches[delivery.sent];
         sent.push(await channel.send({
             content: batch.content,
 
@@ -115,20 +124,24 @@ async function sendUserReminder(client, notificationConfig, content, userIds = [
                 users: batch.userIds
             }
         }));
+        delivery.sent += 1;
     }
 
     return sent;
 }
 
-async function sendScheduledReminder(client, notificationConfig, notificationStore, notificationKey, content) {
-    const setting = notificationStore.getSetting(notificationKey);
+async function sendScheduledReminder(client, notificationConfig, notificationStore, notificationKey, content, delivery = {}) {
+    if (!delivery.batches) {
+        const setting = notificationStore.getSetting(notificationKey);
 
-    if (!setting?.enabled) {
-        return false;
+        if (!setting?.enabled) {
+            return false;
+        }
+
+        delivery.batches = mentionBatches(notificationStore.getEnabledUserIds(notificationKey), content);
     }
 
-    const userIds = notificationStore.getEnabledUserIds(notificationKey);
-    await sendUserReminder(client, notificationConfig, content, userIds);
+    await sendUserReminder(client, notificationConfig, content, [], delivery);
     return true;
 }
 
@@ -138,41 +151,52 @@ async function sendScheduledReminder(client, notificationConfig, notificationSto
  * Each reminder recalculates its fixed UTC time after every run.
  * Bot restarts will NOT shift the schedule.
  */
-function scheduleNextNotification({
-    client,
-    notificationConfig,
-    notificationStore,
-    getNextSchedule,
-    sendReminder,
-    logNextReminder,
-    logFailure
-}) {
+function scheduleNextNotification(options) {
+    const {
+        client,
+        notificationConfig,
+        notificationStore,
+        getNextSchedule,
+        sendReminder,
+        logNextReminder,
+        logFailure,
+        logSkipped
+    } = options;
     if (!started) return;
     const schedule = getNextSchedule();
-    const delay = Math.max(0, schedule.reminderTime - Date.now());
+    const eventStart = schedule.eventStart ?? schedule.raceStart;
+    const deadline = Math.min(schedule.reminderTime + REMINDER_SEND_WINDOW_MS, eventStart);
+    const delivery = {};
 
     if (logNextReminder) {
         console.log(logNextReminder(schedule));
     }
 
-    const timer = setTimeout(async () => {
-        reminderTimers.delete(timer);
+    const attempt = async () => {
         if (!started) return;
-        try {
-            await sendReminder(client, notificationConfig, notificationStore, schedule);
-        } catch (err) {
-            console.error(logFailure, err);
-        } finally {
-            scheduleNextNotification({
-                client,
-                notificationConfig,
-                notificationStore,
-                getNextSchedule,
-                sendReminder,
-                logNextReminder,
-                logFailure
-            });
+        if (Date.now() >= deadline) {
+            console.log(logSkipped(schedule));
+            scheduleNextNotification(options);
+            return;
         }
+        try {
+            await sendReminder(client, notificationConfig, notificationStore, schedule, delivery);
+        } catch (err) {
+            // Log the first failure only; retries continue quietly until the reminder is sent or skipped.
+            if (!delivery.failed) console.error(logFailure, err);
+            delivery.failed = true;
+            setReminderTimer(attempt, REMINDER_RETRY_MS);
+            return;
+        }
+        scheduleNextNotification(options);
+    };
+    setReminderTimer(attempt, Math.max(0, schedule.reminderTime - Date.now()));
+}
+
+function setReminderTimer(callback, delay) {
+    const timer = setTimeout(() => {
+        reminderTimers.delete(timer);
+        void callback();
     }, delay);
     reminderTimers.add(timer);
 
@@ -287,7 +311,7 @@ function getNextContestScheduleForContest(contestKey, now = Date.now()) {
     throw new Error(`Could not calculate the next ${contestKey} contest.`);
 }
 
-async function sendContestReminder(client, notificationConfig, notificationStore, schedule) {
+async function sendContestReminder(client, notificationConfig, notificationStore, schedule, delivery = {}) {
     const eventStartUnix = Math.floor(schedule.eventStart / 1000);
 
     const content =
@@ -301,7 +325,8 @@ async function sendContestReminder(client, notificationConfig, notificationStore
         notificationConfig,
         notificationStore,
         CONTEST_NOTIFICATION_KEYS[schedule.contestKey],
-        content
+        content,
+        delivery
     );
 
     if (sent) {
@@ -325,7 +350,10 @@ function startContestReminders(client, notificationConfig, notificationStore) {
             `[SATURDAY CONTEST] Next reminder: ${schedule.contestKey} at ` +
             `${new Date(schedule.reminderTime).toISOString()} | ` +
             `Event starts at ${new Date(schedule.eventStart).toISOString()}`,
-        logFailure: '[SATURDAY CONTEST] Failed to send reminder:'
+        logFailure: '[SATURDAY CONTEST] Failed to send reminder:',
+        logSkipped: schedule =>
+            `[SATURDAY CONTEST] ${schedule.contestKey} reminder skipped: it could not be sent before ` +
+            `the contest started at ${new Date(schedule.eventStart).toISOString()}.`
     });
 }
 
@@ -374,7 +402,7 @@ function getNextAltoMareSchedule(now = Date.now()) {
  * raceStart is the REAL race start time,
  * NOT the reminder time.
  */
-async function sendAltoMareReminder(client, notificationConfig, notificationStore, schedule) {
+async function sendAltoMareReminder(client, notificationConfig, notificationStore, schedule, delivery = {}) {
     // Discord timestamps use UNIX time in SECONDS.
     const raceStartUnix = Math.floor(schedule.raceStart / 1000);
 
@@ -389,7 +417,8 @@ async function sendAltoMareReminder(client, notificationConfig, notificationStor
         notificationConfig,
         notificationStore,
         'alto_mare',
-        content
+        content,
+        delivery
     );
 
     return sent;
@@ -402,7 +431,10 @@ function startAltoMareReminder(client, notificationConfig, notificationStore) {
         notificationStore,
         getNextSchedule: getNextAltoMareSchedule,
         sendReminder: sendAltoMareReminder,
-        logFailure: '[SUMMER EVENT EXCLUSIVE] Failed to send reminder:'
+        logFailure: '[SUMMER EVENT EXCLUSIVE] Failed to send reminder:',
+        logSkipped: schedule =>
+            '[SUMMER EVENT EXCLUSIVE] Alto Mare reminder skipped: it could not be sent before ' +
+            `the race started at ${new Date(schedule.raceStart).toISOString()}.`
     });
 }
 

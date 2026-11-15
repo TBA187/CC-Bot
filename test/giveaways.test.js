@@ -54,6 +54,11 @@ function lifecycleStore(initialGiveaway, { entries = [], draws = [] } = {}) {
     const savedDraws = [...draws];
     return {
         savedDraws,
+        // A JSON-only store claims locally, as GiveawayStore does without MySQL.
+        async claimEnd() {
+            return { shared: false, token: null };
+        },
+        async releaseEndClaim() {},
         async getGiveaway() {
             return { ...current };
         },
@@ -115,20 +120,21 @@ test('an unfinished end draw is resumed instead of selecting a second winner', a
     assert.deepEqual(winnerIds, ['user-2']);
 });
 
-test('a saved new-version end draw keeps its notification plan after recovery', async () => {
+test('a recovered end draw with 25 winners congratulates and pings them all in one message', async () => {
     const initial = giveaway({ message_id: null });
     const ids = Array.from({ length: 25 }, (_, index) => String(100000000000000000n + BigInt(index)));
     const saved = { giveaway_id: initial.giveaway_id, draw_id: `${initial.giveaway_id}:end`, draw_type: 'end',
-        drawn_at: initial.ends_at, winner_user_ids: ids, notification_version: 2 };
+        drawn_at: initial.ends_at, winner_user_ids: ids };
     const store = lifecycleStore(initial, { draws: [saved] });
-    let delivered;
-    const channel = { messages: { async fetch() { return null; } }, async send(payload) { delivered = payload; return { id: 'announcement' }; } };
+    const delivered = [];
+    const channel = { messages: { async fetch() { return null; } }, async send(payload) { delivered.push(payload); return { id: 'announcement' }; } };
     const client = { channels: { cache: { get: () => channel }, async fetch() { return channel; } } };
     const [ended, winners] = await endGiveaway(client, { giveawayStore: store }, initial, { drawType: 'end' });
-    assert.equal(ended.end_notification_version, 2);
+    assert.equal(ended.end_announcement_pending, false);
     assert.deepEqual(winners, ids);
-    assert.deepEqual(delivered.allowedMentions.users, ids);
-    assert.deepEqual(delivered.allowedMentions.parse, []);
+    assert.equal(delivered.length, 1);
+    assert.match(delivered[0].content, /- \*\*Congratulations\*\* <@/);
+    assert.deepEqual(delivered[0].allowedMentions, { parse: [], users: ids, roles: [], repliedUser: false });
 });
 
 test('a stale Join button cannot add an entry after the giveaway has ended', async () => {
@@ -140,7 +146,7 @@ test('a stale Join button cannot add an entry after the giveaway has ended', asy
     let savedEntries = 0;
     const store = {
         async getByMessageId() {
-            // Discord can hand us an interaction from the old, still-visible button.
+            // Discord can still deliver a click from the old, visible button.
             return [ended.giveaway_id, { ...giveaway(), message_id: 'message-1' }];
         },
         async getGiveaway() {
@@ -214,38 +220,6 @@ test('a terminal fallback update can still close an active MySQL giveaway', () =
     const remote = giveaway({ status: GIVEAWAY_ACTIVE });
 
     assert.deepEqual(mergeGiveawaySyncState(local, remote), local);
-});
-
-test('a manual end sends the winner announcement independently of an expired slash response', async () => {
-    const initial = giveaway({ message_id: null });
-    const store = lifecycleStore(initial, {
-        entries: [{ giveaway_id: initial.giveaway_id, user_id: 'user-1', joined_at: initial.starts_at, left_at: null }]
-    });
-    let sentToChannel = 0;
-    const client = {
-        channels: {
-            cache: {
-                get: () => ({
-                    send: async () => { sentToChannel += 1; return { id: 'announcement' }; }
-                })
-            },
-            fetch: async () => null
-        }
-    };
-    const interaction = {
-        deferred: true,
-        replied: false,
-        editReply: async () => {
-            throw new Error('interaction expired');
-        }
-    };
-
-    await endGiveaway(client, { giveawayStore: store }, initial, {
-        drawType: 'end',
-        announceInteraction: interaction
-    });
-
-    assert.equal(sentToChannel, 1);
 });
 
 class MirrorDb {
@@ -329,15 +303,15 @@ test('the recovery mirror keeps active and recent giveaway entries and draws ava
     }
 });
 
-test('rerolls reject giveaways that ended more than 48 hours ago', () => {
-    assert.equal(giveawayEndedWithinRerollWindow(giveaway({
-        status: GIVEAWAY_ENDED,
-        ended_at: '2026-08-15T00:00:00.000Z'
-    }), new Date('2026-08-18T01:00:00.000Z')), false);
-    assert.equal(giveawayEndedWithinRerollWindow(giveaway({
-        status: GIVEAWAY_ENDED,
-        ended_at: '2026-08-17T01:00:00.000Z'
-    }), new Date('2026-08-18T01:00:00.000Z')), true);
+test('rerolls are allowed for exactly 7 days after a giveaway ended', () => {
+    const now = new Date('2026-08-18T01:00:00.000Z');
+    for (const [endedAt, allowed] of [
+        ['2026-08-15T00:00:00.000Z', true],
+        ['2026-08-11T01:00:00.000Z', true],
+        ['2026-08-11T00:59:59.999Z', false]
+    ]) {
+        assert.equal(giveawayEndedWithinRerollWindow(giveaway({ status: GIVEAWAY_ENDED, ended_at: endedAt }), now), allowed, endedAt);
+    }
 });
 
 test('reroll access remains compatible with legacy timestamps and hides pending initial announcements', () => {
@@ -419,7 +393,8 @@ test('create pins only when Yes is selected and reports a pin permission failure
         assert.equal(record.pin_giveaway, choice === 'yes');
         assert.equal(pinCalls, choice === 'yes' ? 1 : 0);
         assert.equal(followUps.length, 1);
-        assert.equal(followUps[0].content.includes('could not pin'), choice === 'yes');
+        assert.equal(/could not be pinned\. Check that the bot has the Pin Messages permission/.test(followUps[0].content), choice === 'yes');
+        assert.doesNotMatch(followUps[0].content, /Manage Messages|\bI\b/);
     }
 });
 
@@ -555,6 +530,74 @@ test('giveaway scheduler wakes at the next end and on explicit changes', async (
     } finally {
         client.giveawayLoop?.stop();
     }
+});
+
+test('the scheduler logs a deferred finalization once and clears it after another host delivers', async t => {
+    const warnings = [], logs = [];
+    t.mock.method(console, 'warn', message => warnings.push(message));
+    t.mock.method(console, 'log', message => logs.push(message));
+    let current = giveaway({ giveaway_id: 'deferred-delivery', status: GIVEAWAY_ENDED,
+        ended_at: '2026-08-18T01:00:00.000Z', end_announcement_pending: true });
+    let sweepDone;
+    const store = {
+        async syncPending() {},
+        async listDueGiveaways() { return current.end_announcement_pending ? [{ ...current }] : []; },
+        async getGiveaway() { return { ...current }; },
+        canUseMysql() { return true; },
+        // Another host holds the end claim for the whole first sweep.
+        async claimEnd() { return null; },
+        async nextDueAt() { sweepDone(); return null; }
+    };
+    const sweep = () => new Promise(resolve => { sweepDone = resolve; });
+    const client = {};
+    t.after(() => client.giveawayLoop?.stop());
+    let finished = sweep();
+    startGiveawayLoop(client, { giveawayStore: store });
+    await finished;
+    finished = sweep();
+    wakeGiveawayLoop(client);
+    await finished;
+    assert.deepEqual(warnings, ['[CC LOG] Giveaway deferred-delivery winner announcement is pending '
+        + '(Another host is finishing this giveaway). Delivery will retry automatically.']);
+    current = { ...current, end_announcement_pending: false, end_announced_at: '2026-08-18T01:01:00.000Z' };
+    finished = sweep();
+    wakeGiveawayLoop(client);
+    await finished;
+    assert.deepEqual(logs, ['[CC LOG] Giveaway deferred-delivery winner announcement delivered.']);
+    assert.equal(warnings.length, 1);
+});
+
+test('a giveaway whose posted reply cannot be read back is deleted and loses its Enter button', async t => {
+    t.mock.method(console, 'error', () => {});
+    let record;
+    const edits = [];
+    const store = {
+        async createGiveaway(value) { record = { ...value }; return record; },
+        async updateGiveaway(_id, changes) { record = { ...record, ...changes }; return record; },
+        async listEntries() { return []; }
+    };
+    const command = new Giveaways({ giveawayStore: store });
+    await command.create({
+        client: {}, channelId: 'channel-1', guildId: 'guild-1',
+        channel: { type: ChannelType.GuildText, send() {} },
+        user: { id: 'user-1', username: 'Host', toString: () => '<@user-1>' },
+        deferred: false, replied: false,
+        options: {
+            getInteger: () => 1,
+            getString: name => ({ duration: '1h', prize: 'Prize' })[name] ?? null,
+            getAttachment: () => null
+        },
+        async deferReply() { this.deferred = true; },
+        async editReply(payload) { edits.push(payload); },
+        async fetchReply() { throw Object.assign(new Error('Unknown Message'), { code: 10008 }); },
+        async followUp() { assert.fail('A failed giveaway must not report success'); }
+    });
+    assert.equal(record.status, 'deleted');
+    assert.ok(record.deleted_at);
+    assert.equal(edits.length, 2);
+    assert.equal(edits[0].components[0].toJSON().components[0].custom_id, 'cc_giveaway:join_leave');
+    assert.deepEqual({ ...edits[1] }, { content: 'Discord returned an error while creating the giveaway.',
+        embeds: [], components: [], attachments: [], allowedMentions: { parse: [] } });
 });
 
 test('safe giveaway SQL retries once, while end claims do not', async () => {

@@ -6,6 +6,7 @@ const { runtimeActivity } = require('../../utils/runtimeActivity.js');
 const { shutdownError } = require('../../utils/abortable.js');
 const { uniqueForumPosts } = require('../../utils/forumPagination.js');
 const { forumRetryDelay } = require('../../utils/forumRetry.js');
+const { FailureStreak } = require('../../utils/failureStreak.js');
 const {
     CLASSIFICATIONS,
     MAX_BACKOFF_MS,
@@ -76,6 +77,8 @@ class GuildApplicationMonitor {
         this.failureCount = 0;
         this.nextAttemptAt = 0;
         this.cleanedTemplateImageUrls = new Set();
+        // A failing cycle or post notification is retried on every scan; it alerts once until it succeeds.
+        this.failures = new FailureStreak();
     }
 
     async start() {
@@ -147,12 +150,13 @@ class GuildApplicationMonitor {
             }
             this.checkRunning();
             this.forumRestored();
+            this.failures.succeed('cycle', '[CC LOG] Guild Application monitor recovered');
             return true;
         } catch (error) {
             if (error.code === 'BOT_SHUTTING_DOWN') return false;
             if (error instanceof ForumRequestError) this.forumFailed(error);
             else if (error.guildApplicationStorage) this.store.noteLocalStorageFailure(error);
-            else console.error('[CC LOG] Guild Application monitor cycle failed:', error);
+            else this.failures.fail('cycle', '[CC LOG] Guild Application monitor cycle failed:', error);
             return false;
         } finally {
             this.running = false;
@@ -451,12 +455,14 @@ class GuildApplicationMonitor {
                     await this.store.saveRecord(partialRecord);
                 }
             });
-            return this.store.saveRecord(updated);
+            const saved = await this.store.saveRecord(updated);
+            this.failures.succeed(`notification:${record.postId}`, `[CC LOG] Guild Application notification ${record.postId} sent`);
+            return saved;
         } catch (error) {
             record.notificationStatus = 'error';
             record.lastError = error.message;
             await this.store.saveRecord(record);
-            console.error(`[CC LOG] Guild Application notification ${record.postId} failed:`, error);
+            this.failures.fail(`notification:${record.postId}`, `[CC LOG] Guild Application notification ${record.postId} failed:`, error);
             return record;
         }
     }
@@ -468,12 +474,14 @@ class GuildApplicationMonitor {
         if (!this.nonApplicationNotifier) return record;
         try {
             const { record: updated } = await this.nonApplicationNotifier.notify(record);
-            return this.store.saveRecord(updated);
+            const saved = await this.store.saveRecord(updated);
+            this.failures.succeed(`non-application:${record.postId}`, `[CC LOG] Guild Application non-application alert ${record.postId} sent`);
+            return saved;
         } catch (error) {
             record.notificationStatus = 'non_application_alert_error';
             record.lastError = error.message;
             await this.store.saveRecord(record);
-            console.error(`[CC LOG] Guild Application non-application alert ${record.postId} failed:`, error);
+            this.failures.fail(`non-application:${record.postId}`, `[CC LOG] Guild Application non-application alert ${record.postId} failed:`, error);
             return record;
         }
     }

@@ -346,3 +346,39 @@ test('staff lookup failure leaves the new post unprocessed so it can be checked 
     assert.equal(await monitor.runOnce(), true);
     assert.deepEqual(notifications, ['2']);
 });
+
+test('recurring cycle and notification failures alert once per streak and log their recovery', async t => {
+    const errors = [], logs = [];
+    t.mock.method(console, 'error', (...args) => errors.push(args));
+    t.mock.method(console, 'log', (...args) => logs.push(args));
+    const monitor = new GuildApplicationMonitor({ store: { isInitialized: async () => true } });
+    monitor.retryPendingNotifications = async () => {};
+    monitor.scanForNewPosts = async () => {};
+    monitor.staffFilter = { beginScan() { throw new Error('scan failed'); } };
+    for (let run = 0; run < 3; run++) assert.equal(await monitor.runOnce(), false);
+    assert.deepEqual(errors.map(args => args[0]), ['[CC LOG] Guild Application monitor cycle failed:']);
+    monitor.staffFilter = null;
+    assert.equal(await monitor.runOnce(), true);
+    assert.deepEqual(logs, [['[CC LOG] Guild Application monitor recovered after 3 failed attempt(s).']]);
+
+    const saved = [];
+    monitor.store = { saveRecord: async record => { saved.push(record); return record; } };
+    monitor.forum = { downloadPostImages: async () => [] };
+    monitor.structuredFieldCount = () => 3;
+    const missing = Object.assign(new Error('Missing Permissions'), { status: 403, code: 50013 });
+    const outage = Object.assign(new Error('Service Unavailable'), { status: 503 });
+    let failure = missing;
+    monitor.notifier = { notify: async record => { if (failure) throw failure; return { ...record, notificationStatus: 'sent' }; } };
+    const record = { postId: '42' };
+    for (let retry = 0; retry < 3; retry++) await monitor.notifyStoredApplication({ ...record }, { postId: '42' });
+    assert.equal(errors.length, 2, 'one alert for the notification streak');
+    assert.equal(errors[1][0], '[CC LOG] Guild Application notification 42 failed:');
+    failure = null;
+    await monitor.notifyStoredApplication({ ...record }, { postId: '42' });
+    assert.equal(logs.at(-1)[0], '[CC LOG] Guild Application notification 42 sent after 3 failed attempt(s).');
+    failure = outage;
+    await monitor.notifyStoredApplication({ postId: '43' }, { postId: '43' });
+    assert.equal(errors.length, 2, 'a temporary Discord failure stays in the console');
+    assert.deepEqual(logs.at(-1), ['[CC LOG] Guild Application notification 43 failed:', '503']);
+    assert.equal(saved.filter(item => item.notificationStatus === 'error').length, 4, 'failed notifications stay pending');
+});

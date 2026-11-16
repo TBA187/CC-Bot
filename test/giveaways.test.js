@@ -635,3 +635,137 @@ test('safe giveaway SQL retries once, while end claims do not', async () => {
     await assert.rejects(store.claimEnd('giveaway-1'), { code: 'ECONNRESET' });
     assert.equal(attempts.get('UPDATE GIVEAWAYS SET'), 3);
 });
+
+test('the scheduler reports a recurring giveaway failure once and logs its recovery', async t => {
+    const errors = [], logs = [];
+    t.mock.method(console, 'error', (...args) => errors.push(args));
+    t.mock.method(console, 'log', (...args) => logs.push(args));
+    let current = giveaway({ giveaway_id: 'broken-giveaway' });
+    let sweepDone;
+    const store = {
+        async syncPending() {},
+        async listDueGiveaways() { return [{ ...current }]; },
+        async getGiveaway() { return { ...current }; },
+        async claimEnd() { throw new TypeError('Cannot read properties of undefined'); },
+        async nextDueAt() { sweepDone(); return null; }
+    };
+    const sweep = () => new Promise(resolve => { sweepDone = resolve; });
+    const client = {};
+    t.after(() => client.giveawayLoop?.stop());
+    let finished = sweep();
+    startGiveawayLoop(client, { giveawayStore: store });
+    await finished;
+    for (let run = 0; run < 2; run++) {
+        finished = sweep();
+        wakeGiveawayLoop(client);
+        await finished;
+    }
+    assert.deepEqual(errors.map(args => args[0]), ['[CC LOG] Could not end giveaway broken-giveaway:']);
+    // The next run completes: the claim is gone and the end call reads the giveaway as already finished.
+    const ended = { ...current, status: GIVEAWAY_ENDED, ended_at: '2026-08-18T01:00:00.000Z', end_announcement_pending: false };
+    let reads = 0;
+    store.getGiveaway = async () => (++reads === 1 ? { ...current } : { ...ended });
+    store.claimEnd = async () => null;
+    store.canUseMysql = () => false;
+    finished = sweep();
+    wakeGiveawayLoop(client);
+    await finished;
+    assert.deepEqual(logs, [['[CC LOG] Giveaway broken-giveaway processing recovered after 3 failed attempt(s).']]);
+});
+
+// Runs the real scheduler against a fake store. sweep() waits for a pass that reaches nextDueAt;
+// failedSweep() waits for a pass that fails before it.
+function schedulerHarness(t, store) {
+    const errors = [], logs = [];
+    t.mock.method(console, 'error', (...args) => errors.push(args));
+    t.mock.method(console, 'log', (...args) => logs.push(args));
+    let sweepDone = () => {};
+    store.nextDueAt = async () => { sweepDone(); return null; };
+    const client = {};
+    t.after(() => client.giveawayLoop?.stop());
+    const settle = async () => { for (let turn = 0; turn < 10; turn++) await new Promise(resolve => setImmediate(resolve)); };
+    const run = () => {
+        if (client.giveawayLoop) wakeGiveawayLoop(client);
+        else startGiveawayLoop(client, { giveawayStore: store });
+    };
+    const sweep = async () => {
+        const done = new Promise(resolve => { sweepDone = resolve; });
+        run();
+        await done;
+        await settle();
+    };
+    // Each pass starts with syncPending; wait until the woken pass has started, then let it fail.
+    let passes = 0;
+    const syncPending = store.syncPending;
+    store.syncPending = async () => { passes++; return syncPending(); };
+    const failedSweep = async () => {
+        const before = passes;
+        run();
+        for (let tries = 0; passes === before && tries < 100; tries++) await new Promise(resolve => setTimeout(resolve, 1));
+        await settle();
+    };
+    return { errors, logs, sweep, failedSweep };
+}
+
+test('a MySQL outage while queued giveaway changes sync stays in the console and the next sweep logs recovery', async t => {
+    let failure = Object.assign(new Error('Connection lost: The server closed the connection.'), { code: 'PROTOCOL_CONNECTION_LOST' });
+    const store = {
+        db: { isDatabaseUnavailableError: error => error?.code === 'PROTOCOL_CONNECTION_LOST' },
+        async syncPending() { if (failure) throw failure; },
+        async listDueGiveaways() { return []; }
+    };
+    const f = schedulerHarness(t, store);
+    await f.failedSweep();
+    await f.failedSweep();
+    assert.deepEqual(f.errors, []);
+    assert.deepEqual(f.logs, [['[CC LOG] Giveaway scheduler failed:', 'PROTOCOL_CONNECTION_LOST']]);
+    failure = null;
+    await f.sweep();
+    assert.deepEqual(f.logs.at(-1), ['[CC LOG] Giveaway scheduler recovered after 2 failed attempt(s).']);
+});
+
+for (const [name, failure] of [
+    ['an unexpected', new TypeError('Cannot read properties of undefined')],
+    ['a deferred', new (require('../events/giveaways.js').GiveawayFinalizationDeferred)('Queued reroll synchronization could not be confirmed.')]
+]) {
+    test(`${name} synchronization failure alerts once per streak and logs its recovery`, async t => {
+        let failing = true;
+        const store = {
+            db: { isDatabaseUnavailableError: () => false },
+            async syncPending() { if (failing) throw failure; },
+            async listDueGiveaways() { return []; }
+        };
+        const f = schedulerHarness(t, store);
+        await f.failedSweep();
+        await f.failedSweep();
+        assert.deepEqual(f.errors, [['[CC LOG] Giveaway scheduler failed:', failure]]);
+        failing = false;
+        await f.sweep();
+        assert.deepEqual(f.logs.at(-1), ['[CC LOG] Giveaway scheduler recovered after 2 failed attempt(s).']);
+    });
+}
+
+test('a giveaway that is deleted or no longer due drops its failure streak without a false recovery', async t => {
+    const { resolveGiveawayDeliveryAlert } = require('../events/giveaways.js');
+    const current = giveaway({ giveaway_id: 'streak-giveaway' });
+    let due = true;
+    const store = {
+        async syncPending() {},
+        async listDueGiveaways() { return due ? [{ ...current }] : []; },
+        async getGiveaway() { return { ...current }; },
+        async claimEnd() { throw new TypeError('Cannot read properties of undefined'); }
+    };
+    const f = schedulerHarness(t, store);
+    await f.sweep();
+    await f.sweep();
+    assert.equal(f.errors.length, 1);
+    due = false;
+    await f.sweep();
+    due = true;
+    await f.sweep();
+    assert.equal(f.errors.length, 2, 'finishing it elsewhere ended the earlier streak');
+    resolveGiveawayDeliveryAlert('streak-giveaway', { deleted: true });
+    await f.sweep();
+    assert.equal(f.errors.length, 3, 'deleting it ended the earlier streak');
+    assert.ok(f.logs.every(args => !String(args[0]).includes('processing recovered')));
+});

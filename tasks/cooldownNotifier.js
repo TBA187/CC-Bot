@@ -4,6 +4,7 @@ const { EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const { refreshGuildMembers } = require('../commands/pvp-king/utils/pvpHelper.js');
 const { getPvpServerConfigs } = require('../commands/pvp-king/utils/pvpServers.js');
 const { messageSearchText } = require('../utils/discordMessageHistory.js');
+const { FailureStreak } = require('../utils/failureStreak.js');
 
 const COOLDOWN_CHECK_INTERVAL_MS = 60000;
 const PVP_COOLDOWN_MS = 48 * 60 * 60 * 1000;
@@ -52,6 +53,8 @@ function startServerCooldownNotifier(client, config) {
     const { pvpKingChannelID, pvpKingRoleID, guildId, pvpServerName, pvpServerEmoji, pvpServerColor } = config;
     let isRunning = false;
     let storageUnavailable = false;
+    // The check repeats every minute; an unexpected failure alerts once until a check succeeds.
+    const failures = new FailureStreak();
     let stopped = Boolean(config.shutdownSignal?.aborted);
     let interval;
     const stop = () => {
@@ -64,6 +67,7 @@ function startServerCooldownNotifier(client, config) {
     const runCooldownCheck = async () => {
         if (stopped || isRunning) return;
         isRunning = true;
+        let failed = false;
 
         try {
             const expired = await db.findExpiredNotifiableCooldowns();
@@ -147,6 +151,7 @@ function startServerCooldownNotifier(client, config) {
             }
         } catch (err) {
             if (stopped) return;
+            failed = true;
             if (err.code === 'PVP_DATABASE_UNAVAILABLE' || err.code === 'DATABASE_UNAVAILABLE') {
                 if (!storageUnavailable) {
                     storageUnavailable = true;
@@ -156,10 +161,11 @@ function startServerCooldownNotifier(client, config) {
                     );
                 }
             } else {
-                console.error('[CC LOG] Cooldown Task Error:', err);
+                failures.fail('run', '[CC LOG] Cooldown Task Error:', err);
             }
         } finally {
             isRunning = false;
+            if (!failed && !stopped) failures.succeed('run', `[CC LOG] PvP cooldown check (${pvpServerName}) recovered`);
         }
     };
 

@@ -11,6 +11,7 @@ const { runtimeActivity } = require('../../utils/runtimeActivity.js');
 const { shutdownError } = require('../../utils/abortable.js');
 const { uniqueForumPosts } = require('../../utils/forumPagination.js');
 const { forumRetryDelay } = require('../../utils/forumRetry.js');
+const { FailureStreak } = require('../../utils/failureStreak.js');
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
@@ -36,6 +37,7 @@ class TbaForumShopMonitor {
         this.clock = options.clock || (() => Date.now());
         this.timers = new Map();
         this.shopStates = new Map();
+        this.runFailures = new FailureStreak();
         this.started = false;
         this.stopped = false;
     }
@@ -130,11 +132,12 @@ class TbaForumShopMonitor {
             await this.scanShop(shop);
             this.checkRunning();
             this.forumRestored(shop, state);
+            this.runFailures.succeed(shop.key, `[CC LOG] ${shop.name} monitor recovered`);
             return true;
         } catch (error) {
             if (error.code === 'BOT_SHUTTING_DOWN') return false;
             if (error instanceof TbaForumRequestError) this.forumFailed(shop, state, error);
-            else console.error(`[CC LOG] ${shop.name} monitor failed:`, error);
+            else this.runFailures.fail(shop.key, `[CC LOG] ${shop.name} monitor failed:`, error);
             return false;
         } finally {
             state.running = false;

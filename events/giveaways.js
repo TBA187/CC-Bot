@@ -13,6 +13,7 @@ const fs = require('fs');
 const path = require('path');
 const { brandingImageURL } = require('../config.json');
 const { DiscordEditPacer } = require('../utils/discordEditPacer.js');
+const { FailureStreak } = require('../utils/failureStreak.js');
 const { readJsonObject, writeJsonIfChanged } = require('../utils/jsonFile.js');
 const { isTransientDiscordError, networkErrorCode } = require('../utils/networkErrors.js');
 
@@ -126,6 +127,8 @@ const COLOR_NAMES = {
 const PAGINATION_SESSIONS = new Map();
 // Giveaway ID -> reason last logged for an announcement that is still waiting for delivery.
 const GIVEAWAY_DELIVERY_ALERTS = new Map();
+// The scheduler retries due giveaways every minute; an unexpected failure alerts once until it succeeds.
+const GIVEAWAY_SCHEDULER_FAILURES = new FailureStreak();
 const GIVEAWAY_REFRESHES = new Map();
 const GIVEAWAY_EDIT_PACER = new DiscordEditPacer({ routeDelayMs: GIVEAWAY_EDIT_DELAY_MS,
     sameMessageDelayMs: GIVEAWAY_SAME_MESSAGE_EDIT_DELAY_MS });
@@ -2059,6 +2062,7 @@ function noteGiveawayDeliveryPending(giveawayId, reason) {
 
 function resolveGiveawayDeliveryAlert(giveawayId, { deleted = false } = {}) {
     const id = String(giveawayId);
+    if (deleted) GIVEAWAY_SCHEDULER_FAILURES.forget(id);
     if (!GIVEAWAY_DELIVERY_ALERTS.delete(id)) return;
     console.log(deleted
         ? `[CC LOG] Giveaway ${id} winner announcement cancelled because the giveaway was deleted.`
@@ -2850,19 +2854,28 @@ function startGiveawayLoop(client, config) {
                         await endGiveaway(client, config, current, { actor: null, drawType: 'reroll-recovery' });
                     } else {
                         resolveGiveawayDeliveryAlert(giveaway.giveaway_id, { deleted: !current || current.status === GIVEAWAY_DELETED });
+                        // Finished or deleted elsewhere: the failure streak ends without a recovery here.
+                        GIVEAWAY_SCHEDULER_FAILURES.forget(giveaway.giveaway_id);
                     }
+                    GIVEAWAY_SCHEDULER_FAILURES.succeed(giveaway.giveaway_id, `[CC LOG] Giveaway ${giveaway.giveaway_id} processing recovered`);
                 } catch (err) {
                     // Storage outages have their own MySQL alert; a deferred draw or delivery is still pending work.
                     if (err instanceof GiveawayFinalizationDeferred) {
                         noteGiveawayDeliveryPending(giveaway.giveaway_id, deliveryFailureReason(err));
                     } else if (!config.giveawayStore.db?.isDatabaseUnavailableError?.(err)) {
-                        console.error(`[CC LOG] Could not end giveaway ${giveaway.giveaway_id || 'unknown'}:`, err);
+                        GIVEAWAY_SCHEDULER_FAILURES.fail(giveaway.giveaway_id,
+                            `[CC LOG] Could not end giveaway ${giveaway.giveaway_id || 'unknown'}:`, err);
                     }
                 }
                 if (index + 1 < dueGiveaways.length) await wait(GIVEAWAY_END_PACING_MS);
             }
             if (stopped) return;
-            await reconcileGiveawayDeliveryAlerts(config.giveawayStore, new Set(dueGiveaways.map(item => String(item.giveaway_id))));
+            const dueIds = new Set(dueGiveaways.map(item => String(item.giveaway_id)));
+            // A giveaway that is no longer due was finished or deleted, possibly on another host.
+            for (const key of GIVEAWAY_SCHEDULER_FAILURES.keys()) {
+                if (key !== 'scheduler' && !dueIds.has(key)) GIVEAWAY_SCHEDULER_FAILURES.forget(key);
+            }
+            await reconcileGiveawayDeliveryAlerts(config.giveawayStore, dueIds);
             if (stopped) return;
             const nextDueAt = await config.giveawayStore.nextDueAt();
             if (nextDueAt) {
@@ -2872,8 +2885,11 @@ function startGiveawayLoop(client, config) {
                     GIVEAWAY_RECOVERY_SWEEP_MS
                 );
             }
+            GIVEAWAY_SCHEDULER_FAILURES.succeed('scheduler', '[CC LOG] Giveaway scheduler recovered');
         } catch (err) {
-            console.error('[CC LOG] Giveaway scheduler failed:', err);
+            // Queued local changes wait in syncPending() while MySQL is down, which the MySQL outage alert covers.
+            GIVEAWAY_SCHEDULER_FAILURES.fail('scheduler', '[CC LOG] Giveaway scheduler failed:', err,
+                { expected: Boolean(config.giveawayStore.db?.isDatabaseUnavailableError?.(err)) });
             delayMs = GIVEAWAY_MIN_RETRY_MS;
         } finally {
             running = false;

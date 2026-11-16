@@ -9,6 +9,7 @@ const {
 } = require('../constants.js');
 const { findRecentBotMessage } = require('../../../utils/discordMessageHistory.js');
 const { shutdownError } = require('../../../utils/abortable.js');
+const { FailureStreak } = require('../../../utils/failureStreak.js');
 
 class GuildApplicationVoteReminder {
     constructor(options = {}) {
@@ -23,17 +24,27 @@ class GuildApplicationVoteReminder {
         this.running = false;
         this.started = false;
         this.stopped = false;
+        // Reminder checks retry on every interval; each failing check alerts once until it succeeds.
+        this.failures = new FailureStreak();
+    }
+
+    runChecked() {
+        return this.runOnce().then(completed => {
+            if (completed) this.failures.succeed('run', '[CC LOG] Guild Application vote reminder recovered');
+            return completed;
+        }, error => {
+            this.failures.fail('run', '[CC LOG] Guild Application vote reminder failed:', error);
+            return false;
+        });
     }
 
     async start() {
         if (this.started) return;
         this.started = true;
         this.stopped = false;
-        this.interval = setInterval(() => {
-            this.runOnce().catch(error => console.error('[CC LOG] Guild Application vote reminder failed:', error));
-        }, this.intervalMs);
+        this.interval = setInterval(() => { void this.runChecked(); }, this.intervalMs);
         this.interval.unref?.();
-        await this.runOnce().catch(error => console.error('[CC LOG] Guild Application vote reminder failed:', error));
+        await this.runChecked();
     }
 
     stop() {
@@ -197,9 +208,10 @@ class GuildApplicationVoteReminder {
             for (const record of candidates) {
                 try {
                     await this.processCandidate(record, now, officerIds, courtChannel);
+                    this.failures.succeed(`record:${record.postId}`, `[CC LOG] Guild Application vote reminder ${record.postId} recovered`);
                 } catch (error) {
                     if (error.code === 'BOT_SHUTTING_DOWN') return false;
-                    console.error(`[CC LOG] Guild Application vote reminder ${record.postId} failed:`, error);
+                    this.failures.fail(`record:${record.postId}`, `[CC LOG] Guild Application vote reminder ${record.postId} failed:`, error);
                 }
             }
             return true;

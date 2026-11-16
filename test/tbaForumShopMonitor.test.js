@@ -308,3 +308,17 @@ test('each shop backs off independently after a forum failure', async () => {
     assert.equal(forumShopFetches, 2);
     assert.equal(dungeonShopFetches, 3);
 });
+
+test('a recurring shop failure alerts once per streak and logs its recovery', async t => {
+    const errors = [], logs = [];
+    t.mock.method(console, 'error', (...args) => errors.push(args));
+    t.mock.method(console, 'log', (...args) => logs.push(args));
+    const monitor = new TbaForumShopMonitor({});
+    const shop = { key: 'forum', name: 'PRO Forum Shop' };
+    monitor.scanShop = async () => { throw new TypeError('Cannot read properties of undefined'); };
+    for (let run = 0; run < 3; run++) assert.equal(await monitor.runShopOnce(shop), false);
+    assert.deepEqual(errors.map(args => args[0]), ['[CC LOG] PRO Forum Shop monitor failed:']);
+    monitor.scanShop = async () => {};
+    assert.equal(await monitor.runShopOnce(shop), true);
+    assert.deepEqual(logs, [['[CC LOG] PRO Forum Shop monitor recovered after 3 failed attempt(s).']]);
+});

@@ -136,7 +136,7 @@ function startServerCooldownNotifier(client, config) {
                         `- Your cooldown against <@${currentKing.id}> has expired.\n` +
                         '- You may now challenge the **PvP King** once again! ⚔️'
                     )
-                    .setFooter({ text: `CC PvP King System • ${pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
+                    .setFooter({ text: `PvP King System • ${pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                     .setTimestamp();
 
                 await pvpChannel.send({

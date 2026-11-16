@@ -8,6 +8,7 @@ const { GuildSettingsStore } = require('../features/guild-settings/GuildSettings
 const { CommandCooldowns } = require('./CommandCooldowns.js');
 const { BotApplication } = require('./BotApplication.js');
 const PvpKingStorage = require('../commands/pvp-king/utils/pvpKingStorage.js');
+const { PvpChallengeText } = require('../commands/pvp-king/utils/pvpChallengeText.js');
 const { createGiveawayStore } = require('../events/giveaways.js');
 const NotificationStore = require('../features/pro-notifications/NotificationStore.js');
 const { NOTIFICATION_DEFINITIONS } = require('../features/pro-notifications/notificationCatalog.js');
@@ -80,6 +81,8 @@ function createBotApplication({ appConfig, runtimeLogging, processObject = proce
         silver: new PvpKingStorage({ db, server: 'silver' })
     };
     const pvpChallengeTimeouts = { gold: challengeTimeouts, silver: new Map() };
+    // Gold and Silver share one rotation so a line is not repeated across the two channels.
+    const pvpChallengeText = new PvpChallengeText({ filePath: path.join(rootPath, 'data', 'pvp_challenge_text.json') });
     const giveawayStore = createGiveawayStore({ db });
     const xpStore = new XpStore({ db, shutdownSignal: lifecycle.signal });
     db.xpStore = xpStore;
@@ -150,6 +153,7 @@ function createBotApplication({ appConfig, runtimeLogging, processObject = proce
         pvpKingStorage,
         pvpKingStores,
         pvpChallengeTimeouts,
+        pvpChallengeText,
         pvpScoutStore,
         scoutRosterStore,
         guildMemberStore: scoutRosterStore,

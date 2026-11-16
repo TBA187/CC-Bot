@@ -21,6 +21,9 @@ data/pvp_king_data.json
 data/pvp_king_data.json.tmp
 data/pvp_king_silver_data.json
 data/pvp_king_silver_data.json.tmp
+data/pvp_challenge_text.json
+data/pvp_challenge_text.json.tmp
+data/pvp_challenge_text.json.corrupt-*
 data/giveaways.json
 data/giveaways.json.tmp
 data/giveaways.json.corrupt-*

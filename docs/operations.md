@@ -109,6 +109,7 @@ Stop the old bot instance before moving hosts. Back up MySQL and preserve the fe
 | --- | --- |
 | `dungeon_runs.json` | Dungeon recovery state. |
 | `pvp_king_data.json`, `pvp_king_silver_data.json` | Gold and Silver PvP King recovery state. |
+| `pvp_challenge_text.json` | Crown Control themed texts already shown (shared by Gold and Silver), plus each server's next text category and recent emoji. Holds no pending work; if it is lost, a new rotation starts. |
 | `giveaways.json` | Giveaway metadata, entries, draw history and pending updates. |
 | `xp_pending.json` | Pending XP/activity operations and saved special-track settings. |
 | `guild_settings.json` | Guild settings recovery mirror. |

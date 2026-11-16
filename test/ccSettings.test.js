@@ -143,15 +143,6 @@ test('reopening settings reads the persistent server preference after acknowledg
         [ButtonStyle.Secondary, ButtonStyle.Success, ButtonStyle.Secondary, ButtonStyle.Secondary]);
 });
 
-test('a previously posted settings button still saves a server and refreshes to new controls', async () => {
-    const f = fixture(), i = interaction('gold');
-    i.customId = 'ww-settings:gold:user';
-    assert.equal(await f.command.handleButton(i), true);
-    assert.equal(f.selected.get('user'), 'gold');
-    const payload = i.calls.find(call => call[0] === 'editReply')[1];
-    assert.ok(payload.components[0].toJSON().components.every(button => button.custom_id.startsWith('cc-settings:')));
-});
-
 test('Notifications opens the existing command privately below settings, without editing settings or server', async () => {
     const f = fixture(), i = interaction('notifications');
     const store = { listNotificationStates: () => [], getUserSubscriptionKeys: () => [] };

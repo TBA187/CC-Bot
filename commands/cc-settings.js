@@ -9,7 +9,6 @@ const {
 const { ScoutServerSettings, SERVERS, selectionFeedback, logServerSelectionFailure, serverSelectionFailureMessage } = require('../features/pvp-scouting/ScoutServerSettings.js');
 
 const PREFIX = 'cc-settings:';
-const LEGACY_PREFIX = 'ww-settings:';
 
 function settingsPayload(interaction, selected) {
     const name = interaction.member?.nickname || interaction.member?.nick
@@ -69,9 +68,8 @@ class CcSettings {
     }
 
     async handleButton(interaction) {
-        const prefix = [PREFIX, LEGACY_PREFIX].find(value => interaction.customId.startsWith(value));
-        if (!prefix) return false;
-        const [action, ownerId] = interaction.customId.slice(prefix.length).split(':');
+        if (!interaction.customId.startsWith(PREFIX)) return false;
+        const [action, ownerId] = interaction.customId.slice(PREFIX.length).split(':');
         if (ownerId !== interaction.user.id || !this.canUse(interaction)) {
             await interaction.reply({ content: 'No permission!', flags: MessageFlags.Ephemeral });
             return true;

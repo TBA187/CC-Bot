@@ -64,6 +64,7 @@ for (const cleanupFailure of [false, true]) test(`actual index startup stops aft
         './utils/runtimeMemoryOcr.js': { sharedOcrWorkerPool: { healthSnapshot: () => ({ workers: 0, pending: 0, creating: false }) } },
         './utils/memberAuditHistory.js': { MemberAuditHistory: FakeMemberHistory },
         './commands/pvp-king/utils/pvpKingStorage.js': FakeStore,
+        './commands/pvp-king/utils/pvpChallengeText.js': { PvpChallengeText: class {} },
         './events/giveaways.js': { createGiveawayStore: () => new FakeStore() },
         './features/pro-notifications/NotificationStore.js': FakeStore,
         './features/pro-notifications/notificationCatalog.js': { NOTIFICATION_DEFINITIONS: [] },

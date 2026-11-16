@@ -2,6 +2,7 @@
 const { wrapPvpServerCommand } = require('./utils/pvpServers.js');
 const { announceEventWinner, utcEventDate } = require('./utils/pvpEvent.js');
 const { splitMessageParts } = require('./utils/pvpMessages.js');
+const { crownHeadline } = require('./utils/pvpHistoryMessages.js');
 const { setInteractionContext, interactionErrorCode } = require('../../utils/interactionDiagnostics.js');
 const { SlashCommandBuilder, MessageFlags, ThreadChannel, EmbedBuilder, AttachmentBuilder } = require('discord.js');
 const {
@@ -156,7 +157,7 @@ class PvpCrownKing {
                                 { name: '👑 New PvP King', value: `<@${newKing.id}>`, inline: true },
                                 { name: 'Old PvP King', value: `<@${oldKing.id}>`, inline: true }
                             )
-                            .setFooter({ text: `CC PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
+                            .setFooter({ text: `PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                             .setTimestamp();
 
                         for (const content of splitMessageParts(usersToNotify, ' ')) {
@@ -181,7 +182,7 @@ class PvpCrownKing {
             const oldKingTag = oldKing ? `<@${oldKing.id}> ` : '*No previous PvP King!*';
             const attachment = new AttachmentBuilder('./images/cc_logo.webp', { name: 'cc_logo.webp' });
             const crownEmbed = new EmbedBuilder()
-                .setDescription(`### 👑\u2002 <@${newKing.id}> ${isDefense ? 'defended' : 'conquered'} the PvP Throne in ${this.pvpServerName}\u2002${isDefense ? '🛡️' : '⚔️'}`)
+                .setDescription(crownHeadline(newKing.id, isDefense, this.pvpServerEmoji))
                 .addFields(
                     { name: `🔥\u2002Current Win Streak: ${streak}`, value: '\u2002', inline: false },
                     { name: `⚔️\u2002Longest Streak: ${longest}`, value: `\u2002`, inline: false },
@@ -189,7 +190,7 @@ class PvpCrownKing {
                 )
                 .setColor(isDefense ? 0x9b59b6 : this.pvpServerColor)
                 .setThumbnail(newKing.displayAvatarURL())
-                .setFooter({ text: `CC PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
+                .setFooter({ text: `PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                 .setTimestamp();
 
             if (!isDefense) {
@@ -219,7 +220,7 @@ class PvpCrownKing {
                     )
                     .setColor(isDefense ? 0x9b59b6 : this.pvpServerColor)
                     .setThumbnail(newKing.displayAvatarURL())
-                    .setFooter({ text: `CC PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
+                    .setFooter({ text: `PvP King Logs • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                     .setTimestamp();
 
                 if (!isDefense) {
@@ -243,14 +244,14 @@ class PvpCrownKing {
                 }
 
                 const crownEmbedEntry = new EmbedBuilder()
-                    .setDescription(`### 👑\u2002<@${newKing.id}> ${isDefense ? 'defended' : 'conquered'} the PvP Throne in ${this.pvpServerName}!\u2002${isDefense ? '🛡️' : '⚔️'}`)
+                    .setDescription(crownHeadline(newKing.id, isDefense, this.pvpServerEmoji))
                     .addFields(
                         { name: `🔥\u2002Current Win Streak: ${streak}`, value: '\u2002', inline: true },
                         { name: `🏆\u2002Total Wins: ${totalWins}`, value: `\u2002`, inline: true },
                     )
                     .setColor(isDefense ? 0x9b59b6 : this.pvpServerColor)
                     .setThumbnail(newKing.displayAvatarURL())
-                    .setFooter({ text: `CC PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
+                    .setFooter({ text: `PvP King System • ${this.pvpServerName}`, iconURL: 'attachment://cc_logo.webp' })
                     // Match history to the saved event even if Discord updates took time.
                     .setTimestamp(crownResult.history?.created_at ? utcEventDate(crownResult.history.created_at) : new Date());
 

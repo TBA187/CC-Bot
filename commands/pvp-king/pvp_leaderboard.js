@@ -86,7 +86,7 @@ class PvpLeaderboard {
                     .setThumbnail(interaction.guild.iconURL())
                     .setTimestamp()
                     .setFooter({
-                        text: `CC PvP King System • ${this.pvpServerName} • Page ${page + 1} of ${totalPages}`,
+                        text: `PvP King System • ${this.pvpServerName} • Page ${page + 1} of ${totalPages}`,
                         iconURL: interaction.guild.iconURL()
                     });
 
@@ -99,7 +99,7 @@ class PvpLeaderboard {
                 const activeSort = sortTitles[currentSort] || sortTitles.total_wins;
 
                 let descriptionText = `## 🏆\u2002Crow Control — PvP Hall of Fame in ${this.pvpServerName}\u2002🏆\n` +
-                    `**In the grip of endless winter, \`${total_kings}\` PvP Kings stand frozen in time, their legacy etched in ice forever!\u2002🧊**\n` +
+                    `**\`${total_kings}\` PvP Kings have claimed the throne, and the crows never forget a single one of them!\u2002🪶**\n` +
                     `-# - **Current PvP King:\u2002👑\u2002${currentKingText}\u2002👑**\n` +
                     `-# - Challenge the current PvP King with: **\`/pvp_challenge\`**\n` +
                     `### PvP Kings sorted by\u2002${activeSort.emoji}\u2002${activeSort.title}:\n`;

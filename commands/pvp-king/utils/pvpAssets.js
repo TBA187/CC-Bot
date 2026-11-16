@@ -21,12 +21,12 @@ const pvpThumnbnail = 'attachment://serverLogo.webp';
 const pvpBannerImage = 'attachment://serverBanner.webp';
 
 const createPvpFooter = serverName => ({
-    text: `CC PvP King Dominion${serverName ? ` • ${serverName}` : ''}`,
+    text: `PvP King System${serverName ? ` • ${serverName}` : ''}`,
     iconURL: 'attachment://serverLogo.webp'
 });
 
 const createPvpLogFooter = serverName => ({
-    text: `CC PvP King Logs${serverName ? ` • ${serverName}` : ''}`,
+    text: `PvP King Logs${serverName ? ` • ${serverName}` : ''}`,
     iconURL: 'attachment://serverLogo.webp'
 });
 

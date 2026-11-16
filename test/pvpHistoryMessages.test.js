@@ -7,10 +7,18 @@ const eventTime = Date.parse('2026-10-19T12:00:00Z');
 const history = { king_id: '123456789012345678', type: 'crown', streak_after: 1,
     total_wins_after: 7, created_at: '2026-10-19 12:00:00' };
 
-function crownMessage(id, { server = 'Gold', legacy = false, type = 'crown', time = eventTime + 5000 } = {}) {
+const serverEmojis = { Gold: '<:gold:1555743525759356948>', Silver: '<:silver:1555743603567886478>' };
+
+// `labeled` and `legacy` are the headlines used by entries posted before the current one.
+function crownMessage(id, { server = 'Gold', format = 'current', type = 'crown', time = eventTime + 5000 } = {}) {
+    const action = type === 'defense' ? 'defended' : 'conquered';
+    const icon = type === 'defense' ? '🛡️' : '⚔️';
     return { id, author: { id: 'bot' }, createdTimestamp: time, embeds: [{
-        description: `### 👑\u2002<@${history.king_id}> ${type === 'defense' ? 'defended' : 'conquered'} the PvP Throne${legacy ? '' : ` in ${server}`}!\u2002${type === 'defense' ? '🛡️' : '⚔️'}`,
-        footer: { text: `CC PvP King System${legacy ? '' : ` • ${server}`}` },
+        description: format === 'current'
+            ? `### ${icon}\u2002<@${history.king_id}> ${action} the PvP Throne\u2002${serverEmojis[server]}`
+            : `### 👑\u2002<@${history.king_id}> ${action} the PvP Throne${format === 'legacy' ? '' : ` in ${server}`}!\u2002${icon}`,
+        footer: { text: format === 'current' ? `PvP King System • ${server}`
+            : `CC PvP King System${format === 'legacy' ? '' : ` • ${server}`}` },
         fields: [{ name: `🔥\u2002Current Win Streak: ${history.streak_after}` }, { name: `🏆\u2002Total Wins: ${history.total_wins_after}` }],
         timestamp: new Date(time).toISOString()
     }] };
@@ -47,16 +55,30 @@ test('recognizes defenses separately from new crowns', async () => {
     assert.equal((await find(threadWith([crownMessage('crown'), target]), { history: { ...history, type: 'defense' } })).message, target);
 });
 
-test('history posted before the rebrand remains identifiable for both servers', async () => {
+test('current headlines match only their own server emoji', async () => {
+    for (const [serverName, otherServer] of [['Gold', 'Silver'], ['Silver', 'Gold']]) {
+        for (const type of ['crown', 'defense']) {
+            const target = crownMessage('target', { server: serverName, type });
+            const other = crownMessage('other-server', { server: otherServer, type });
+            other.embeds[0].footer.text = target.embeds[0].footer.text;
+            const result = await find(threadWith([other, target]), { serverName, history: { ...history, type } });
+            assert.deepEqual(result, { status: 'found', message: target });
+        }
+    }
+});
+
+test('history posted with earlier headlines and brands remains identifiable for both servers', async () => {
     for (const serverName of ['Gold', 'Silver']) {
-        const target = crownMessage('old-brand', { server: serverName });
-        target.embeds[0].footer.text = `WW PvP King System • ${serverName}`;
-        assert.equal((await find(threadWith([target]), { serverName })).message, target);
+        for (const footer of [`CC PvP King System • ${serverName}`, `WW PvP King System • ${serverName}`]) {
+            const target = crownMessage('labeled', { server: serverName, format: 'labeled' });
+            target.embeds[0].footer.text = footer;
+            assert.equal((await find(threadWith([target]), { serverName })).message, target);
+        }
     }
 });
 
 test('legacy unlabeled history is accepted only for Gold', async () => {
-    const legacy = crownMessage('legacy', { legacy: true });
+    const legacy = crownMessage('legacy', { format: 'legacy' });
     assert.equal((await find(threadWith([legacy]))).message, legacy);
     assert.equal((await find(threadWith([legacy]), { serverName: 'Silver' })).status, 'missing');
     legacy.embeds[0].footer.text = 'CC PvP King Dominion';

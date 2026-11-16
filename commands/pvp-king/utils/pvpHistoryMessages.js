@@ -1,10 +1,20 @@
 // Finds a crown's own history entry without deleting later moderator posts.
 const { utcEventDate } = require('./pvpEvent.js');
+const { SERVERS } = require('../../../features/pvp-scouting/ScoutServerSettings.js');
 
 const PAGE_SIZE = 100;
 const MAX_PAGES = 10;
 // Older entries used the send time after role changes and announcements finished.
 const DELIVERY_WINDOW_MS = 15 * 60 * 1000;
+
+// /pvp_crown posts this headline and /pvp_reverse searches for it, so both must share it.
+function crownHeadline(kingId, isDefense, serverEmoji) {
+    return `### ${isDefense ? '🛡️' : '⚔️'} <@${kingId}> ${isDefense ? 'defended' : 'conquered'} the PvP Throne ${serverEmoji}`;
+}
+
+function normalizeText(text) {
+    return String(text || '').replace(/\s+/gu, ' ').trim();
+}
 
 function embedData(embed) {
     return typeof embed?.toJSON === 'function' ? embed.toJSON() : embed?.data || embed || {};
@@ -15,21 +25,29 @@ function matchesCrownEntry(message, history, serverName, botUserId, eventTime) {
     const sentAt = message.createdTimestamp;
     if (!Number.isFinite(sentAt) || sentAt < eventTime || sentAt > eventTime + DELIVERY_WINDOW_MS) return false;
 
-    const action = history.type === 'defense' ? 'defended' : 'conquered';
-    const icon = history.type === 'defense' ? '🛡️' : '⚔️';
-    const descriptions = [`### 👑 <@${history.king_id}> ${action} the PvP Throne in ${serverName}! ${icon}`];
-    const footers = [`CC PvP King System • ${serverName}`];
+    const isDefense = history.type === 'defense';
+    const action = isDefense ? 'defended' : 'conquered';
+    const icon = isDefense ? '🛡️' : '⚔️';
+    const descriptions = [
+        crownHeadline(history.king_id, isDefense, SERVERS[serverName.toLowerCase()].markup),
+        // Entries posted before the current headline named the server in text.
+        `### 👑 <@${history.king_id}> ${action} the PvP Throne in ${serverName}! ${icon}`
+    ];
+    // Entries posted before the current footer carry a CC or WW brand prefix.
+    const brandedFooters = [`CC PvP King System • ${serverName}`];
     if (serverName === 'Gold') {
         // Gold history predates the separate Silver commands and server labels.
         descriptions.push(`### 👑 <@${history.king_id}> ${action} the PvP Throne! ${icon}`);
-        footers.push('CC PvP King System', 'CC PvP King Dominion');
+        brandedFooters.push('CC PvP King System', 'CC PvP King Dominion');
     }
-    footers.push(...footers.map(footer => footer.replace(/^CC /u, 'WW ')));
+    const footers = [`PvP King System • ${serverName}`, ...brandedFooters,
+        ...brandedFooters.map(footer => footer.replace(/^CC /u, 'WW '))];
+    const expectedDescriptions = descriptions.map(normalizeText);
 
     return (message.embeds || []).some(rawEmbed => {
         const embed = embedData(rawEmbed);
-        const description = String(embed.description || '').replace(/\s+/gu, ' ').trim();
-        if (!descriptions.includes(description) || !footers.includes(embed.footer?.text)) return false;
+        const description = normalizeText(embed.description);
+        if (!expectedDescriptions.includes(description) || !footers.includes(embed.footer?.text)) return false;
         const stampedAt = Date.parse(embed.timestamp);
         if (!Number.isFinite(stampedAt) || stampedAt < eventTime || stampedAt > eventTime + DELIVERY_WINDOW_MS) return false;
         const fields = (embed.fields || []).map(field => String(field.name || '').replace(/\s+/gu, ' ').trim());
@@ -81,4 +99,4 @@ async function findCrownHistoryMessage(thread, { history, serverName, botUserId 
     return { status: 'incomplete', message: null };
 }
 
-module.exports = { findCrownHistoryMessage };
+module.exports = { crownHeadline, findCrownHistoryMessage };

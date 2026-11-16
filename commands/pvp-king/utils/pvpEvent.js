@@ -102,7 +102,7 @@ async function announceEventWinner(config, interaction, newKing) {
     const event = configuredEvent(config);
     if (!event || new Date() < utcEventDate(event.startDate)) return;
     const guild = interaction.guild;
-    const marker = 'CC PvP Event • ' + config.pvpServerName + ' • Event ID: ' + event.id;
+    const marker = 'PvP King Event • ' + config.pvpServerName + ' • Event ID: ' + event.id;
     const sent = announcedEvents.get(guild) || new Set();
     announcedEvents.set(guild, sent);
     const queues = announcementQueues.get(guild) || new Map();

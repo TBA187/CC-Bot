@@ -54,7 +54,7 @@ function createInteractionHandler({ lifecycle, interactionDiagnostics, commandMa
                     const stats = commandMap.get('scout-stats');
                     if (stats && await stats.handleButton(interaction)) return true;
                 }
-                if (interaction.customId?.startsWith('cc-settings:') || interaction.customId?.startsWith('ww-settings:')) {
+                if (interaction.customId?.startsWith('cc-settings:')) {
                     const settings = commandMap.get('cc-settings');
                     if (settings && await settings.handleButton(interaction)) return true;
                 }

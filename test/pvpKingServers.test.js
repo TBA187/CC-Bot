@@ -12,6 +12,7 @@ const { getPvpServerConfigs } = require('../commands/pvp-king/utils/pvpServers.j
 const { PVP_KING_EVENT } = require('../commands/pvp-king/pvp_event.js');
 const { configuredEvent, findEventWinner, loadEventResults, announceEventWinner, utcEventDate } = require('../commands/pvp-king/utils/pvpEvent.js');
 const cooldownTask = require('../tasks/cooldownNotifier.js');
+const { PvpChallengeText, BUNDLED_CATEGORIES } = require('../commands/pvp-king/utils/pvpChallengeText.js');
 
 const commandNames = fs.readdirSync(path.join(__dirname, '../commands/pvp-king'))
     .filter(file => file.endsWith('.js')).map(file => file.slice(0, -3));
@@ -90,7 +91,8 @@ function fixture(t) {
     const client = { channels: guild.channels, guilds: { cache: new Map([['guild', guild]]) }, user: { id: 'bot' } };
     const config = { ...appConfig, guildId: 'guild', logChannelID: 'log', officerRoleID: 'officer',
         pvpWarriorRoleID: 'warrior', pvpKingStores: stores, pvpKingStorage: stores.gold,
-        pvpChallengeTimeouts: timers, onCooldown: () => false, client };
+        pvpChallengeTimeouts: timers, onCooldown: () => false, client,
+        pvpChallengeText: new PvpChallengeText({ filePath: path.join(dir, 'pvp_challenge_text.json') }) };
     function interaction(server, userId = 'challenger') {
         const channelId = server === 'gold' ? config.pvpKingChannelID
             : server === 'silver' ? config.pvpKingSilverChannelID : server;
@@ -283,6 +285,28 @@ test('challenge acceptance saves before announcing and ignores simultaneous or s
         assert.equal(f.sent.get(channelId).length, 1);
         assert.deepEqual(await store.getCooldown('challenger'), stored);
     }
+});
+
+test('accepted challenges alternate categories per server while sharing one rotation', async t => {
+    const f = fixture(t); await seed(f);
+    const command = load('pvp_challenge', f.config);
+    const categoryOf = line => Object.keys(BUNDLED_CATEGORIES).find(name => BUNDLED_CATEGORIES[name].includes(line));
+    const accept = async (server, challengerId) => {
+        const i = f.interaction(server, `${server}-king`);
+        i.customId = `pvp_accept_${server}-king_${challengerId}`;
+        await command.handleButton(i);
+        const channelId = server === 'gold' ? f.config.pvpKingChannelID : f.config.pvpKingSilverChannelID;
+        const embed = f.sent.get(channelId).at(-1).embeds[0].toJSON();
+        assert.match(embed.title, /The Crows Are Watching/u);
+        const [line, spacer] = embed.description.split('\n');
+        assert.equal(spacer, '\u200B');
+        return line;
+    };
+    const gold = await accept('gold', 'challenger');
+    const silver = await accept('silver', 'challenger');
+    const goldNext = await accept('gold', 'target');
+    assert.deepEqual([gold, silver, goldNext].map(categoryOf), ['murkrow', 'murkrow', 'itachi']);
+    assert.notEqual(gold, silver, 'Gold and Silver never show the same line within a cycle');
 });
 
 test('challenge persistence failures publish no acceptance and release the response guard', async t => {
@@ -933,7 +957,7 @@ test('a restart finds the announcement beyond the newest 100 messages and ignore
     const spoofed=eventFixture(f,'silver',{ targetStreak:1 });
     await eventWins(f,'silver','silver-king',['2026-09-02 00:00:00']);
     spoofed.messages.push({id:'1800000000000000000',author:{id:'someone'},createdTimestamp:Date.now(),
-        embeds:[{footer:{text:'CC PvP Event • Silver • Event ID: winter-2026'}}]});
+        embeds:[{footer:{text:'PvP King Event • Silver • Event ID: winter-2026'}}]});
     await announceEventWinner(spoofed.config(),spoofed.interaction(),null);
     assert.equal(spoofed.messages.length,2);
 });

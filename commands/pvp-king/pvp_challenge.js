@@ -17,6 +17,8 @@ class PvpChallengeKing {
         this.ownerID = config.ownerID;
         //this.activeChallenge = null;
         this.challengeTimeouts = config.challengeTimeouts;
+        this.challengeText = config.pvpChallengeText;
+        this.pvpServer = config.pvpServer;
         this.onCooldown = config.onCooldown;
         this.pendingResponses = new Set();
 
@@ -134,7 +136,8 @@ class PvpChallengeKing {
             await interaction.editReply({
                 content: `## ⚔️  Do you want to challenge the PvP King in ${this.pvpServerName} for the throne?  ${this.pvpServerEmoji}\n- Current PvP King: **👑 <@${currentKing.id}> 👑**\n` +
                     `-# When the PvP King accepts your challenge, you will receive a **48-hour cooldown** before you can challenge **${currentKing.displayName}** again.\n` +
-                    `-# If a new PvP King is crowned, the cooldown will reset and you may challenge the new King immediately.`,
+                    `-# If a new PvP King is crowned, the cooldown will reset and you may challenge the new King immediately.\n` +
+                    'Read the **PvP King Rules** by using the `/pvp_rules` command.',
                 components: [confirmRow]
             });
 
@@ -350,12 +353,12 @@ class PvpChallengeKing {
                 cooldownSaved = true;
 
                 const acceptEmbed = new EmbedBuilder()
-                    .setTitle('<:dark_murkrow:1565243892255694908>\u2002Crow Control Awaken!\u2002<:dark_murkrow:1565243892255694908>')
-                    .setDescription(`Winter is coming… the Frozen Throne awaits no mortal. The Crow Control spare none; only the strongest shall endure the frost!\u2002🧊\n\u200B`)
+                    .setTitle('<:dark_murkrow:1565243892255694908>\u2002The Crows Are Watching\u2002<:dark_murkrow:1565243892255694908>')
+                    .setDescription(`${this.challengeText.next(this.pvpServer)}\n\u200B`)
                     .setColor(this.pvpServerColor)
                     .addFields(
-                        { name: '👑 The Night King', value: `<@${kingId}>`, inline: true },
-                        { name: '🗡️ Frostborn Challenger', value: `<@${challengerId}>`, inline: true }
+                        { name: '👑 PvP King', value: `<@${kingId}>`, inline: true },
+                        { name: '🗡️ Challenger', value: `<@${challengerId}>`, inline: true }
                         // { name: '📅 🌑 Time of Reckoning', value: `<t:${unixNow}:F>` }
                     )
                     .setThumbnail(currentKing.displayAvatarURL())
@@ -365,7 +368,7 @@ class PvpChallengeKing {
 
                 // Send the NEW message first and capture it in a variable
                 const newMessage = await interaction.channel.send({
-                    content: `## ⚔️  The PvP King in ${this.pvpServerName} (${currentKing.displayName}) accepted a challenge from <@${challengerId}>  ${this.pvpServerEmoji}\n**❄️  Winter decides their fate… all who fall will freeze in its wake!  ❄️**\n\u200B`,
+                    content: `### ⚔️  The PvP King in ${this.pvpServerName} (${currentKing.displayName}) accepted a challenge from <@${challengerId}>  ${this.pvpServerEmoji}`,
                     embeds: [acceptEmbed],
                     files: [getServerBanner(), getServerLogo()]
                 });
@@ -396,7 +399,7 @@ class PvpChallengeKing {
                             // { name: '📅 Time of Acceptance', value: `<t:${unixNow}:F>`, inline: true },
                         )
                         .setThumbnail(pvpThumnbnail)
-                        .setFooter(createPvpFooter(this.pvpServerName))
+                        .setFooter(createPvpLogFooter(this.pvpServerName))
                         .setTimestamp();
 
                     await logChannel.send({

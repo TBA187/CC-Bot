@@ -137,7 +137,7 @@ class PvpEvent {
                     .setThumbnail(interaction.guild.iconURL())
                     .setTimestamp()
                     .setFooter({
-                        text: `${event.winnerId ? 'Finished Event' : 'PvP Event'} • ${this.pvpServerName} • Page ${page + 1} of ${totalPages}`,
+                        text: `${event.winnerId ? 'Finished Event' : 'PvP King Event'} • ${this.pvpServerName} • Page ${page + 1} of ${totalPages}`,
                         iconURL: interaction.guild.iconURL()
                     });
 

@@ -165,6 +165,60 @@ test('giveaway autocomplete answers from known giveaways when the MySQL lookup i
     assert.deepEqual(choices.map(choice => choice.value), ['g1']);
 });
 
+const autocompleteRecord = (id, prize) => ({ giveaway_id: id, prize, host_text: 'Staff' });
+const nextTurn = () => new Promise(resolve => setImmediate(resolve));
+const autocompleteKeystroke = (store, status) =>
+    giveawayAutocomplete({ options: { getFocused: () => '' } }, { giveawayStore: store }, { status });
+
+test('keystrokes share one pending MySQL lookup, and the next keystroke after it settles starts a fresh one', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    let mysqlLookups = 0, release;
+    const store = {
+        listGiveaways(status, { cachedOnly = false } = {}) {
+            if (cachedOnly) return Promise.resolve([autocompleteRecord('cached', 'Cached')]);
+            mysqlLookups++;
+            return mysqlLookups === 1 ? new Promise(resolve => { release = resolve; })
+                : Promise.resolve([autocompleteRecord('fresh', 'Fresh')]);
+        }
+    };
+    for (let keystroke = 0; keystroke < 3; keystroke++) {
+        const pending = autocompleteKeystroke(store, 'active');
+        t.mock.timers.tick(1500);
+        assert.deepEqual((await pending).map(choice => choice.value), ['cached']);
+    }
+    assert.equal(mysqlLookups, 1);
+    release([autocompleteRecord('late', 'Late')]);
+    await nextTurn();
+    assert.deepEqual((await autocompleteKeystroke(store, 'active')).map(choice => choice.value), ['fresh']);
+    assert.equal(mysqlLookups, 2);
+});
+
+test('a shared lookup that rejects after its keystrokes were answered is never an unhandled rejection', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const unhandled = [];
+    const onUnhandled = reason => unhandled.push(reason);
+    process.on('unhandledRejection', onUnhandled);
+    t.after(() => process.off('unhandledRejection', onUnhandled));
+    let mysqlLookups = 0, fail;
+    const store = {
+        listGiveaways(status, { cachedOnly = false } = {}) {
+            if (cachedOnly) return Promise.resolve([]);
+            mysqlLookups++;
+            return new Promise((resolve, reject) => { fail = reject; });
+        }
+    };
+    const pending = autocompleteKeystroke(store, 'all');
+    t.mock.timers.tick(1500);
+    assert.deepEqual(await pending, []);
+    fail(new Error('MySQL lookup failed after the answer'));
+    for (let turn = 0; turn < 3; turn++) await nextTurn();
+    assert.deepEqual(unhandled, []);
+    const next = autocompleteKeystroke(store, 'all');
+    t.mock.timers.tick(1500);
+    await next;
+    assert.equal(mysqlLookups, 2, 'A settled lookup is cleared, so the next keystroke starts a new one');
+});
+
 test('giveaway autocomplete still works and stale role autocomplete requests receive an empty response', async () => {
     const command = new Giveaways({ giveawayStore: { async listGiveaways() { return []; } } });
     for (const name of ['giveaway', 'ping_roles', 'required_role']) {

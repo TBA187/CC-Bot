@@ -2690,11 +2690,29 @@ function giveawayEndedWithinRerollWindow(giveaway, now = new Date()) {
     return diff >= 0 && diff <= GIVEAWAY_REROLL_WINDOW_MS;
 }
 
+const pendingAutocompleteLookups = new WeakMap();
+
+// The MySQL pool can hold a single connection, so keystrokes share one pending lookup per status instead of
+// queueing a query each. The first keystroke after it settles starts a fresh lookup. Other listGiveaways callers
+// do not share it, because they need results that include their own recent writes.
+function sharedAutocompleteLookup(store, status) {
+    let lookups = pendingAutocompleteLookups.get(store);
+    if (!lookups) pendingAutocompleteLookups.set(store, lookups = new Map());
+    let lookup = lookups.get(status);
+    if (!lookup) {
+        lookup = Promise.resolve(store.listGiveaways(status));
+        lookups.set(status, lookup);
+        const clear = () => { if (lookups.get(status) === lookup) lookups.delete(status); };
+        lookup.then(clear, clear);
+    }
+    return lookup;
+}
+
 // Autocomplete must answer within Discord's 3-second deadline. A slow MySQL lookup falls back to the giveaways this
 // process already holds in memory and in its JSON copy; the lookup keeps running and refreshes that cache.
 async function autocompleteGiveaways(store, status) {
     try {
-        return await abortable(store.listGiveaways(status), { timeoutMs: GIVEAWAY_AUTOCOMPLETE_LOOKUP_MS,
+        return await abortable(sharedAutocompleteLookup(store, status), { timeoutMs: GIVEAWAY_AUTOCOMPLETE_LOOKUP_MS,
             timeoutCode: 'GIVEAWAY_AUTOCOMPLETE_TIMEOUT' });
     } catch (error) {
         if (error?.code !== 'GIVEAWAY_AUTOCOMPLETE_TIMEOUT') throw error;

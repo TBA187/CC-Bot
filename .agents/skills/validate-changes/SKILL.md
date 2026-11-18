@@ -40,7 +40,7 @@ Map each changed file to its tests. With Node 22+, `node --test` expands quoted 
 | `features/tba-forum-shops/` | `"test/tbaForumShop*.test.js" test/forumClientReliability.test.js test/forumMonitorLifecycle.test.js` |
 | `commands/giveaways.js`, `events/giveaways.js` | `"test/giveaway*.test.js"` |
 | `utils/xp*.js`, `events/levels/`, `commands/levels/`, `config/xpConfig.js` | `"test/xp*.test.js"` |
-| `features/message-builder/`, `commands/send_message.js`, `commands/edit_bot_msg.js` | `"test/messageBuilder*.test.js" test/editBotMsg.test.js` |
+| `features/message-builder/`, `commands/send_message.js`, `commands/edit_bot_msg.js`, `commands/draw-list.js` | `"test/messageBuilder*.test.js" test/editBotMsg.test.js test/drawList.test.js` |
 | `features/pro-notifications/`, `tasks/proNotifications.js`, `commands/notifications.js`, `commands/admin.js` | `test/proNotifications.test.js test/notificationStore.test.js test/notificationCommands.test.js` |
 | `features/guild-settings/`, `commands/cc-settings.js` | `test/guildSettingsStore.test.js test/ccSettings.test.js` |
 | `commands/dungeon_recruitment.js`, `events/dungeonRecruitmentReminder.js` | `"test/dungeon*.test.js"` |

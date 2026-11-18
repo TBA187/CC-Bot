@@ -35,6 +35,7 @@ An unreadable guild-settings, dungeon or notification recovery file is preserved
 | `goldRoleID`, `silverRoleID` | Game-server selection roles. |
 | `logChannelID`, `ignoredLogChannels` | Audit destination and channels excluded from applicable audit delivery. |
 | `blockedEditBotMsgChannels` | Channels where bot-message editing is blocked. |
+| `pvpDrawListChannelID`, `pvpDrawListMessageID` | Channel and bot message edited by `/draw-list`, which works only in that channel. The message embed needs a **Last updated** line with a Discord timestamp. |
 | `pvpScoutingGoldChannelID`, `pvpScoutingSilverChannelID` | Separate scout-report source channels. |
 | `pvpKingChannelID`, `pvpKingRoleID`, `historyThreadID` | Gold PvP King channel, crown role and history destination. |
 | `pvpKingSilverChannelID`, `pvpKingSilverRoleID`, `historySilverThreadID` | Silver PvP King channel, crown role and history destination. |

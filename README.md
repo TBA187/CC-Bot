@@ -45,6 +45,7 @@ The bot registers its application commands in the configured guild at startup. K
 | Area | Commands and usage |
 | --- | --- |
 | Messages and embeds | `/send_message` opens a private builder with attachments, fields, media, timestamps and JSON import/export. `/edit_bot_msg` edits a bot message by channel and message IDs. Leaders, Admins and Officers can use both commands and the **Edit Bot Message (Officer)** and **Edit Bot Embed (Officer)** message context menus. |
+| PvP Draw List | `/draw-list` updates the PvP Draw List text after a private preview of the changed lines and refreshes its **Last updated** time. Leaders, Admins and Officers can use it in the draw list channel. |
 | Bot latency | `/ping` shows gateway latency and the measured response latency. |
 | PvP scouting | `/scout` searches opponent histories across Gold and Silver. `/scout-review` and `/scout-settings` provide staff review and management; `/scout-stats` shows archive totals. |
 | PvP King | The `/pvp_*` commands manage challenges, crowns, cooldowns, events, history, statistics and leaderboards in each server's configured channel. |

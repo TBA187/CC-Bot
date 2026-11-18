@@ -30,7 +30,7 @@ description: Map of the Crow Control codebase and how its main flows fit togethe
 | Giveaways | `commands/giveaways.js`; `events/giveaways.js` (store factory, entries, serialized draws, delivery recovery and `startGiveawayLoop`). |
 | XP and levels | `utils/xp*.js` (`xpStore.js` durable queue with SQL receipts, `xpEngine.js` awards and role rewards, `xpDbHelper.js` reads), `events/levels/` (message, reaction, voice and command XP), `commands/levels/`, `config/xpConfig.js`, `features/levels/presentation.js`. |
 | Game-event reminders | `tasks/proNotifications.js` (fixed UTC schedules), `features/pro-notifications/` (store and catalog), `commands/notifications.js`, and the notification settings in `commands/admin.js`. |
-| Message builder | `commands/send_message.js`, `commands/edit_bot_msg.js`, `features/message-builder/` (`draft.js`, `editor.js`, `permissions.js`). |
+| Message builder | `commands/send_message.js`, `commands/edit_bot_msg.js`, `features/message-builder/` (`draft.js`, `editor.js`, `permissions.js`). `commands/draw-list.js` edits the configured PvP Draw List message, reuses the diff helpers and 15-minute preview limit from `edit_bot_msg.js`, and sends its own PvP Draw List Log. |
 | Guild settings | `features/guild-settings/GuildSettingsStore.js` (cached settings, MySQL sync and JSON mirror) and `commands/cc-settings.js`. |
 | Audit logs | Logging modules in `events/` (channels, threads, invites, integrations, roles, members, voice, boosts), `utils/memberAuditHistory.js`, `utils/memberAuditEmbeds.js`, `utils/logHelpers.js`, `utils/roleAuditSource.js`. |
 | Roles | `commands/auto_roles.js` and `events/auto_roles.js` (self-role panels), `utils/serverTagRoleManager.js` (Crow Control server-tag role). |

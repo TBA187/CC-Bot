@@ -181,6 +181,20 @@ test('expired confirmations do not edit the message', async () => {
     assert.equal(state.interaction.client.editCache.size, 0);
 });
 
+test('previews stay valid for 15 minutes and end with a live Discord countdown', async () => {
+    for (const embed of ['', '{"title":"New embed"}']) {
+        const state = fixture();
+        const before = Date.now();
+        const [confirmId] = await previewEdit(state, { content: 'Countdown draft', embed });
+        const after = Date.now();
+        const { expiresAt } = state.interaction.client.editCache.get(confirmId);
+        assert.ok(expiresAt >= before + 15 * 60_000 && expiresAt <= after + 15 * 60_000);
+        assert.ok(state.calls.at(-1)[1].content.endsWith(
+            (embed ? 'Countdown draft\n\n- 📦 *Contains Embed JSON*\n' : 'Countdown draft\n\n') +
+            '-# Message preview expires <t:' + Math.floor(expiresAt / 1000) + ':R>'));
+    }
+});
+
 test('slash edits log the source diff with Crow Control logo and survive unavailable log channels', async () => {
     const state = fixture('officer-role', { logChannelID: '789' });
     state.interaction.client.channels.fetch = async id => {

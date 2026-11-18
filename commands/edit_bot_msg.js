@@ -14,7 +14,12 @@ const { brandedEditAttachments, visibleEmbedEditOptions, logoFile, LOGO_ATTACHME
 const { hasAllowedRole, currentMember } = require('../features/message-builder/permissions.js');
 
 const ZERO_WIDTH_SPACE = '\u200B';
-const CONFIRM_TIMEOUT = 300_000;
+const CONFIRM_TIMEOUT = 15 * 60_000;
+
+// Discord renders a relative timestamp as a live countdown, such as "in 15 minutes".
+function previewExpiryLine(expiresAt) {
+    return '-# Message preview expires <t:' + Math.floor(expiresAt / 1000) + ':R>';
+}
 
 // Match Python's SequenceMatcher line grouping to preserve the source edit-log text.
 function matchingBlocks(oldLines, newLines) {
@@ -239,15 +244,15 @@ class EditBotMsg {
             new ButtonBuilder().setCustomId('cancelEdit_' + confirmId).setLabel('❌ Cancel').setStyle(ButtonStyle.Danger)
         );
         const previewLabel = isAppend ? 'APPEND to existing message:' : 'your edit below!\n## 👁️‍🗨️ New Message:\n';
+        const expiresAt = Date.now() + CONFIRM_TIMEOUT;
         const preview = {
             content: '### ⚠️  <@' + interaction.user.id + '>, please confirm ' + previewLabel + '\n\n' +
-                content + '\n\n' + (embedRaw ? '- 📦 *Contains Embed JSON*' : ''),
+                content + '\n\n' + (embedRaw ? '- 📦 *Contains Embed JSON*\n' : '') + previewExpiryLine(expiresAt),
             components: [buttons]
         };
         const cacheMap = this.editCache(interaction.client);
         cacheMap.set(confirmId, {
-            content, embedRaw, ownerId: interaction.user.id, expiresAt: Date.now() + CONFIRM_TIMEOUT,
-            preview, processing: false
+            content, embedRaw, ownerId: interaction.user.id, expiresAt, preview, processing: false
         });
         try { await interaction.reply({ ...preview, flags: MessageFlags.Ephemeral }); }
         catch (error) { cacheMap.delete(confirmId); throw error; }
@@ -381,5 +386,8 @@ class EditBotMsg {
 }
 
 module.exports = EditBotMsg;
+module.exports.CONFIRM_TIMEOUT = CONFIRM_TIMEOUT;
+module.exports.previewExpiryLine = previewExpiryLine;
+module.exports.buildDiffLines = buildDiffLines;
 module.exports.formatMessageDiff = formatMessageDiff;
 module.exports.hasAllowedRole = hasAllowedRole;

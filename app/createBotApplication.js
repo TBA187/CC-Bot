@@ -138,6 +138,8 @@ function createBotApplication({ appConfig, runtimeLogging, processObject = proce
         pvpKingSilverChannelID,
         pvpScoutingGoldChannelID,
         pvpScoutingSilverChannelID,
+        pvpDrawListChannelID: appConfig.pvpDrawListChannelID,
+        pvpDrawListMessageID: appConfig.pvpDrawListMessageID,
         goldRoleID,
         silverRoleID,
         scoutServers,

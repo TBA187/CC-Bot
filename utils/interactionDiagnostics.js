@@ -5,6 +5,9 @@ const { performance } = require('node:perf_hooks');
 
 const states = new WeakMap();
 const INITIAL_RESPONSES = ['reply', 'deferReply', 'update', 'deferUpdate', 'showModal', 'respond'];
+const SLOW_IN_BOT = 'acknowledgement was slow';
+const ARRIVED_LATE = 'arrived late; acknowledgement succeeded';
+const WAITED_ON_DISCORD = 'acknowledgement waited on Discord and succeeded';
 
 function setInteractionContext(interaction, context) {
     const state = states.get(interaction);
@@ -77,18 +80,28 @@ class InteractionDiagnostics {
                     this.active.delete(interaction.id);
                     if (!this.active.size) this.rest?.off('response', this.onResponse);
                     if (state.acknowledged && acknowledgement.endAge >= this.slowAgeMs) {
-                        const lateArrivalOnly = state.receivedAge >= this.slowAgeMs / 2
-                            && acknowledgement.localDelayMs < 100 && acknowledgement.durationMs < 1000
-                            && acknowledgement.endAge < 2500 && !acknowledgement.retries && !acknowledgement.rateLimits;
+                        const reason = this.slowReason(state, acknowledgement);
                         try {
-                            if (lateArrivalOnly) this.console.info?.(this.describe(interaction, 'arrived late; acknowledgement succeeded'));
-                            else this.console.warn(this.describe(interaction, 'acknowledgement was slow'));
+                            if (reason === SLOW_IN_BOT) this.console.warn(this.describe(interaction, reason));
+                            else this.console.info?.(this.describe(interaction, reason));
                         }
                         catch { /* Diagnostics must not turn a successful acknowledgement into a failure. */ }
                     }
                 }
             };
         }
+    }
+
+    // Only delays inside the bot are actionable. Delivery to the bot and Discord's reply to the callback happen
+    // outside it, so a successful acknowledgement slowed only by those stays in the logs. Without transport
+    // timings, the whole callback request counts as the bot's time.
+    slowReason(state, ack) {
+        const discordReplyMs = ack.transport?.headersWaitMs ?? 0;
+        const botMs = ack.endAge - state.receivedAge - discordReplyMs;
+        if (ack.localDelayMs >= 100 || botMs >= 500 || ack.eventLoopActiveMs >= 500 || ack.retries || ack.rateLimits) {
+            return SLOW_IN_BOT;
+        }
+        return state.receivedAge >= discordReplyMs ? ARRIVED_LATE : WAITED_ON_DISCORD;
     }
 
     recordTransportTiming(event) {
@@ -138,7 +151,7 @@ class InteractionDiagnostics {
             ...(context.phase ? [`phase ${context.phase}`] : [])
         ];
         let outcome = '';
-        if (!['acknowledgement was slow', 'arrived late; acknowledgement succeeded'].includes(reason)) {
+        if (![SLOW_IN_BOT, ARRIVED_LATE, WAITED_ON_DISCORD].includes(reason)) {
             if (context.crownSaved === false) outcome = ' No crown or defense was recorded by this request.'
                 + (reason === 'expired before acknowledgement' ? ' Retry the command if the battle result still needs recording.' : ' Check /pvp_history before retrying.');
             else if (context.crownSaved === true) outcome = ' The crown or defense is saved. Do not repeat /pvp_crown for this battle.';

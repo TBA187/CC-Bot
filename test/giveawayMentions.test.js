@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { Collection, ChannelType } = require('discord.js');
 const Giveaways = require('../commands/giveaways');
-const { resolveRequiredRoleIds, resolveGiveawayPings } = require('../events/giveaways');
+const { resolveRequiredRoleIds, resolveGiveawayPings, giveawayAutocomplete } = require('../events/giveaways');
 
 const guildId = '1148499020038295582';
 const roles = Array.from({ length: 97 }, (_, index) => ({
@@ -147,6 +147,22 @@ test('member mentions do not bypass Officer-only required roles', async () => {
     await f.command.create(interaction);
     assert.equal(f.record, undefined);
     assert.match(f.replies[0].content, /Officer-only/u);
+});
+
+test('giveaway autocomplete answers from known giveaways when the MySQL lookup is slow', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const lookups = [];
+    const store = {
+        listGiveaways(status, { cachedOnly = false } = {}) {
+            lookups.push([status, cachedOnly]);
+            return cachedOnly ? Promise.resolve([{ giveaway_id: 'g1', prize: 'Shiny', host_text: 'Staff' }]) : new Promise(() => {});
+        }
+    };
+    const pending = giveawayAutocomplete({ options: { getFocused: () => '' } }, { giveawayStore: store }, { status: 'active' });
+    t.mock.timers.tick(1500);
+    const choices = await pending;
+    assert.deepEqual(lookups, [['active', false], ['active', true]]);
+    assert.deepEqual(choices.map(choice => choice.value), ['g1']);
 });
 
 test('giveaway autocomplete still works and stale role autocomplete requests receive an empty response', async () => {

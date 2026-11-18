@@ -77,9 +77,8 @@ test('a late-arriving interaction acknowledged promptly stays informational with
     assert.equal(f.rest.listenerCount('response'), 0);
 });
 
-test('near-deadline acknowledgements, handler delays, API delays and retries still warn', async () => {
+test('handler delays, unexplained request time, retries and rate limits still warn', async () => {
     for (const { arrivalAge, localDelay, duration, retries = 0, status = 204 } of [
-        { arrivalAge: 2240, localDelay: 0, duration: 261 },
         { arrivalAge: 1810, localDelay: 100, duration: 261 },
         { arrivalAge: 1100, localDelay: 0, duration: 1100 },
         { arrivalAge: 1810, localDelay: 0, duration: 261, retries: 1 },
@@ -93,6 +92,48 @@ test('near-deadline acknowledgements, handler delays, API delays and retries sti
         f.tracker.track(f.interaction);
         f.advance(localDelay);
         await f.interaction.respond();
+        assert.equal(f.warnings.length, 1);
+        assert.match(f.warnings[0], /acknowledgement was slow/u);
+        assert.deepEqual(f.info, []);
+    }
+});
+
+function timedDeferReply(f, { socketWait, headersWait, after = 1 }) {
+    f.interaction.deferReply = async () => {
+        f.tracker.recordTransportTiming({ interactionId: '123', stage: 'created', elapsedMs: 0 });
+        f.tracker.recordTransportTiming({ interactionId: '123', stage: 'sent', elapsedMs: socketWait,
+            reusedConnection: true, family: 'IPv4' });
+        f.tracker.recordTransportTiming({ interactionId: '123', stage: 'headers', elapsedMs: socketWait + headersWait });
+        f.advance(socketWait + headersWait + after);
+        f.response('123', 204);
+        f.interaction.deferred = true;
+    };
+}
+
+test('acknowledgements slowed only by delivery or by Discord\'s reply stay informational', async () => {
+    for (const { arrivalAge, headersWait, after, reason } of [
+        { arrivalAge: 584, headersWait: 2244, after: 6, reason: /acknowledgement waited on Discord and succeeded/u },
+        { arrivalAge: 3077, headersWait: 208, after: 1, reason: /arrived late; acknowledgement succeeded/u }
+    ]) {
+        const f = fixture({ now: () => 10000, eventLoopUtilization: (...args) => ({ active: args.length ? 111 : 0 }) });
+        f.interaction.createdTimestamp = 10000 - arrivalAge;
+        timedDeferReply(f, { socketWait: 0, headersWait, after });
+        f.tracker.track(f.interaction);
+        await f.interaction.deferReply();
+        assert.deepEqual(f.warnings, []);
+        assert.equal(f.info.length, 1);
+        assert.match(f.info[0], reason);
+        assert.match(f.info[0], new RegExp(`${headersWait} ms awaiting HTTP headers`, 'u'));
+    }
+});
+
+test('waiting for a connection or a busy event loop during the request still warns', async () => {
+    for (const { socketWait, loopActive } of [{ socketWait: 600, loopActive: 0 }, { socketWait: 0, loopActive: 700 }]) {
+        const f = fixture({ now: () => 10000, eventLoopUtilization: (...args) => ({ active: args.length ? loopActive : 0 }) });
+        f.interaction.createdTimestamp = 10000 - 500;
+        timedDeferReply(f, { socketWait, headersWait: 1500, after: 5 });
+        f.tracker.track(f.interaction);
+        await f.interaction.deferReply();
         assert.equal(f.warnings.length, 1);
         assert.match(f.warnings[0], /acknowledgement was slow/u);
         assert.deepEqual(f.info, []);

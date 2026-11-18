@@ -1,6 +1,9 @@
 // Load XP tracks, rewards and activity totals with cached outage fallbacks.
 
 const { getXpStore } = require('./xpStore');
+const { abortable } = require('./abortable');
+
+const AUTOCOMPLETE_LOOKUP_MS = 1500;
 
 function parseJsonArray(value) {
     if (!value) return [];
@@ -227,21 +230,22 @@ function formatTrackChoiceName(row) {
  * Fetch autocomplete choices for XP track options. Choice values are numeric IDs
  * so selected slash-command values map directly to xp_user_levels.xp_type.
  */
+// Autocomplete must answer within Discord's 3-second deadline, so it uses the cached track list and refreshes a
+// stale list in the background. Only an empty cache waits for MySQL, and no longer than AUTOCOMPLETE_LOOKUP_MS.
 async function fetchXpTrackAutocompleteChoices(db, focusedValue) {
-    try {
-        const [rows] = await db.query(
-            `SELECT id, name FROM xp_channel_tracks WHERE name LIKE ? ORDER BY name LIMIT 25`,
-            [`%${focusedValue || ''}%`]
-        );
-
-        return rows.map(row => ({
-            name: formatTrackChoiceName(row),
-            value: row.id.toString()
-        }));
-    } catch (err) {
-        reportXpDatabaseError(db, err, { context: 'Autocomplete error' });
-        return [];
+    const cache = getTrackCache(db);
+    let tracks = cache.tracks;
+    if (!tracks || Date.now() >= cache.expiresAt) {
+        const refresh = fetchSpecialTracks(db);
+        if (tracks) refresh.catch(() => null);
+        else tracks = await abortable(refresh, { timeoutMs: AUTOCOMPLETE_LOOKUP_MS }).catch(() => null);
     }
+    const term = String(focusedValue || '').toLowerCase();
+    return (tracks || [])
+        .filter(track => String(track.name || '').toLowerCase().includes(term))
+        .sort((first, second) => String(first.name || '').localeCompare(String(second.name || '')))
+        .slice(0, 25)
+        .map(track => ({ name: formatTrackChoiceName(track), value: String(track.id) }));
 }
 
 /**

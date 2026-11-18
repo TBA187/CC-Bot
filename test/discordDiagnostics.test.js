@@ -58,7 +58,7 @@ test('actionable warnings before Discord login stay in memory, then post once wi
     f.logger.stop();
 });
 
-test('late-arrival timing information stays local while near-expiry acknowledgements still alert', async () => {
+test('late arrivals stay local, even near the deadline, while delays inside the bot still alert', async () => {
     const f = fixture();
     f.consoleObject.info = (...args) => f.printed.push(['info', ...args]);
     f.logger.start();
@@ -66,7 +66,7 @@ test('late-arrival timing information stays local while near-expiry acknowledgem
     const rest = new EventEmitter();
     const tracker = new InteractionDiagnostics({ rest, consoleObject: f.consoleObject, now: () => 10000,
         clock: () => elapsed, eventLoopUtilization: () => ({ active: 0 }) });
-    for (const [id, createdTimestamp] of [['123', 8190], ['456', 7750]]) {
+    for (const [id, createdTimestamp, localDelay] of [['123', 8190, 0], ['456', 6923, 0], ['789', 8190, 400]]) {
         elapsed = 0;
         const interaction = { id, commandName: 'giveaway', createdTimestamp,
             async respond() {
@@ -74,15 +74,17 @@ test('late-arrival timing information stays local while near-expiry acknowledgem
                 rest.emit('response', { path: `/interactions/${id}/private-token/callback` }, { status: 204 });
             } };
         tracker.track(interaction);
+        elapsed += localDelay;
         await interaction.respond();
-        if (id === '123') {
+        if (localDelay === 0) {
             assert.equal(f.sent.length, 0);
-            assert.equal(f.printed[0][0], 'info');
-            assert.match(f.printed[0][1], /arrived late; acknowledgement succeeded/u);
+            assert.equal(f.printed.at(-1)[0], 'info');
+            assert.match(f.printed.at(-1)[1], /arrived late; acknowledgement succeeded/u);
         }
     }
     assert.equal(f.sent.length, 1);
     assert.match(f.sent[0].message, /acknowledgement was slow/u);
+    assert.match(f.sent[0].message, /400 ms before respond/u);
     tracker.stop();
     f.logger.stop();
 });

@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const test = require('node:test');
 const { Collection } = require('discord.js');
-const { fetchTrackById } = require('../utils/xpDbHelper.js');
+const { fetchTrackById, fetchXpTrackAutocompleteChoices } = require('../utils/xpDbHelper.js');
 
 const ROLE = '1180559377636274259';
 const CHANNEL = '1469101041189523657';
@@ -119,4 +119,29 @@ test('native JSON track settings still enforce both role and channel requirement
     const noRole = { id: 'no-role', roles: { cache: new Collection() } };
     assert.ok(!(await getXPTracksForUser(noRole, CHANNEL, db)).some(track => track.dbTrackName === '7'));
     assert.equal(errors.length, 0);
+});
+
+test('XP track autocomplete answers from cached tracks while a stale list refreshes in the background', async () => {
+    let queries = 0, release;
+    const db = {
+        xpStore: {
+            getSpecialTracks: () => [{ id: 9, name: 'Silver PvP' }, { id: 3, name: 'gold pvp' }, { id: 4, name: 'Dungeons' }],
+            saveSpecialTracks() {}
+        },
+        query: () => { queries++; return new Promise(resolve => { release = resolve; }); }
+    };
+    assert.deepEqual(await fetchXpTrackAutocompleteChoices(db, 'PVP'),
+        [{ name: 'gold pvp (ID: 3)', value: '3' }, { name: 'Silver PvP (ID: 9)', value: '9' }]);
+    assert.equal(queries, 1);
+    release([[trackRow({ id: 5, name: 'PvP Arena' })]]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(await fetchXpTrackAutocompleteChoices(db, 'arena'), [{ name: 'PvP Arena (ID: 5)', value: '5' }]);
+    assert.equal(queries, 1, 'A fresh cache answers without another MySQL query');
+});
+
+test('XP track autocomplete stops waiting for a slow first MySQL lookup', async t => {
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const pending = fetchXpTrackAutocompleteChoices({ query: () => new Promise(() => {}) }, '');
+    t.mock.timers.tick(1500);
+    assert.deepEqual(await pending, []);
 });

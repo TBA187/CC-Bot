@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { brandingImageURL } = require('../config.json');
+const { abortable } = require('../utils/abortable.js');
 const { DiscordEditPacer } = require('../utils/discordEditPacer.js');
 const { FailureStreak } = require('../utils/failureStreak.js');
 const { readJsonObject, writeJsonIfChanged } = require('../utils/jsonFile.js');
@@ -58,6 +59,7 @@ const GIVEAWAY_MIN_RETRY_MS = 60 * 1000;
 const GIVEAWAY_END_LEASE_SECONDS = 300;
 const GIVEAWAY_ANNOUNCEMENT_HISTORY_LIMIT = 5000;
 const GIVEAWAY_ANNOUNCEMENT_HISTORY_TIMEOUT_MS = 20000;
+const GIVEAWAY_AUTOCOMPLETE_LOOKUP_MS = 1500;
 const END_REQUEST_FIELDS = ['end_requested_at', 'end_requested_by_id', 'end_requested_by_name'];
 const SQL_END_REQUESTED_AT = "CAST(REPLACE(REPLACE(JSON_UNQUOTE(JSON_EXTRACT(giveaways.giveaway_json, '$.end_requested_at')), 'T', ' '), 'Z', '') AS DATETIME(6))";
 const SQL_ENTRY_CUTOFF = `LEAST(giveaways.ends_at, COALESCE(${SQL_END_REQUESTED_AT}, giveaways.ends_at))`;
@@ -789,10 +791,10 @@ class GiveawayStore {
         return localEntry ? [localEntry[0], clone(localEntry[1])] : [null, null];
     }
 
-    async listGiveaways(status = GIVEAWAY_ACTIVE) {
+    async listGiveaways(status = GIVEAWAY_ACTIVE, { cachedOnly = false } = {}) {
         let giveaways = [];
         let loadedFromMysql = false;
-        if (this.storageMode !== 'json' && this.canUseMysql()) {
+        if (!cachedOnly && this.storageMode !== 'json' && this.canUseMysql()) {
             try {
                 await this.syncPending();
                 giveaways = await this.mysqlListGiveaways(status);
@@ -2688,9 +2690,21 @@ function giveawayEndedWithinRerollWindow(giveaway, now = new Date()) {
     return diff >= 0 && diff <= GIVEAWAY_REROLL_WINDOW_MS;
 }
 
+// Autocomplete must answer within Discord's 3-second deadline. A slow MySQL lookup falls back to the giveaways this
+// process already holds in memory and in its JSON copy; the lookup keeps running and refreshes that cache.
+async function autocompleteGiveaways(store, status) {
+    try {
+        return await abortable(store.listGiveaways(status), { timeoutMs: GIVEAWAY_AUTOCOMPLETE_LOOKUP_MS,
+            timeoutCode: 'GIVEAWAY_AUTOCOMPLETE_TIMEOUT' });
+    } catch (error) {
+        if (error?.code !== 'GIVEAWAY_AUTOCOMPLETE_TIMEOUT') throw error;
+        return store.listGiveaways(status, { cachedOnly: true });
+    }
+}
+
 async function giveawayAutocomplete(interaction, config, { status, recentEndedOnly = false } = {}) {
     const focused = String(interaction.options.getFocused() || '').toLowerCase();
-    const records = await config.giveawayStore.listGiveaways(status);
+    const records = await autocompleteGiveaways(config.giveawayStore, status);
     const filtered = recentEndedOnly ? records.filter(record => giveawayEndedWithinRerollWindow(record)) : records;
     const total = filtered.length;
     const choices = [];

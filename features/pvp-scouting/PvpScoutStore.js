@@ -13,6 +13,7 @@ const { buildReviewLearning } = require('./ScoutReviewLearning.js');
 const { reportContextSpecies, splitScoutText } = require('./PokemonTeamParser.js');
 
 const MISSING_TEAM_REASON = 'The scout report names an opponent but contains no Pokémon team information or screenshot.';
+const AUTOCOMPLETE_INDEX_LIMIT = 10000;
 const REOPEN_RESOLVED_CORRECTION_WINDOW = `ON DUPLICATE KEY UPDATE
     started_at_ms = IF(status = 'resolved', NULL, started_at_ms),
     due_at_ms = IF(status = 'resolved', NULL, due_at_ms),
@@ -1294,6 +1295,20 @@ class PvpScoutStore {
         return date;
     }
 
+    // /scout keystrokes refresh suggestions with at most one query per channel at a time, because the database pool
+    // can hold a single connection. The complete index already contains every opponent unless it reached its row
+    // limit, so a prefix query runs only when the latest index was truncated.
+    refreshAutocomplete(query, channelId = this.channelId) {
+        const channel = String(channelId);
+        for (const key of this.autocompleteRequests.keys()) {
+            if (key.startsWith(`${channel}:`)) return Promise.resolve();
+        }
+        const term = String(query || '').trim().toLowerCase();
+        const index = this.autocompleteCache.get(`${channel}:`);
+        const prefixNeeded = term && index?.truncated && index.expiresAt > Date.now();
+        return this.autocomplete(prefixNeeded ? term : '', channel);
+    }
+
     async autocomplete(query, channelId = this.channelId, forceRefresh = false) {
         const term = String(query || '').trim().toLowerCase();
         const cacheKey = `${String(channelId)}:${term}`;
@@ -1322,7 +1337,7 @@ class PvpScoutStore {
                   AND review_status <> 'not_scout'
                   AND NOT (COALESCE(ign_source, '') = 'member_submission' AND review_status = 'pending')
                 GROUP BY ign_normalized
-                ORDER BY last_scouted DESC, opponent_ign ASC LIMIT ${term ? 25 : 10000}
+                ORDER BY last_scouted DESC, opponent_ign ASC LIMIT ${term ? 25 : AUTOCOMPLETE_INDEX_LIMIT}
                 `, [String(channelId), term, prefix]);
             } catch (error) {
                 const fallback = this.cachedAutocomplete(term, channelId);
@@ -1344,7 +1359,8 @@ class PvpScoutStore {
             ]));
             const refreshedAt = Math.max(Date.now(), (this.autocompleteRefreshedAt || 0) + 1);
             this.autocompleteRefreshedAt = refreshedAt;
-            this.autocompleteCache.set(cacheKey, { names, reportCounts, lastScouted, refreshedAt, expiresAt: refreshedAt + 60_000 });
+            this.autocompleteCache.set(cacheKey, { names, reportCounts, lastScouted, refreshedAt, expiresAt: refreshedAt + 60_000,
+                truncated: !term && rows.length >= AUTOCOMPLETE_INDEX_LIMIT });
             if (!term && String(channelId) === this.channelId && this.autocompleteCachePath) {
                 try {
                     writeJsonIfChanged(this.autocompleteCachePath, `${this.autocompleteCachePath}.tmp`, {

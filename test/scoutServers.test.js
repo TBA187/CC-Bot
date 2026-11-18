@@ -42,7 +42,8 @@ function fixture(preference = 'gold') {
                 assert.equal(channelId, CHANNELS[server]);
                 return ign === `${SERVERS[server].label}Opponent` ? index + 2 : undefined;
             },
-            async autocomplete() { return [`${SERVERS[server].label}Opponent`]; }
+            async autocomplete() { return [`${SERVERS[server].label}Opponent`]; },
+            async refreshAutocomplete() {}
         };
         const ingestor = { async handleCreate(message) { ingested.push([server, message.id]); return { review_status: 'approved' }; } };
         return { server, channelId: CHANNELS[server], store, ingestor };

@@ -78,7 +78,7 @@ Each server's ingestor has its own queue (`enqueue`) and checkpoint, and all arc
 - The shared OCR queue and helper process: never create a Tesseract worker per request or run image processing in a command handler.
 - Download limits and URL checks for attachments; refresh expiring Discord URLs with the existing helpers while keeping staff-selected images.
 - Mentions: player names and note text must not ping anyone.
-- Autocomplete deadlines and cached fallbacks in `/scout` (`test/scoutAutocompleteDeadline.test.js`).
+- Autocomplete deadlines and cached fallbacks in `/scout` (`test/scoutAutocompleteDeadline.test.js`). Keystrokes refresh through `store.refreshAutocomplete`, which starts at most one query per channel and a prefix query only when the complete index reached its row limit.
 
 ## Tests
 

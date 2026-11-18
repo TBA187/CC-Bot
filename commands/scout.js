@@ -1412,11 +1412,9 @@ class Scout {
                     void this.serverSettings.getSelectedServer(this.guildId, interaction.user.id)
                         .catch(error => console.warn(`[CC LOG] Could not refresh scout server preference: ${error.message}`));
                 }
-                void Promise.resolve().then(() => {
-                    const refresh = contexts.flatMap(context => [context.store.autocomplete('', context.channelId),
-                        ...(term ? [context.store.autocomplete(term, context.channelId)] : [])]);
-                    return Promise.all(refresh);
-                }).catch(error => console.warn(`[CC LOG] /scout autocomplete cache refresh failed: ${error.message}`));
+                void Promise.resolve().then(() => Promise.all(contexts.map(context =>
+                    context.store.refreshAutocomplete(term, context.channelId))))
+                    .catch(error => console.warn(`[CC LOG] /scout autocomplete cache refresh failed: ${error.message}`));
             });
         } catch (error) {
             if ([10062, 40060].includes(Number(error.code))) {

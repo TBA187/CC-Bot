@@ -94,6 +94,65 @@ test('typed cache misses use only matching cached names, then replace them with 
     assert.deepEqual(store.cachedAutocomplete('for', 'channel'), []);
 });
 
+const nextTurn = () => new Promise(resolve => setImmediate(resolve));
+const suggestionValues = interaction => interaction.responses[0].map(choice => choice.value).sort();
+
+test('typed prefixes start one complete-index query per channel and are then answered from that index', async () => {
+    const slow = deferred();
+    const queries = [];
+    const store = storeWithQuery(async (_sql, params) => { queries.push(params[1]); return slow.promise; });
+    store.autocompleteCache.set('channel:', { names: ['Blacku', 'Miltos7'], expiresAt: 0 });
+    const command = commandForStore({ pvpScoutStore: store, pvpScoutingGoldChannelID: 'channel' });
+    for (const term of ['b', 'bl', 'bla']) {
+        const interaction = autocompleteInteraction(term);
+        await command.handleAutocomplete(interaction);
+        assert.deepEqual(suggestionValues(interaction), ['Blacku']);
+        await nextTurn();
+    }
+    assert.deepEqual(queries, [''], 'Typing never starts a prefix query while the complete index is not truncated');
+    slow.resolve([[{ opponent_ign: 'Blackw' }, { opponent_ign: 'Blacku' }, { opponent_ign: 'Miltos7' }]]);
+    await nextTurn();
+    for (const [term, expected] of [['b', ['Blacku', 'Blackw']], ['bla', ['Blacku', 'Blackw']], ['m', ['Miltos7']]]) {
+        const interaction = autocompleteInteraction(term);
+        await command.handleAutocomplete(interaction);
+        assert.deepEqual(suggestionValues(interaction), expected);
+        await nextTurn();
+    }
+    assert.deepEqual(queries, [''], 'A fresh complete index answers every prefix without another query');
+});
+
+test('a truncated complete index still gets prefix queries, never two at once for a channel', async () => {
+    const queries = [], pending = [];
+    const store = storeWithQuery(async (_sql, params) => {
+        queries.push(`${params[0]}:${params[1]}`);
+        const result = deferred();
+        pending.push(result);
+        return result.promise;
+    });
+    store.autocompleteCache.set('channel:', { names: ['Blacku'], expiresAt: Date.now() + 60_000, truncated: true });
+    void store.refreshAutocomplete('b', 'channel');
+    void store.refreshAutocomplete('bl', 'channel');
+    void store.refreshAutocomplete('x', 'other');
+    await nextTurn();
+    assert.deepEqual(queries, ['channel:b', 'other:'], 'Another channel keeps its own single query');
+    pending[0].resolve([[{ opponent_ign: 'Blackw' }]]);
+    await nextTurn();
+    void store.refreshAutocomplete('bl', 'channel');
+    await nextTurn();
+    assert.deepEqual(queries, ['channel:b', 'other:', 'channel:bl']);
+    pending[1].resolve([[]]);
+    pending[2].resolve([[]]);
+});
+
+test('only a complete index that reached its row limit is marked truncated', async () => {
+    for (const [count, truncated] of [[9999, false], [10000, true]]) {
+        const rows = Array.from({ length: count }, (_, index) => ({ opponent_ign: `Opponent${index}` }));
+        const store = storeWithQuery(async () => [rows]);
+        await store.autocomplete('', 'channel', true);
+        assert.equal(store.autocompleteCache.get('channel:').truncated, truncated);
+    }
+});
+
 test('blank autocomplete keeps the newest 25 cache order while one background refresh runs', async () => {
     const slow = deferred();
     let queries = 0;

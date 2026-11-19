@@ -520,10 +520,6 @@ function reconcileEditAttachments(message, { originalMediaAttachmentIds, draft, 
         files: [...newFiles]
     };
 }
-function closeFiles(files) {
-    // Buffer-backed AttachmentBuilders hold no open descriptors.
-    for (const file of files) { try { file.close?.(); } catch { /* best effort */ } }
-}
 function brandedEditAttachments(message, embed) {
     const payload = embedPayload(embed), footer = payload.footer || {};
     const all = asArray(message.attachments), logos = all.filter(attachment => attachmentName(attachment).toLowerCase() === LOGO_FILENAME);
@@ -818,6 +814,6 @@ module.exports = {
     logoAttachment, logoFile, isImageAttachment, applyCrowControlBrandingDefaults, draftFromMessage, validateEmbedDraft,
     mediaAttachmentIds, referencedAttachmentIds, relatedAttachmentIdsFromMessage, attachmentIdsReferencedByEmbeds,
     attachmentToFile, readAttachmentBytes, buildNewAttachmentFiles, buildMediaFiles, buildMessageAttachmentFiles,
-    reconcileEditAttachments, closeFiles, brandedEditAttachments, exportMessageJson, importMessageJson,
+    reconcileEditAttachments, brandedEditAttachments, exportMessageJson, importMessageJson,
     populatedEmbedProperties, formatEmbedChanges
 };

@@ -112,7 +112,7 @@ class TimestampedConsole {
         for (let fragment of fragments) {
             // A direct writer can split the bot tag across calls. Buffer only
             // its possible nine-character prefix, keeping normal writes immediate.
-            if (atLineStart && !final && ['[CC LOG] ', '[WW LOG] '].some(prefix => prefix.startsWith(fragment))) {
+            if (atLineStart && !final && '[CC LOG] '.startsWith(fragment)) {
                 this.pendingPrefix = fragment;
                 break;
             }

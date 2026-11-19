@@ -34,7 +34,6 @@ test('role button writes verified panel provenance on both assign and remove req
     const interaction = { customId: panel.customIdForRole(choice.key), channelId: '1184121209609269409', user: member.user, member, guild,
         async deferReply() { this.deferred = true; }, editReply: async () => {} };
     await handleAutoRoleButton(interaction);
-    interaction.customId = interaction.customId.replace('cc:auto_roles:', 'ww:auto_roles:');
     await handleAutoRoleButton(interaction);
     assert.equal(calls.length, 2);
     for (const reason of calls) assert.equal(roleSource({ executor: bot, reason }, member, bot.id).kind, 'self_panel');
@@ -112,7 +111,7 @@ test('role dropdown records its actual channel and cannot label a panel elsewher
         add: async (_, reason) => calls.push(reason), remove: async (_, reason) => calls.push(reason) } };
     const guild = { roles: { cache: new Collection(panel.roles.map(choice => [choice.roleId, { id: choice.roleId, comparePositionTo: () => -1 }])) },
         members: { me: { permissions: { has: () => true }, roles: { highest: {} } }, fetch: async () => member } };
-    await handleAutoRoleSelect({ customId: panel.selectCustomId.replace('cc:auto_roles:', 'ww:auto_roles:'), values: ['europe'], channelId: '123456789012345678', user: member.user, member, guild,
+    await handleAutoRoleSelect({ customId: panel.selectCustomId, values: ['europe'], channelId: '123456789012345678', user: member.user, member, guild,
         async deferReply() { this.deferred = true; }, editReply: async () => {} });
     assert.equal(calls.length, 1);
     assert.equal(roleSource({ executor: bot, reason: calls[0] }, member, bot.id).kind, 'other_panel');
@@ -226,7 +225,7 @@ test('custom color modal opener responds with the modal directly', async () => {
 
 test('custom color modal submission defers privately before image rendering', async t => {
     const interaction = colorRequest('modal-submission');
-    interaction.customId = 'ww:auto_roles:color_roles:modal_submit:solid';
+    interaction.customId = 'cc:auto_roles:color_roles:modal_submit:solid';
     interaction.fields = { getTextInputValue: () => '#5865F2' };
     t.mock.method(sharp.prototype, 'toBuffer', async () => {
         assert.equal(interaction.deferred, true); return Buffer.from('preview');

@@ -191,7 +191,7 @@ test('scout panels never upload the footer logo and clear only its old attachmen
     const result = scoutPayload({ embeds: [embed], files: [csv] });
     assert.deepEqual(result.files, [csv]);
     assert.equal(result.embeds[0].toJSON().footer.icon_url, undefined);
-    const old = { attachments: new Collection([['logo', { id: 'logo', name: 'ww_logo.png' }],
+    const old = { attachments: new Collection([['logo', { id: 'logo', name: 'cc_logo.webp' }],
         ['proof', { id: 'proof', name: 'battle.png' }]]), author: { displayAvatarURL: () => 'https://example.com/avatar.png' } };
     const edit = scoutPayload({ embeds: [embed] }, old);
     assert.deepEqual(edit.attachments, [{ id: 'proof' }]);

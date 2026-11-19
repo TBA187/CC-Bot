@@ -356,7 +356,6 @@ test('self-panel provenance requires the correct channel, actor, target, and Cro
     assert.equal(roleSource(entry, { id: 'other-user' }, BOT).kind, 'bot');
     assert.equal(roleSource({ executor: f.client.user, reason: 'XP level reward: reached level 10' }, f.member, BOT).kind, 'automatic');
     assert.equal(roleSource({ executor: f.client.user, reason: 'Command /level: XP track' }, f.member, BOT).kind, 'command');
-    assert.equal(roleSource({ ...entry, reason: entry.reason.replace('[CC role panel', '[WW role panel') }, f.member, BOT).kind, 'self_panel');
     assert.equal(roleSource({ ...entry, reason: 'Crow Control game-server preference' }, f.member, BOT).kind, 'settings');
     assert.equal(roleSource({ ...entry, reason: 'Crow Control game-server preference settings' }, f.member, BOT).kind, 'settings');
     assert.equal(roleSource({ ...entry, executor: { ...f.client.user, id: 'other-bot' },

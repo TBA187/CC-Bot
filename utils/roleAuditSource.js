@@ -13,7 +13,7 @@ function rolePanelReason(interaction, detail) {
 function roleSource(entry, member, botId, channelId = selfRoleChannelID) {
     if (!entry?.executor?.bot) return null;
     const reason = entry.reason || '';
-    const panel = /^\[(?:CC|WW) role panel user=(\d+) channel=(\d+)\] (.*)$/u.exec(reason);
+    const panel = /^\[CC role panel user=(\d+) channel=(\d+)\] (.*)$/u.exec(reason);
     if (entry.executor.id === botId && panel?.[1] === member.id) {
         return { kind: panel[2] === channelId ? 'self_panel' : 'other_panel', channelId: panel[2], detail: panel[3] };
     }

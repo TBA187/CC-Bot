@@ -3,7 +3,20 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { splitScoutText } = require('../features/pvp-scouting/PokemonTeamParser.js');
+const { matchSpeciesHeading, splitScoutText } = require('../features/pvp-scouting/PokemonTeamParser.js');
+
+test('Smogon nicknames name scouted Pokémon, while nicknames that are common names stay player names', () => {
+    const parsed = splitScoutText('Opp: Mence, Quaza, Cune, Toise, P2, Tauros Blaze', 'Opp');
+    assert.equal(parsed.teamText, ['- Salamence', '- Rayquaza', '- Suicune', '- Blastoise', '- Porygon2', '- Tauros-Paldea-Blaze'].join('\n'));
+    for (const word of ['Lee', 'Snow', 'Top', 'Kiss']) assert.equal(matchSpeciesHeading(word, { allowBroadAlias: true }), null, word);
+});
+
+test('names with apostrophes or accents match with or without them', () => {
+    for (const [text, species] of [["Farfetch'd", 'Farfetch’d'], ['Farfetchd', 'Farfetch’d'], ['Galarian Farfetchd', 'Farfetch’d-Galar'],
+        ['Sirfetchd', 'Sirfetch’d'], ['Flabebe', 'Flabébé'], ['Flabébé', 'Flabébé']]) {
+        assert.equal(matchSpeciesHeading(text)?.species, species, text);
+    }
+});
 
 test('an item parenthesis joined to the species remains in its team entry', () => {
     const parsed = splitScoutText('Dragonite(Choice Band) Extreme Speed');

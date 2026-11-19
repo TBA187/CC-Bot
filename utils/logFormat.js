@@ -10,7 +10,7 @@ function formatTimestamp(date = new Date()) {
 
 // Keep component labels and quoted message contents; remove only a line's bot tag.
 function stripBotLogPrefix(text) {
-    return String(text).replace(/^\[(?:CC|WW) LOG\] ?/gmu, '');
+    return String(text).replace(/^\[CC LOG\] ?/gmu, '');
 }
 
 module.exports = { formatTimestamp, stripBotLogPrefix };

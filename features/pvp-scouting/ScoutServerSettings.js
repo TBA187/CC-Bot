@@ -122,7 +122,7 @@ class ScoutServerSettings {
                 throw new Error('Gold and Silver roles must be below the bot\'s highest role.');
             }
         }
-        return { guild, member, roleIds, auditReason: /^(?:cc|ww):auto_roles:/u.test(interaction.customId || '')
+        return { guild, member, roleIds, auditReason: /^cc:auto_roles:/u.test(interaction.customId || '')
             ? rolePanelReason(interaction, 'Select game-server roles') : 'Crow Control game-server preference settings' };
     }
 

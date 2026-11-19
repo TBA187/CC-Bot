@@ -5,7 +5,7 @@ const { EmbedBuilder, LabelBuilder, TextInputBuilder, TextInputStyle } = require
 const { withButtonLoading } = require('../../utils/interactionLoading.js');
 
 const LOGO_NAME = 'cc_logo.webp';
-const isBrandLogo = attachment => [LOGO_NAME, 'ww_logo.png'].includes(attachment.name);
+const isBrandLogo = attachment => attachment.name === LOGO_NAME;
 
 function scoutTextInput(id, label, value = '', paragraph = false, required = false, maxLength = 4000, placeholder = '') {
     const input = new TextInputBuilder().setCustomId(id).setRequired(required).setMaxLength(maxLength)

@@ -464,19 +464,17 @@ test('console and file logs remove CC tags and preserve useful component prefixe
 });
 
 test('split bot prefixes are removed once while quoted tags and component labels remain intact', () => {
-    for (const prefix of ['CC', 'WW']) {
-        const output = stream();
-        const handler = fileHandler();
-        const wrapped = new TimestampedConsole(output, { fileHandler: handler, now }).install();
-        for (const chunk of ['[' + prefix, ' LOG', ']', ' ', 'Message mentions [CC LOG] here.\n', '[D', 'B LOG] Query complete.\n']) {
-            output.write(chunk);
-        }
-        assert.equal(output.text, timestamp + ' Message mentions [CC LOG] here.\n'
-            + timestamp + ' [DB LOG] Query complete.\n');
-        assert.deepEqual(handler.lines, [timestamp + ' Message mentions [CC LOG] here.',
-            timestamp + ' [DB LOG] Query complete.']);
-        wrapped.restore();
+    const output = stream();
+    const handler = fileHandler();
+    const wrapped = new TimestampedConsole(output, { fileHandler: handler, now }).install();
+    for (const chunk of ['[CC', ' LOG', ']', ' ', 'Message mentions [CC LOG] here.\n', '[D', 'B LOG] Query complete.\n']) {
+        output.write(chunk);
     }
+    assert.equal(output.text, timestamp + ' Message mentions [CC LOG] here.\n'
+        + timestamp + ' [DB LOG] Query complete.\n');
+    assert.deepEqual(handler.lines, [timestamp + ' Message mentions [CC LOG] here.',
+        timestamp + ' [DB LOG] Query complete.']);
+    wrapped.restore();
 });
 
 test('flush retains an unfinished possible tag instead of dropping output', () => {

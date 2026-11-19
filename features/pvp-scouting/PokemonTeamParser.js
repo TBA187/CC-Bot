@@ -65,15 +65,28 @@ for (const [alias, target] of Object.entries(vocabulary.aliases)) {
     }
 }
 broadSpeciesAliases.set('land', 'Landorus');
-// Common player abbreviations missing from Showdown's alias table. These stay
-// contextual: a bare word in chat is not enough to establish a team member.
+// Common player abbreviations missing from Showdown's alias table, including nicknames
+// from Smogon's Pokémon dictionaries. These stay contextual: a bare word in chat is not
+// enough to establish a team member. IGNs pass through this matcher too, so nicknames that
+// are everyday words or common names (Lee, Snow, Top) are left out.
 for (const [alias, species] of Object.entries({
     zap: 'Zapdos', zappy: 'Zapdos', tork: 'Torkoal', thund: 'Thundurus',
     thundy: 'Thundurus', loom: 'Breloom', tina: 'Giratina', hoop: 'Hoopa',
     garch: 'Garchomp', lax: 'Snorlax', slowb: 'Slowbro', slowk: 'Slowking',
     muka: 'Muk-Alola', metag: 'Metagross', glis: 'Gliscor',
     peli: 'Pelipper', clod: 'Clodsire', hatt: 'Hatterene', meta: 'Metagross',
-    gambit: 'Kingambit', dondo: 'Dondozo', latia: 'Latias', latio: 'Latios'
+    gambit: 'Kingambit', dondo: 'Dondozo', latia: 'Latias', latio: 'Latios',
+    alaka: 'Alakazam', ambi: 'Ambipom', cress: 'Cresselia', cressy: 'Cresselia', cune: 'Suicune',
+    deoa: 'Deoxys-Attack', deod: 'Deoxys-Defense', deos: 'Deoxys-Speed', dxa: 'Deoxys-Attack',
+    dxd: 'Deoxys-Defense', dxs: 'Deoxys-Speed', duggy: 'Dugtrio', eggy: 'Exeggutor', eleki: 'Regieleki',
+    empy: 'Empoleon', espy: 'Espeon', evire: 'Electivire', forry: 'Forretress', gardy: 'Gardevoir',
+    gatr: 'Feraligatr', girao: 'Giratina-Origin', herra: 'Heracross', jask: 'Ninjask', jelli: 'Jellicent',
+    m2: 'Mewtwo', mence: 'Salamence', mew2: 'Mewtwo', mosa: 'Pheromosa', obamasnow: 'Abomasnow',
+    p2: 'Porygon2', pert: 'Swampert', pz: 'Porygon-Z', quaza: 'Rayquaza', resh: 'Reshiram', reuni: 'Reuniclus',
+    taurosaqua: 'Tauros-Paldea-Aqua', taurosblaze: 'Tauros-Paldea-Blaze', tauroscombat: 'Tauros-Paldea-Combat',
+    taurosfight: 'Tauros-Paldea-Combat', taurosfire: 'Tauros-Paldea-Blaze', tauroswater: 'Tauros-Paldea-Aqua',
+    tenta: 'Tentacruel', tinao: 'Giratina-Origin', tini: 'Victini', toise: 'Blastoise', trode: 'Electrode',
+    umby: 'Umbreon', vappy: 'Vaporeon', volca: 'Volcarona', wobby: 'Wobbuffet'
 })) {
     if (knownSpecies.has(species)) broadSpeciesAliases.set(alias, species);
 }
@@ -857,7 +870,7 @@ function mergePreviewTeam(teamText, previewText) {
 }
 
 module.exports = {
-    IGN_LABEL, IGN_LABEL_SEPARATOR, isSeparatorLine,
+    IGN_LABEL, IGN_LABEL_SEPARATOR, isSeparatorLine, adjacentSwap, editDistanceWithin,
     commaRosterEntries, hasKnownTeamDetail, inlineSeparatedEntries, isPokemonDetailNote,
     matchKnownTermHeading, matchSpeciesHeading, mergePreviewTeam, nameKey, reportContextSpecies,
     recognizedTerms, resolveNoteShorthand, sameTeamSpecies, splitScoutText, teamFromPreview, teamLineSpecies

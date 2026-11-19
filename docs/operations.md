@@ -32,6 +32,7 @@ An unreadable guild-settings, dungeon or notification recovery file is preserved
 | --- | --- |
 | `guildId`, `botTimezone` | Command-registration guild and calendar timezone. The current timezone is `Etc/UTC`. |
 | `leaderRoleID`, `adminRoleID`, `officerRoleID` | Staff access to message editing, scouting review and other administration tools. |
+| `guildMemberRoleID` | Member role. Members with it, staff and Discord Administrators can use `/scout`, `/scout-stats`, `/cc-settings` and `/randompvp`. It also marks the members tracked by the scouting roster. |
 | `goldRoleID`, `silverRoleID` | Game-server selection roles. |
 | `logChannelID`, `ignoredLogChannels` | Audit destination and channels excluded from applicable audit delivery. |
 | `blockedEditBotMsgChannels` | Channels where bot-message editing is blocked. |

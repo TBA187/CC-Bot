@@ -24,7 +24,6 @@ const { rolePanelReason } = require('../utils/roleAuditSource.js');
 // AUTO ROLES - INTERNAL CONFIG TYPES
 const SUPPORTED_AUTO_ROLE_MODES = new Set(['buttons', 'dropdown', 'reactions', 'color_roles']);
 const CUSTOM_ID_PREFIX = 'cc:auto_roles';
-const COMPONENT_PREFIXES = [CUSTOM_ID_PREFIX, 'ww:auto_roles'];
 const COLOR_ROLE_PRESET_PAGE_SIZE = 25;
 const CUSTOM_COLOR_ROLE_ANCHOR_ID = botConfig.customColorRoleAnchorID;
 const COLOR_ROLE_PANEL_PAGE = 0;
@@ -490,11 +489,6 @@ const AUTO_ROLE_PANELS = [
 // ===============
 
 
-function getAllAutoRolePanels() {
-    return AUTO_ROLE_PANELS;
-}
-
-
 function getActiveAutoRolePanels() {
     return AUTO_ROLE_PANELS.filter(panel => panel.active);
 }
@@ -892,7 +886,7 @@ function buildApplyCustomId(style) {
 function getColorPanelPageFromMessage(message) {
     for (const row of message?.components ?? []) {
         for (const component of row.components ?? []) {
-            const match = component.customId?.match(/^(?:cc|ww):auto_roles:color_roles:select:(\d+)$/);
+            const match = component.customId?.match(/^cc:auto_roles:color_roles:select:(\d+)$/);
             if (match) {
                 return Number(match[1]) || COLOR_ROLE_PANEL_PAGE;
             }
@@ -1155,7 +1149,6 @@ function getMemberColorRoleName(member, user) {
 
 async function findMemberColorRole(guild, member, user) {
     const currentName = getMemberColorRoleName(member, user);
-    const legacyName = `color-${user.id}`;
     const customAnchor = await fetchRoleById(guild, CUSTOM_COLOR_ROLE_ANCHOR_ID);
     const presetRoleIds = new Set(COLOR_ROLE_PRESETS.map(preset => preset.roleId).filter(Boolean));
 
@@ -1170,17 +1163,12 @@ async function findMemberColorRole(guild, member, user) {
         role.permissions.bitfield === 0n;
 
     const assignedMatch = member.roles.cache.find(role =>
-        role.name === legacyName ||
-        (role.name === currentName && (customAnchor === null || role.position < customAnchor.position))
+        role.name === currentName && (customAnchor === null || role.position < customAnchor.position)
     );
     if (assignedMatch) return assignedMatch;
 
     const assignedCustomCandidates = member.roles.cache.filter(isCustomCandidate);
-    if (assignedCustomCandidates.size === 1) {
-        return assignedCustomCandidates.first();
-    }
-
-    return guild.roles.cache.find(role => role.name === legacyName) ?? null;
+    return assignedCustomCandidates.size === 1 ? assignedCustomCandidates.first() : null;
 }
 
 
@@ -1924,7 +1912,7 @@ async function handleServerRoleButton(interaction, server, serverSettings) {
 
 
 async function handleAutoRoleButton(interaction, serverSettings = null) {
-    if (!COMPONENT_PREFIXES.some(prefix => interaction.customId.startsWith(`${prefix}:`))) return false;
+    if (!interaction.customId.startsWith(`${CUSTOM_ID_PREFIX}:`)) return false;
 
     const [, , panelKey, componentType, ...args] = interaction.customId.split(':');
     if (panelKey === 'color_roles') {
@@ -1963,7 +1951,7 @@ async function handleAutoRoleButton(interaction, serverSettings = null) {
 
 
 async function handleAutoRoleSelect(interaction) {
-    if (!COMPONENT_PREFIXES.some(prefix => interaction.customId.startsWith(`${prefix}:`))) return false;
+    if (!interaction.customId.startsWith(`${CUSTOM_ID_PREFIX}:`)) return false;
 
     const [, , panelKey, componentType, ...args] = interaction.customId.split(':');
     if (panelKey === 'color_roles') {
@@ -2097,7 +2085,7 @@ async function handleColorRoleSelect(interaction, componentType, args) {
 
 
 async function handleAutoRoleModal(interaction) {
-    if (!COMPONENT_PREFIXES.some(prefix => interaction.customId.startsWith(`${prefix}:color_roles:modal_submit:`))) return false;
+    if (!interaction.customId.startsWith(`${CUSTOM_ID_PREFIX}:color_roles:modal_submit:`)) return false;
 
     const [, , , , modalType, ...sourceParts] = interaction.customId.split(':');
     const source = parseColorPanelSource(sourceParts);
@@ -2150,7 +2138,6 @@ module.exports = {
     buildComponentsForPanel,
     findAutoRolePanel,
     getActiveAutoRolePanels,
-    getAllAutoRolePanels,
     handleAutoRoleButton,
     handleAutoRoleModal,
     handleAutoRoleSelect,

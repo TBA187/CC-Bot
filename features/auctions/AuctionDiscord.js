@@ -552,7 +552,7 @@ class AuctionDiscordNotifier {
                 const payload = buildAuctionPayload(auction, this.config, this.client.user);
                 payload.allowedMentions = { parse: [] };
                 const attachments = [...(message.attachments?.values?.() || [])];
-                payload.attachments = attachments.filter(attachment => !['cc_logo.webp', 'ww_logo.png'].includes(attachment.name))
+                payload.attachments = attachments.filter(attachment => attachment.name !== 'cc_logo.webp')
                     .map(attachment => ({ id: attachment.id }));
                 return payload;
             },

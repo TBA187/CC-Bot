@@ -25,15 +25,6 @@ const NOTIFICATION_DEFINITIONS = [
     }
 ];
 
-const NOTIFICATIONS_BY_KEY = new Map(
-    NOTIFICATION_DEFINITIONS.map(notification => [notification.key, notification])
-);
-
-function getNotificationDefinition(key) {
-    return NOTIFICATIONS_BY_KEY.get(String(key)) || null;
-}
-
 module.exports = {
-    NOTIFICATION_DEFINITIONS,
-    getNotificationDefinition
+    NOTIFICATION_DEFINITIONS
 };

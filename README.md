@@ -48,6 +48,7 @@ The bot registers its application commands in the configured guild at startup. K
 | PvP Draw List | `/draw-list` updates the PvP Draw List text after a private preview of the changed lines and refreshes its **Last updated** time. Leaders, Admins and Officers can use it in the draw list channel. |
 | Bot latency | `/ping` shows gateway latency and the measured response latency. |
 | PvP scouting | `/scout` searches opponent histories across Gold and Silver. `/scout-review` and `/scout-settings` provide staff review and management; `/scout-stats` shows archive totals. |
+| Random PvP sets | `/randompvp` shows every Random PvP set for 1 to 6 Pokémon separated by commas or spaces, with name suggestions while typing. Names also accept common nicknames and shorthand such as `ttar`, `char` or `mega zard y`. Each Pokémon gets its own card, Mega forms are listed with their base Pokémon, and only the member who used the command sees the result. |
 | PvP King | The `/pvp_*` commands manage challenges, crowns, cooldowns, events, history, statistics and leaderboards in each server's configured channel. |
 | Guild preferences | `/cc-settings` saves a preferred game server. `/notifications` manages notification subscriptions. |
 | XP and rewards | `/rank`, `/level` and `/leaderboard` show progress, with configurable activity tracking and role rewards. |

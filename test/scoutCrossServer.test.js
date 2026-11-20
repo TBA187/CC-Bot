@@ -173,7 +173,7 @@ test('the review queue keeps reports inside an open correction window and report
     assert.deepEqual([escalated.correction_open, escalated.correction_due_at_ms], [false, null]);
     assert.equal((await store.exportPendingReviews())[0].correction_open, true);
     await store.pendingReviewCount();
-    // A waiting window is joined for display only; it no longer hides the report from officers.
+    // A waiting window is joined for display only and does not hide the report from officers.
     for (const sql of queries) assert.doesNotMatch(sql, /NOT EXISTS \(\s*SELECT 1 FROM pvp_scout_correction_windows/u);
     assert.match(queries[0], /LEFT JOIN pvp_scout_correction_windows c\s+ON c\.message_id = m\.message_id AND c\.channel_id = m\.channel_id AND c\.status = 'waiting'/u);
 });

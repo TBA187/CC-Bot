@@ -93,6 +93,7 @@ Use the Node.js versions documented in `README.md` (Node.js 22 or later, with No
 - Use neutral wording in project text and reports. Avoid first-person language such as "I", "we", "us", "my", and "our". Addressing the user as "you" or "your" is acceptable when helpful.
 - This covers bot feedback (error, failure, permission, validation and status replies), logs, code comments and documentation. Never reword content the owner wrote for members, such as welcome and onboarding messages, guides, rules, announcements and greetings, even when it uses "we" or "our".
 - Add comments only for useful context that is not obvious from the code: reasoning, constraints, non-obvious behavior, or relevant references. Do not restate self-explanatory operations or describe the requested edit, prompt, or conversation.
+- Describe the code as it is now. A comment never compares the code with earlier code, names or behavior ("as X was", "no longer", "the earlier code", "from before this rule") and never justifies it against a request or a rejected alternative ("so this button cannot be blue", "instead of adding a queue"). Put such explanations in the task response.
 
 ### Documentation
 

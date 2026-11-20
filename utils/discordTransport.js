@@ -143,7 +143,7 @@ function createDiscordTransport({
         if (stopped) return Promise.reject(Object.assign(new Error('Discord interaction transport stopped'),
             { code: 'DISCORD_TRANSPORT_STOPPED' }));
         // Reserve a slot before the async request strategy resolves its body.
-        // Overflow uses the existing strategy instead of adding a callback queue.
+        // When the pool is full, a callback goes through the normal dispatcher at once rather than waiting for a slot.
         // Preserve explicitly supplied dispatchers (for example a configured proxy).
         const stats = poolStats();
         const occupied = Math.max(pooledCallbacks + (warmupPromise ? 1 : 0), stats.running + stats.pending);

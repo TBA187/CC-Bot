@@ -293,7 +293,7 @@ function groupRows(rows, state, followUpWindowMs = FOLLOW_UP_WINDOW_MS) {
         messageRoots.set(id, rootId);
         const root = rootId === id ? null : roots.get(rootId);
         if (!manualRootId && row.reply_to_id && root && rootId === parentRootId) {
-            // The report as it was before this member's reply, in case the reply becomes its own report.
+            // The report without this member's reply, kept in case the reply becomes its own report.
             state.supplement = { rootId, authorId: String(row.author_id || ''), rows: [row],
                 species: new Set(root.species), imageAuthors: new Set(root.imageAuthors) };
         } else if (!separate && continuesSupplement && rootId === supplement.rootId) supplement.rows.push(row);

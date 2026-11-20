@@ -180,7 +180,7 @@ test('a named reply with its own screenshot and a team that cannot be the report
     assert.equal(rootOf(rogueReport(), rogueReply({ team_text: swapped, attachments: [] })), '1000', 'text alone adds to the report');
     assert.equal(rootOf(rogueReport({ team_text: teamText(['Pelipper', 'Zapdos']) }), rogueReply()), '1000',
         'a partly listed team can still be the same six Pokémon');
-    // A saved grouping from before this rule is moved out as well.
+    // A saved link that no officer reviewed is moved out as well.
     assert.equal(rootOf(rogueReport(), rogueReply({ team_text: swapped, root_message_id: '1000' })), '1001');
 });
 

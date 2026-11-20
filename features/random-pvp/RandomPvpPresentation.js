@@ -9,12 +9,12 @@ const { CROW_CONTROL_BRANDING_COLOR } = require('../message-builder/draft.js');
 
 const ACCENT_COLOR = Number.parseInt(CROW_CONTROL_BRANDING_COLOR.slice(1), 16);
 // Card stripe colors named by the "color" of each set-list Pokémon: the official type colors used by Pokémon HOME
-// and Legends: Z-A, except a gunmetal Steel that is easier to tell apart from Ice, plus Crystal for PRO's crystal
-// forms and the Crow Control color for the Shadow Lugias.
+// and Legends: Z-A, except a gunmetal Steel and a deep indigo Dragon that are easier to tell apart from Ice and
+// Water, plus Crystal for PRO's crystal forms and the Crow Control color for the Shadow Lugias.
 const CARD_COLORS = {
     Normal: 0x9FA19F, Fire: 0xE62829, Water: 0x2980EF, Electric: 0xFAC000, Grass: 0x3FA129, Ice: 0x3FD8FF,
     Fighting: 0xFF8000, Poison: 0x9141CB, Ground: 0x915121, Flying: 0x81B9EF, Psychic: 0xEF4179, Bug: 0x91A119,
-    Rock: 0xAFA981, Ghost: 0x704170, Dragon: 0x5060E1, Dark: 0x50413F, Steel: 0x6E7B8B, Fairy: 0xEF70EF,
+    Rock: 0xAFA981, Ghost: 0x704170, Dragon: 0x4A2FB8, Dark: 0x50413F, Steel: 0x6E7B8B, Fairy: 0xEF70EF,
     Crystal: 0xA7D8DE, Shadow: ACCENT_COLOR
 };
 // CitizenPete compiled the Random PvP set list in randomPvpSets.json; the footer credits him.

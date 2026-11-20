@@ -6,7 +6,7 @@ const { setTimeout: delay } = require('node:timers/promises');
 const { scoutIds } = require('./ScoutChanges.js');
 const { canonicalIgn } = require('./PvpScoutParser.js');
 const { ScoutDeletionStore } = require('./ScoutDeletionStore.js');
-const { downloadImageAttachment, imageAttachment, refreshImageAttachments } = require('./ScoutImageUrls.js');
+const { downloadImageAttachment, imageAttachment, messageFiles, refreshImageAttachments } = require('./ScoutImageUrls.js');
 const { scoutPayload, scoutTextInput, withScoutLoading } = require('./ScoutPresentation.js');
 const { SERVERS } = require('./ScoutServerSettings.js');
 
@@ -148,7 +148,7 @@ class ScoutDeletionReview {
         const payload = this.payload(context, options);
         const hosted = new Set(context.deletion.images.map(image => String(image.id)));
         const kept = new Set(previewSource(context).attachments.map(item => String(item.id)));
-        const current = [...(message?.attachments?.values?.() || [])];
+        const current = messageFiles(message);
         if (current.some(item => hosted.has(String(item.id)) && !kept.has(String(item.id)))) {
             payload.attachments = current.filter(item => !hosted.has(String(item.id)) || kept.has(String(item.id)))
                 .map(item => ({ id: item.id }));
@@ -225,9 +225,8 @@ class ScoutDeletionReview {
         context.deletion.deleted_by_id = deletedById || context.deletion.deleted_by_id;
         const sent = await (await this.officerChannel()).send({ ...this.payload(context, { files }), files,
             nonce: `sd:${id}`.slice(-25), enforceNonce: true });
-        const images = [...(sent.attachments?.values?.() || [])].map(item => ({
-            id: String(item.id), name: item.name, url: item.url, proxyURL: item.proxyURL, contentType: item.contentType,
-            size: item.size, width: item.width, height: item.height,
+        // The report preview shows the first copy as its embed image, which Discord leaves out of the attachments.
+        const images = messageFiles(sent).map(item => ({ ...item,
             sourceChannelId: String(sent.channelId || this.officerChannelId), sourceMessageId: String(sent.id) }));
         await this.store.saveAlert(id, { alertChannelId: sent.channelId || this.officerChannelId, alertMessageId: sent.id, deletedById, images });
         return sent;

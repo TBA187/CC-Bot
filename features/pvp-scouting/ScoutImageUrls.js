@@ -92,13 +92,34 @@ function reuseFreshImageAttachments(row) {
     return false;
 }
 
-async function messageAttachments(client, channelId, messageId) {
-    const channel = client.channels.cache.get(channelId) || await client.channels.fetch(channelId);
-    const message = await channel.messages.fetch({ message: messageId, cache: false, force: true });
-    return [...message.attachments.values()].map(item => ({
+const EMBEDDED_FILE_URL = /^https:\/\/(?:cdn\.discordapp\.com|media\.discordapp\.net)\/attachments\/(\d+)\/(\d+)\/([^/?#]+)/u;
+const IMAGE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif', avif: 'image/avif' };
+
+// Discord leaves a file shown as an embed image (attachment://name) out of the message's attachments
+// and gives only its link in the embed, so those files are read from the embed links.
+function messageFiles(message) {
+    const files = [...(message?.attachments?.values?.() || [])].map(item => ({
         id: String(item.id), name: item.name, url: item.url, proxyURL: item.proxyURL,
         contentType: item.contentType, size: item.size, width: item.width, height: item.height
     }));
+    // A member's embeds are link previews, which can show files of other messages.
+    if (message?.author && !message.author.bot) return files;
+    const channelId = String(message?.channelId || '');
+    for (const media of (message?.embeds || []).flatMap(embed => [embed?.image, embed?.thumbnail])) {
+        const match = EMBEDDED_FILE_URL.exec(media?.url || '');
+        if (!match || match[1] !== channelId || files.some(file => file.id === match[2])) continue;
+        let name = match[3];
+        try { name = decodeURIComponent(name); } catch { /* The encoded name is still usable. */ }
+        files.push({ id: match[2], name, url: media.url, proxyURL: media.proxyURL || media.proxy_url || '',
+            contentType: IMAGE_TYPES[name.split('.').at(-1).toLowerCase()] || null, size: null,
+            width: media.width ?? null, height: media.height ?? null });
+    }
+    return files;
+}
+
+async function messageAttachments(client, channelId, messageId) {
+    const channel = client.channels.cache.get(channelId) || await client.channels.fetch(channelId);
+    return messageFiles(await channel.messages.fetch({ message: messageId, cache: false, force: true }));
 }
 
 async function renewedAttachments(client, row, images) {
@@ -201,5 +222,5 @@ async function downloadImageAttachment(attachment, maxBytes = 10 * 1024 * 1024) 
     }
 }
 
-module.exports = { downloadImageAttachment, imageAttachment, uniqueImageAttachments, refreshImageAttachments, reuseFreshImageAttachments,
-    sameImageUrl, urlIsFresh };
+module.exports = { downloadImageAttachment, imageAttachment, messageFiles, uniqueImageAttachments, refreshImageAttachments,
+    reuseFreshImageAttachments, sameImageUrl, urlIsFresh };

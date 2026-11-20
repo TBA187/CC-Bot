@@ -129,6 +129,122 @@ test('live grouping and paged rebuild use the same continuation rules', async ()
     assert.deepEqual(links,buildGroupLinks(rows).links);
 });
 
+test('a screenshot posted after a reply to another member\'s report joins that report with the reply', async () => {
+    const {PvpScoutIngestor} = require('../features/pvp-scouting/PvpScoutIngestor.js');
+    const team = '- Pelipper\n- Zapdos\n- Mega Swampert\n- Tyranitar\n- Ferrothorn\n- Azumarill';
+    const image = [{contentType:'image/png'}];
+    const at = seconds => new Date(Date.parse('2026-11-05T18:05:00Z') + seconds * 1000);
+    const report = {message_id:'1000',author_id:'one',channel_id:'9',classification:'scout',ign_normalized:'rogue005',
+        team_text:team,attachments:image,created_at:new Date('2026-11-03T19:46:54Z'),root_message_id:'1000'};
+    const reply = {message_id:'1001',author_id:'two',channel_id:'9',classification:'scout',ign_normalized:'rogue005',
+        team_text:team,message_content:`**Rpgue005**\n${team}`,attachments:[],reply_to_id:'1000',created_at:at(11),root_message_id:'1000'};
+    const screenshot = {message_id:'1002',author_id:'two',channel_id:'9',classification:'scout',ign_normalized:'rogue005',
+        message_content:'',attachments:image,created_at:at(28),root_message_id:'1002'};
+    const another = {...screenshot,message_id:'1003',created_at:at(50),root_message_id:'1003'};
+    const rows = [report, reply, screenshot, another];
+    const grouped = buildGroupLinks(rows).messageRoots;
+    assert.deepEqual(rows.map(row => grouped.get(row.message_id)), ['1000','1000','1000','1003'],
+        'a second screenshot from the same member is another battle');
+    assert.deepEqual(buildGroupLinks([{...report,attachments:[]}, reply, screenshot, another]).messageRoots.get('1003'), '1003');
+    const links = [];
+    const store = {
+        setRootLinks:async value=>links.push(...value), promoteRootIgn:async()=>{},
+        getMessage:async id=>rows.find(row=>row.message_id===id),
+        getPreviousMessage:async id=>rows[rows.findIndex(row=>row.message_id===id)-1],
+        sourcesForRoots:async ([rootId])=>rows.filter(row=>row.root_message_id===rootId)
+    };
+    const ingestor = new PvpScoutIngestor({store,ocr:{},channelId:'9'});
+    await ingestor.assignLiveGroup(screenshot);
+    assert.deepEqual(links,[{messageId:'1002',rootMessageId:'1000'}]);
+    screenshot.root_message_id = '1000'; links.length = 0;
+    await ingestor.assignLiveGroup(another);
+    assert.deepEqual(links,[]);
+});
+
+const rogueTeam = ['Pelipper', 'Zapdos', 'Swampert', 'Tyranitar', 'Ferrothorn', 'Azumarill'];
+const teamText = species => species.map(name => `- ${name}`).join('\n');
+const rogueAt = seconds => new Date(Date.parse('2026-11-20T18:00:00Z') + seconds * 1000);
+const rogueReport = (patch = {}) => ({ message_id: '1000', author_id: 'one', channel_id: '9', classification: 'scout',
+    ign_normalized: 'rogue005', team_text: teamText(rogueTeam), attachments: [{ contentType: 'image/png' }],
+    created_at: rogueAt(0), root_message_id: '1000', ...patch });
+const rogueReply = (patch = {}) => ({ message_id: '1001', author_id: 'two', channel_id: '9', classification: 'scout',
+    ign_normalized: 'rogue005', team_text: teamText(rogueTeam), message_content: `Rogue005\n${teamText(rogueTeam)}`,
+    attachments: [{ contentType: 'image/png' }], reply_to_id: '1000', created_at: rogueAt(600), root_message_id: '1001', ...patch });
+
+test('a named reply with its own screenshot and a team that cannot be the report\'s six Pokémon is its own report', () => {
+    const swapped = teamText([...rogueTeam.slice(0, 5), 'Clefable']);
+    const rootOf = (report, reply) => buildGroupLinks([report, reply]).messageRoots.get('1001');
+    assert.equal(rootOf(rogueReport(), rogueReply()), '1000', 'the same six Pokémon from another battle add to the report');
+    assert.equal(rootOf(rogueReport(), rogueReply({ team_text: swapped })), '1001');
+    assert.equal(rootOf(rogueReport(), rogueReply({ team_text: swapped, ign_normalized: null })), '1000', 'an unnamed reply adds to the report');
+    assert.equal(rootOf(rogueReport(), rogueReply({ team_text: swapped, attachments: [] })), '1000', 'text alone adds to the report');
+    assert.equal(rootOf(rogueReport({ team_text: teamText(['Pelipper', 'Zapdos']) }), rogueReply()), '1000',
+        'a partly listed team can still be the same six Pokémon');
+    // A saved grouping from before this rule is moved out as well.
+    assert.equal(rootOf(rogueReport(), rogueReply({ team_text: swapped, root_message_id: '1000' })), '1001');
+});
+
+test('a reply and the follow-up posted after it move together into their own report, live and on rebuild', async () => {
+    const {PvpScoutIngestor} = require('../features/pvp-scouting/PvpScoutIngestor.js');
+    const swapped = teamText([...rogueTeam.slice(0, 5), 'Clefable']);
+    const screenshot = { message_id: '1002', author_id: 'two', channel_id: '9', classification: 'scout', ign_normalized: 'rogue005',
+        message_content: '', attachments: [{ contentType: 'image/png' }], created_at: rogueAt(620), root_message_id: '1002' };
+    const cases = {
+        'team, then screenshot': [rogueReply({ team_text: swapped, attachments: [], root_message_id: '1000' }), screenshot],
+        'screenshot, then team': [rogueReply({ team_text: null, message_content: '', root_message_id: '1000' }),
+            { ...screenshot, attachments: [], team_text: swapped, message_content: 'Rogue005\n' + swapped }]
+    };
+    for (const [label, [reply, followUp]] of Object.entries(cases)) {
+        const rows = [rogueReport(), reply, followUp];
+        assert.deepEqual(rows.map(row => buildGroupLinks(rows).messageRoots.get(row.message_id)), ['1000', '1001', '1001'], label);
+        const writes = [];
+        const store = {
+            listMessagesAfter: async cursor => cursor ? [] : rows,
+            setRootLinks: async value => writes.push(...value.map(({ messageId, rootMessageId }) => [messageId, rootMessageId])),
+            promoteRootIgn: async () => {},
+            getMessage: async id => rows.find(row => row.message_id === id),
+            getPreviousMessage: async id => rows[rows.findIndex(row => row.message_id === id) - 1],
+            sourcesForRoots: async ([rootId]) => rows.filter(row => row.root_message_id === rootId)
+        };
+        const ingestor = new PvpScoutIngestor({ store, ocr: {}, channelId: '9' });
+        await ingestor.rebuildGroups();
+        assert.deepEqual(writes, [['1001', '1001'], ['1002', '1001']], label);
+        writes.length = 0;
+        await ingestor.assignLiveGroup(followUp);
+        assert.deepEqual(writes, [['1001', '1001'], ['1002', '1001']], label);
+    }
+});
+
+test('a rebuild moves a reply and its screenshot on different pages without a temporary link', async () => {
+    const {PvpScoutIngestor} = require('../features/pvp-scouting/PvpScoutIngestor.js');
+    const id = index => String(20000 + index);
+    const swapped = teamText([...rogueTeam.slice(0, 5), 'Clefable']);
+    const build = (replyRoot, screenshotRoot) => {
+        const rows = Array.from({ length: 510 }, (_, index) => ({ message_id: id(index), author_id: `member-${index}`, channel_id: '9',
+            classification: 'ignored', message_content: 'gg', attachments: [], created_at: rogueAt(index), root_message_id: id(index) }));
+        rows[0] = rogueReport({ message_id: id(0), root_message_id: id(0) });
+        rows[499] = rogueReply({ message_id: id(499), reply_to_id: id(0), team_text: swapped, attachments: [],
+            created_at: rogueAt(499), root_message_id: replyRoot });
+        rows[500] = { message_id: id(500), author_id: 'two', channel_id: '9', classification: 'scout', ign_normalized: 'rogue005',
+            message_content: '', attachments: [{ contentType: 'image/png' }], created_at: rogueAt(510), root_message_id: screenshotRoot };
+        return rows;
+    };
+    for (const [replyRoot, screenshotRoot, expected] of [
+        [id(0), id(500), [[id(499), id(499)], [id(500), id(499)]]],
+        [id(499), id(499), []]
+    ]) {
+        const rows = build(replyRoot, screenshotRoot);
+        const writes = [];
+        const store = {
+            listMessagesAfter: async (cursor, limit) => rows.filter(row => !cursor || row.message_id > cursor).slice(0, limit),
+            setRootLinks: async value => writes.push(...value.map(({ messageId, rootMessageId }) => [messageId, rootMessageId])),
+            promoteRootIgn: async () => {}
+        };
+        await new PvpScoutIngestor({ store, ocr: {}, channelId: '9' }).rebuildGroups();
+        assert.deepEqual(writes, expected);
+    }
+});
+
 test('short parsed item and ability continuations retain all four original Machao sources', () => {
     const created = offset => new Date(Date.UTC(2025, 2, 20, 1, 41, 14) + offset * 1000);
     const root = { message_id: '1352109704586989587', author_id: 'reporter',

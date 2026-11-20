@@ -7,6 +7,7 @@ const { ButtonStyle } = require('discord.js');
 const { normalizeMessageRow } = require('../features/pvp-scouting/PvpScoutStore.js');
 const { ACTION_HELP, ScoutDeletionReview, deletionPayload, handleScoutDeletionInteraction } = require('../features/pvp-scouting/ScoutDeletionReview.js');
 const { PvpScoutIngestor } = require('../features/pvp-scouting/PvpScoutIngestor.js');
+const { messageFiles, refreshImageAttachments } = require('../features/pvp-scouting/ScoutImageUrls.js');
 
 const ID = '1570000000000000011', ROOT = '1570000000000000001', CHANNEL = '2000', OFFICERS = '3000', MEMBER = '4000', OFFICER = '5000';
 
@@ -77,9 +78,18 @@ function fixture(rows = [raw()], { failSend = false } = {}) {
     const channel = (list, id) => ({ id, async send(payload) {
         if (failSend && id === CHANNEL) throw new Error('Missing Access');
         list.push(payload);
-        const attachments = new Map((payload.files || []).map((file, index) => [`a${index}`, { id: `a${index}`, name: file.name,
-            url: `https://cdn.discordapp.com/attachments/${id}/${list.length}/${file.name}`, contentType: 'image/png' }]));
-        return { id: `m${list.length}`, channelId: id, url: `https://discord.com/channels/1/${id}/m${list.length}`, attachments };
+        const files = (payload.files || []).map((file, index) => {
+            const fileId = String(8000 + list.length * 10 + index);
+            return { id: fileId, name: file.name, url: `https://cdn.discordapp.com/attachments/${id}/${fileId}/${file.name}?ex=1`, contentType: 'image/png' };
+        });
+        // Like Discord, a file shown as an embed image is linked from the embed and left out of the attachments.
+        const embeds = (payload.embeds || []).map(embed => {
+            const file = files.find(item => embed.toJSON().image?.url === `attachment://${item.name}`);
+            return { image: file ? { url: file.url, proxyURL: file.url.replace('cdn.discordapp.com', 'media.discordapp.net') } : null };
+        });
+        const attachments = new Map(files.filter(file => !embeds.some(embed => embed.image?.url === file.url)).map(file => [file.id, file]));
+        return { id: `m${list.length}`, channelId: id, author: { id: 'bot', bot: true },
+            url: `https://discord.com/channels/1/${id}/m${list.length}`, attachments, embeds };
     } });
     const client = { user: { id: 'bot', displayAvatarURL: () => 'https://cdn.discordapp.com/avatars/bot.png' },
         channels: { cache: new Map([[OFFICERS, channel(state.sent, OFFICERS)], [CHANNEL, channel(state.reposts, CHANNEL)]]) } };
@@ -146,6 +156,39 @@ test('a deleted report is announced to officers with its screenshot copy, the fo
     // A second delete event or a restart does not announce it again.
     await f.review.announce(ID); await f.review.restorePending();
     assert.equal(f.state.sent.length, 1);
+});
+
+test('the screenshot copy shown in the alert embed stays in the panel after a decision and can be renewed', async () => {
+    const f = fixture([raw({ attachments_json: JSON.stringify([IMAGE]) })]);
+    await f.review.capture(ID); await f.store.markDeleted(ID); await f.review.announce(ID);
+    const [copy] = JSON.parse(f.state.deletions.get(ID).images_json);
+    assert.deepEqual([copy.name, copy.contentType, copy.sourceMessageId], [`scout-${ID}-1.png`, 'image/png', 'm1']);
+    // The alert as Discord holds it: the copy is linked from the report embed and absent from the attachments.
+    const alert = { id: 'm1', channelId: OFFICERS, author: { id: 'bot', bot: true }, attachments: new Map(),
+        embeds: [{ image: null }, { image: { url: copy.url } }] };
+    const remove = { ...buttonInteraction(`scout-deleted:remove:silver:${ID}`), message: alert };
+    await handleScoutDeletionInteraction(remove, config(f));
+    const panel = remove.calls.edits.at(-1), [info, preview] = panel.embeds.map(embed => embed.toJSON());
+    assert.equal(info.title, '❌ Deleted Scout Report Removed');
+    assert.doesNotMatch(info.description, /could not be recovered/u);
+    assert.equal(preview.image.url, `attachment://scout-${ID}-1.png`);
+    assert.equal(panel.attachments, undefined, 'the copy stays on the alert');
+    // A copy the officer removed from the report is deleted from the alert instead of showing as a loose file.
+    const context = await f.review.store.context(ID);
+    const withoutCopy = { ...context, row: { ...context.row, staffOverrides: { ...context.row.staffOverrides, attachments: [] } },
+        view: { ...context.view, attachments: [] } };
+    assert.deepEqual(f.review.panel(withoutCopy, alert).attachments, []);
+    // Link previews in member messages are not files of that message.
+    assert.deepEqual(messageFiles({ ...alert, channelId: OFFICERS, author: { id: MEMBER, bot: false } }), []);
+    // A kept report renews the copy's expired link from the alert's embed.
+    const fresh = 'https://cdn.discordapp.com/attachments/3000/8011/scout-renew.png?ex=ffffffff';
+    const hosted = { id: '8011', name: 'scout-renew.png', url: 'https://cdn.discordapp.com/attachments/3000/8011/scout-renew.png?ex=1',
+        sourceChannelId: OFFICERS, sourceMessageId: '7000' };
+    const row = { message_id: '7001', channel_id: CHANNEL, staffOverrides: { attachments: [hosted] }, attachments: [hosted] };
+    const client = { channels: { cache: new Map([[OFFICERS, { messages: { fetch: async () => ({ channelId: OFFICERS,
+        author: { id: 'bot', bot: true }, attachments: new Map(), embeds: [{ image: { url: fresh } }] }) } }]]) } };
+    assert.equal(await refreshImageAttachments(client, row), true);
+    assert.equal(row.attachments[0].url, fresh);
 });
 
 test('an interrupted alert is sent after a restart, and a lost screenshot is stated', async () => {

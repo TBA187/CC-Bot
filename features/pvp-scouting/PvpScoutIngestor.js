@@ -39,6 +39,31 @@ function teamSpecies(row, contextual = false, contextSpecies = []) {
         .filter(Boolean));
 }
 
+function screenshotAuthors(rows) {
+    return new Set(rows.filter(row => row && row.review_status !== 'not_scout' && hasImageEvidence(row.attachments))
+        .map(row => String(row.author_id || '')));
+}
+
+function combinedTeam(base, ...groups) {
+    const combined = [...base];
+    for (const group of groups) {
+        for (const value of group) if (!combined.some(original => sameTeamSpecies(value, original))) combined.push(value);
+    }
+    return combined;
+}
+
+function reportTeam(root, members) {
+    const species = teamSpecies(root);
+    for (const member of members) for (const value of teamSpecies(member, true, reportContextSpecies(root))) species.add(value);
+    return species;
+}
+
+// A named reply with its own screenshot and a team that cannot be the report's six Pokémon is another battle.
+function replyIsAnotherBattle(row, rootSpecies, species) {
+    return Boolean(row.reply_to_id && row.ign_normalized && hasImageEvidence(row.attachments)
+        && combinedTeam(rootSpecies, species).length > 6);
+}
+
 function attachmentIsImage(attachment = {}) {
     const contentType = String(attachment.contentType || '').toLowerCase();
     const name = String(attachment.name || attachment.url || '').toLowerCase();
@@ -117,19 +142,19 @@ function mayJoinReport(row, root, previous, explicitReply, windowMs = FOLLOW_UP_
     const rootRating = root.rating ?? extractRating(root.message_content, root.opponent_ign);
     const sourceRating = row.rating ?? extractRating(row.message_content, row.opponent_ign);
     if (sourceRating != null && rootRating != null && Number(sourceRating) !== Number(rootRating)) return false;
-    const combinedSpecies = [...rootSpecies];
-    for (const value of species) {
-        if (!combinedSpecies.some(original => sameTeamSpecies(value, original))) combinedSpecies.push(value);
-    }
+    const combinedSpecies = combinedTeam(rootSpecies, species);
     if (!explicitReply && combinedSpecies.length > 6) return false;
     // An explicitly different/full team is a separate report, even for the same IGN.
     if (species.size >= 4 && rootSpecies.size >= 4 && shared < 3) return false;
-    if (explicitReply) return true;
+    if (explicitReply) return !replyIsAnotherBattle(row, rootSpecies, species);
     if (!sameAuthor && !continuingReply) return false;
     const elapsed = messageTimestamp(row.created_at) - messageTimestamp(previous?.created_at || root.created_at);
     if (elapsed < 0 || elapsed > windowMs) return false;
-    const bothImages = hasImageEvidence(row.attachments) && hasImageEvidence(root.attachments);
-    if (bothImages) return false;
+    // A member who replied to another member's report continues their own supplement there, so
+    // only a screenshot that member already added to the report marks another battle.
+    const screenshotTaken = sameAuthor ? hasImageEvidence(root.attachments)
+        : root.imageAuthors ? root.imageAuthors.has(String(row.author_id)) : hasImageEvidence(previous?.attachments);
+    if (hasImageEvidence(row.attachments) && screenshotTaken) return false;
     // Repeating the opponent alongside a team starts another battle report.
     // Nameless move/item fragments and a screenshot followed by its text still join.
     const statedName = normalizeIgn(candidateFromText(row.message_content)?.ign);
@@ -161,56 +186,135 @@ function savedContinuation(row, root) {
     if (stated && root.ign_normalized && stated !== normalizeIgn(root.ign_normalized)) return false;
     if (!row.reply_to_id && stated && teamSpecies(row).size) return false;
     // Existing officer-reviewed image pairs can be crops of one battle.
-    if (!row.reply_to_id && hasImageEvidence(row.attachments) && hasImageEvidence(root.attachments)
-        && !['confirmed', 'corrected'].includes(row.review_status)) return false;
+    const reviewed = ['confirmed', 'corrected'].includes(row.review_status);
+    if (!row.reply_to_id && hasImageEvidence(row.attachments) && hasImageEvidence(root.attachments) && !reviewed) return false;
+    if (!reviewed && replyIsAnotherBattle(row, root.species || teamSpecies(root),
+        teamSpecies(row, true, reportContextSpecies(root)))) return false;
     return true;
 }
 
-// One state machine is shared by the pure helper and paged archive rebuilding.
+// The reply and follow-ups that one member added at the end of a report, ending with their previous message.
+function trailingSupplement(members = [], previous, rootId) {
+    if (!previous || String(members.at(-1)?.message_id) !== String(previous.message_id)) return null;
+    const run = [];
+    for (let index = members.length - 1; index >= 0; index--) {
+        const member = members[index];
+        if (String(member.message_id) === String(rootId) || member.staffOverrides?.rootMessageId
+            || String(member.author_id || '') !== String(previous.author_id || '')) return null;
+        run.unshift(member);
+        if (member.reply_to_id) return run;
+    }
+    return null;
+}
+
+// A member's reply to a report and their follow-ups become their own report once together they name the
+// opponent, hold a screenshot and list a team that cannot be the report's six Pokémon. Returns that report.
+function separateSupplement(row, run, report, baseSpecies, previous, windowMs = FOLLOW_UP_WINDOW_MS) {
+    if (!run?.length || !report || run.some(member => member.staffOverrides?.rootMessageId)) return null;
+    const [reply, ...followUps] = run;
+    const species = teamSpecies(reply, true, reportContextSpecies(report));
+    for (const member of followUps) for (const value of teamSpecies(member, true, reportContextSpecies(report))) species.add(value);
+    const supplement = { ...reply, species, imageAuthors: screenshotAuthors(run),
+        ign_normalized: run.find(member => member.ign_normalized)?.ign_normalized || null };
+    // An unnamed reply is about the opponent of the report it answers.
+    const candidate = { ...supplement, classification: 'scout', attachments: run.flatMap(member => member.attachments || []),
+        ign_normalized: supplement.ign_normalized || report.ign_normalized };
+    if (!mayJoinReport(row, candidate, previous, false, windowMs)) return null;
+    const members = [...run, row];
+    if (!members.some(member => member.ign_normalized) || !members.some(member => hasImageEvidence(member.attachments))) return null;
+    const rowSpecies = teamSpecies(row, true, reportContextSpecies(candidate));
+    return combinedTeam(baseSpecies, species, rowSpecies).length > 6 ? supplement : null;
+}
+
+// Moves a supplement out of the report it answered into its own report rooted at the reply.
+function moveSupplement(supplement, report, state, links, promotions, moved) {
+    const { roots, messageRoots } = state;
+    const [reply, ...followUps] = supplement.rows;
+    const rootId = String(reply.message_id);
+    const previousReport = roots.get(supplement.rootId);
+    if (previousReport) Object.assign(previousReport, { species: new Set(supplement.species), imageAuthors: new Set(supplement.imageAuthors) });
+    const ids = new Set(supplement.rows.map(member => String(member.message_id)));
+    for (let index = links.length - 1; index >= 0; index--) if (ids.has(links[index].messageId)) links.splice(index, 1);
+    const root = { ...reply, species: new Set(report.species), imageAuthors: screenshotAuthors(supplement.rows) };
+    roots.set(rootId, root);
+    messageRoots.set(rootId, rootId);
+    moved.push(reply);
+    for (const member of followUps) {
+        const id = String(member.message_id);
+        messageRoots.set(id, rootId);
+        moved.push(member);
+        links.push(groupLink(member, rootId, root));
+        if (!root.ign_normalized && member.ign_normalized) {
+            root.ign_normalized = member.ign_normalized;
+            promotions.push({ rootMessageId: rootId, sourceMessageId: id });
+        }
+    }
+    return rootId;
+}
+
+// One state machine is shared by the pure helper and paged archive rebuilding. Rows from earlier
+// calls that a supplement took into its own report are returned in moved.
 function groupRows(rows, state, followUpWindowMs = FOLLOW_UP_WINDOW_MS) {
     const links = [];
     const promotions = [];
+    const moved = [];
     const { roots, messageRoots } = state;
     for (const row of rows) {
         const id = String(row.message_id);
         if (row.is_deleted) {
             messageRoots.set(id, null);
             state.previous = null;
+            state.supplement = null;
             continue;
         }
         let rootId = id;
         const manualRootId = row.staffOverrides?.rootMessageId;
-        const savedRootId = row.root_message_id && String(row.root_message_id) !== id ? String(row.root_message_id) : null;
-        const preserveContinuation = savedRootId && savedContinuation(row, roots.get(savedRootId));
         const parentRootId = row.reply_to_id && messageRoots.get(String(row.reply_to_id));
-        const parentRoot = roots.get(parentRootId);
-        if (manualRootId) rootId = String(manualRootId);
-        else if (preserveContinuation) rootId = savedRootId;
-        else if (parentRoot && mayJoinReport(row, parentRoot, parentRoot, true, followUpWindowMs)) rootId = parentRootId;
-        if (!manualRootId && !preserveContinuation && !row.reply_to_id && rootId === id && state.previous
-            && row.author_id && String(state.previous.author_id || '') === String(row.author_id)) {
-            const priorRootId = messageRoots.get(String(state.previous.message_id));
-            const priorRoot = roots.get(priorRootId);
-            if (priorRoot && mayJoinReport(row, priorRoot, state.previous, false, followUpWindowMs)) rootId = priorRootId;
+        const supplement = state.supplement;
+        const continuesSupplement = Boolean(!manualRootId && !row.reply_to_id && supplement
+            && supplement.rows.at(-1) === state.previous && String(row.author_id || '') === supplement.authorId);
+        const separate = continuesSupplement && separateSupplement(row, supplement.rows, roots.get(supplement.rootId),
+            supplement.species, state.previous, followUpWindowMs);
+        if (separate) rootId = moveSupplement(supplement, separate, state, links, promotions, moved);
+        else {
+            const savedRootId = row.root_message_id && String(row.root_message_id) !== id ? String(row.root_message_id) : null;
+            const preserveContinuation = savedRootId && savedContinuation(row, roots.get(savedRootId));
+            const parentRoot = roots.get(parentRootId);
+            if (manualRootId) rootId = String(manualRootId);
+            else if (preserveContinuation) rootId = savedRootId;
+            else if (parentRoot && mayJoinReport(row, parentRoot, parentRoot, true, followUpWindowMs)) rootId = parentRootId;
+            if (!manualRootId && !preserveContinuation && !row.reply_to_id && rootId === id && state.previous
+                && row.author_id && String(state.previous.author_id || '') === String(row.author_id)) {
+                const priorRootId = messageRoots.get(String(state.previous.message_id));
+                const priorRoot = roots.get(priorRootId);
+                if (priorRoot && mayJoinReport(row, priorRoot, state.previous, false, followUpWindowMs)) rootId = priorRootId;
+            }
         }
         messageRoots.set(id, rootId);
-        if (rootId === id) roots.set(id, { ...row, species: teamSpecies(row) });
+        const root = rootId === id ? null : roots.get(rootId);
+        if (!manualRootId && row.reply_to_id && root && rootId === parentRootId) {
+            // The report as it was before this member's reply, in case the reply becomes its own report.
+            state.supplement = { rootId, authorId: String(row.author_id || ''), rows: [row],
+                species: new Set(root.species), imageAuthors: new Set(root.imageAuthors) };
+        } else if (!separate && continuesSupplement && rootId === supplement.rootId) supplement.rows.push(row);
+        else state.supplement = null;
+        if (rootId === id) roots.set(id, { ...row, species: teamSpecies(row), imageAuthors: screenshotAuthors([row]) });
         else {
-            const root = roots.get(rootId);
             links.push(groupLink(row, rootId, root));
             if (root && !root.ign_normalized && row.ign_normalized) {
                 root.ign_normalized = row.ign_normalized;
                 promotions.push({ rootMessageId: rootId, sourceMessageId: id });
             }
             if (root) for (const species of teamSpecies(row, true, reportContextSpecies(root))) root.species.add(species);
+            for (const author of screenshotAuthors([row])) root?.imageAuthors.add(author);
         }
         state.previous = row;
     }
-    return { links, promotions, messageRoots, roots };
+    return { links, promotions, messageRoots, roots, moved };
 }
 
 function buildGroupLinks(rows, followUpWindowMs = FOLLOW_UP_WINDOW_MS) {
-    return groupRows(rows, { roots: new Map(), messageRoots: new Map(), previous: null }, followUpWindowMs);
+    return groupRows(rows, { roots: new Map(), messageRoots: new Map(), previous: null, supplement: null }, followUpWindowMs);
 }
 
 class PvpScoutIngestor {
@@ -486,29 +590,40 @@ class PvpScoutIngestor {
         if (saved?.staffOverrides?.rootMessageId) return;
         if (!saved || saved.is_deleted || saved.review_status === 'not_scout') return;
         let root = await this.rootForMessage(saved.reply_to_id);
-        const familySpecies = async candidate => {
+        const family = async candidate => {
             if (!candidate || !this.store.sourcesForRoots) return candidate;
-            const sources = await this.store.sourcesForRoots([String(candidate.message_id)], this.channelId);
-            const species = teamSpecies(candidate);
-            for (const source of sources) {
-                if (String(source.message_id) === String(saved.message_id) || source.is_deleted || source.review_status === 'not_scout') continue;
-                for (const value of teamSpecies(source, true, reportContextSpecies(candidate))) species.add(value);
-            }
-            return { ...candidate, species };
+            const members = (await this.store.sourcesForRoots([String(candidate.message_id)], this.channelId)).filter(source =>
+                String(source.message_id) !== String(saved.message_id) && !source.is_deleted && source.review_status !== 'not_scout');
+            return { ...candidate, species: reportTeam(candidate, members), imageAuthors: screenshotAuthors([candidate, ...members]), members };
         };
-        root = await familySpecies(root);
+        root = await family(root);
         if (root && !mayJoinReport(saved, root, root, true)) root = null;
         if (!root && !saved.reply_to_id) {
             const previous = await this.store.getPreviousMessage(saved.message_id, this.channelId);
             if (previous && String(previous.author_id || '') === String(saved.author_id || '')) {
-                const priorRoot = await familySpecies(await this.rootForMessage(previous.root_message_id || previous.message_id));
-                if (priorRoot && mayJoinReport(saved, priorRoot, previous, false)) root = priorRoot;
+                const priorRoot = await family(await this.rootForMessage(previous.root_message_id || previous.message_id));
+                const run = priorRoot && trailingSupplement(priorRoot.members, previous, priorRoot.message_id);
+                const supplement = run && separateSupplement(saved, run, priorRoot,
+                    reportTeam(priorRoot, priorRoot.members.filter(member => !run.includes(member))), previous);
+                if (supplement) root = await this.detachSupplement(run, supplement);
+                else if (priorRoot && mayJoinReport(saved, priorRoot, previous, false)) root = priorRoot;
             }
         }
         if (root && String(root.message_id) !== String(saved.message_id)) {
             if (!root.ign_normalized && saved.ign_normalized) await this.store.promoteRootIgn(root.message_id, saved.message_id);
             await this.store.setRootLinks([groupLink(saved, root.message_id, root)], this.channelId);
         }
+    }
+
+    // Moves a member's reply and follow-ups out of the report they answered into their own report.
+    async detachSupplement(run, supplement) {
+        const [reply, ...followUps] = run;
+        const root = { ...supplement, species: new Set(supplement.species) };
+        await this.store.setRootLinks([{ messageId: String(reply.message_id), rootMessageId: String(reply.message_id) },
+            ...followUps.map(member => groupLink(member, reply.message_id, root))], this.channelId);
+        const named = !reply.ign_normalized && followUps.find(member => member.ign_normalized);
+        if (named) await this.store.promoteRootIgn(reply.message_id, named.message_id);
+        return root;
     }
 
     async handleCreate(message) {
@@ -800,34 +915,39 @@ class PvpScoutIngestor {
     async rebuildGroups() {
         let cursor = null;
         let count = 0;
-        const state = { roots: new Map(), messageRoots: new Map(), previous: null };
+        const state = { roots: new Map(), messageRoots: new Map(), previous: null, supplement: null };
         const promotions = [];
+        const links = new Map();
         // Recompute with the live rules, preserving manual overrides. Update
         // only changed links; never reset the entire archive between pages.
         while (true) {
             const rows = await this.store.listMessagesAfter(cursor, 500, this.channelId);
             if (!rows.length) break;
             count += rows.length;
-            const links = [];
             for (let index = 0; index < rows.length; index += 20) {
                 await yieldToEvents();
                 const chunk = rows.slice(index, index + 20);
                 const result = groupRows(chunk, state);
                 const grouped = new Map(result.links.map(link => [link.messageId, link]));
-                for (const row of chunk) {
+                for (const row of [...result.moved, ...chunk]) {
                     const id = String(row.message_id), expected = result.messageRoots.get(id);
                     if (!expected) continue;
                     const link = grouped.get(id);
                     if (String(row.root_message_id || '') !== expected || link?.teamDetails) {
-                        links.push(link || { messageId: id, rootMessageId: expected });
-                    }
+                        links.set(id, link || { messageId: id, rootMessageId: expected });
+                    } else links.delete(id);
                 }
                 promotions.push(...result.promotions);
             }
-            await this.store.setRootLinks(links, this.channelId);
+            // A supplement that continues on the next page can still move into its own report.
+            const open = new Set((state.supplement?.rows || []).map(row => String(row.message_id)));
+            const ready = [...links.values()].filter(link => !open.has(link.messageId));
+            await this.store.setRootLinks(ready, this.channelId);
+            for (const link of ready) links.delete(link.messageId);
             cursor = rows.at(-1).message_id;
             if (rows.length < 500) break;
         }
+        await this.store.setRootLinks([...links.values()], this.channelId);
         for (const promotion of promotions) await this.store.promoteRootIgn(promotion.rootMessageId, promotion.sourceMessageId);
         return count;
     }

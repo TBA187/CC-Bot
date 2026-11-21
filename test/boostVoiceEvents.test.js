@@ -91,3 +91,17 @@ test('voice state updates without channel changes and other guilds are ignored',
     await voice.execute({ channelId: null }, { channelId: 'one', guild: { ...f.guild, id: 'other' }, member: f.member }, f.config);
     assert.equal(f.sent.length, 0);
 });
+
+test('voice activity in ignored log channels is skipped unless the other side is a normal channel', async () => {
+    const f = fixture();
+    f.config.ignoredLogChannels = ['quiet'];
+    const run = (before, after) => voice.execute({ channelId: before, guild: f.guild, member: f.member },
+        { channelId: after, guild: f.guild, member: f.member }, f.config);
+    await run(null, 'quiet');
+    await run('quiet', null);
+    assert.equal(f.sent.length, 0);
+    await run('one', 'quiet');
+    await run('quiet', 'one');
+    await run(null, 'one');
+    assert.equal(f.sent.length, 3);
+});

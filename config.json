@@ -32,7 +32,8 @@
   "selfRoleChannelID": "1184121209609269409",
   "newAccountWarningHours": 48,
   "ignoredLogChannels": [
-    "1184117095231918101"
+    "1184117095231918101",
+    "1573451205911384184"
   ],
   "ignoreLogPrivateChannelCreate": 1,
   "blockedEditBotMsgChannels": [

@@ -1,6 +1,7 @@
 'use strict';
 
 const { buildMemberAuditPayload } = require('../utils/memberAuditEmbeds.js');
+const { isBlockedLogChannel } = require('../utils/logHelpers.js');
 
 function buildVoicePayload(member, oldChannelId, newChannelId, counts = {}) {
     const moved = oldChannelId && newChannelId;
@@ -19,6 +20,9 @@ function buildVoicePayload(member, oldChannelId, newChannelId, counts = {}) {
 async function handleVoiceStateUpdate(oldState, newState, config) {
     const oldChannelId = oldState.channelId, newChannelId = newState.channelId;
     if (oldChannelId === newChannelId || (!oldChannelId && !newChannelId)) return;
+    // A move between an ignored and a normal channel is still logged, so the normal side stays visible.
+    const ignored = channelId => !channelId || isBlockedLogChannel(channelId, config.ignoredLogChannels);
+    if (ignored(oldChannelId) && ignored(newChannelId)) return;
     const guild = newState.guild || oldState.guild;
     const member = newState.member || oldState.member;
     if (!guild || !member || (config.guildId && guild.id !== config.guildId) || !config.botChannelID) return;
